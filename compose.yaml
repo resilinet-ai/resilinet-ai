@@ -17,6 +17,8 @@ services:
     volumes:
       - rai-db-data:/var/lib/postgresql/data
     networks: [control_net]
+    ports:
+      - "127.0.0.1:55431:5432" # host-only, for `rai db upgrade`
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rai -d rai"]
       interval: 5s

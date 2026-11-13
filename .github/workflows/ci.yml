@@ -56,9 +56,10 @@ jobs:
         run: uv run mypy
       - name: Module boundaries
         run: uv run lint-imports
-      - name: Tests with coverage (integration tests use the ledger-db service)
+      - name: Tests with coverage (integration tests use the PostgreSQL service)
         env:
           SANDBOXBANK_TEST_DSN: postgresql://ledger:ci-only-not-secret@localhost:5432/ledger_test
+          RAI_TEST_DSN: postgresql://ledger:ci-only-not-secret@localhost:5432/ledger_test
         run: uv run pytest --cov --cov-report=term-missing
 
   secrets:
