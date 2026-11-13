@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *" # nightly dependency audit
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  traceability:
+    name: Requirement traceability
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: PR title names a known requirement ID
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python scripts/check_traceability.py "$PR_TITLE"
+
+  checks:
+    name: Lint, types and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: uv sync --all-packages --locked
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: Mypy (strict)
+        run: uv run mypy
+      - name: Module boundaries
+        run: uv run lint-imports
+      - name: Tests with coverage
+        run: uv run pytest --cov --cov-report=term-missing
+
+  secrets:
+    name: Secret scan and hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: pre-commit hooks (gitleaks, hygiene)
+        run: |
+          python -m pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
+  audit:
+    name: Dependency audit
+    if: github.event_name == 'schedule' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Audit locked dependencies
+        run: |
+          uv export --all-packages --format requirements-txt --no-hashes --no-emit-workspace > requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt

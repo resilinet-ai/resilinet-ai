@@ -1,0 +1,16 @@
+[project]
+name = "rai-chaos-agent"
+version = "0.0.1"
+description = "RAI chaos agent: the only component allowed to inject faults, sandbox-only, deny by default."
+license = "Apache-2.0"
+authors = [{ name = "Trevor Kauyu" }]
+requires-python = ">=3.12"
+# Deliberately minimal dependencies (Architecture section 2): added only when B-23 needs them.
+dependencies = []
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chaos_agent"]

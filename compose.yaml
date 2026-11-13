@@ -1,0 +1,56 @@
+# Resilinet-AI local stack (Architecture section 9).
+# Profiles: core (RAI control plane) and sandbox (SandboxBank system under test).
+# Services marked TODO arrive with the backlog items named next to them.
+# Copy .env.example to .env and set the passwords before running.
+
+name: resilinet-ai
+
+services:
+  # ---- core profile: control plane ----
+  rai-db:
+    profiles: ["core"]
+    image: postgres:16
+    environment:
+      POSTGRES_DB: rai
+      POSTGRES_USER: rai
+      POSTGRES_PASSWORD: ${RAI_DB_PASSWORD:?set RAI_DB_PASSWORD in .env}
+    volumes:
+      - rai-db-data:/var/lib/postgresql/data
+    networks: [control_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rai -d rai"]
+      interval: 5s
+      retries: 10
+  # TODO B-16: rai-api, B-18: rai-worker, B-36: rai-web, caddy
+
+  # ---- sandbox profile: SandboxBank (synthetic data only) ----
+  ledger-db:
+    profiles: ["sandbox"]
+    image: postgres:16
+    labels:
+      rai.sandbox: "true"
+    environment:
+      POSTGRES_DB: ledger
+      POSTGRES_USER: ledger
+      POSTGRES_PASSWORD: ${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}
+    networks: [sandbox_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
+      interval: 5s
+      retries: 10
+  toxiproxy:
+    profiles: ["sandbox"]
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    labels:
+      rai.sandbox: "true"
+    networks: [sandbox_net, bridge_net]
+  # TODO B-02..B-04: generator, payments-api, etl-job, analytics-db
+  # TODO B-23: rai-chaos-agent and socket-proxy (only these join bridge_net with the worker)
+
+networks:
+  control_net: {}
+  sandbox_net: {}
+  bridge_net: {}
+
+volumes:
+  rai-db-data: {}

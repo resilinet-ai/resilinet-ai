@@ -1,0 +1,24 @@
+name: Decision
+description: A design or scope decision to record (becomes an ADR or a decision-log row).
+labels: ["decision"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: What needs deciding, and why now?
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options considered
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision and rationale (filled in by the maintainer)
+  - type: input
+    id: affects
+    attributes:
+      label: Requirements affected

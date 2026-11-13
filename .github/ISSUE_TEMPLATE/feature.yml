@@ -1,0 +1,35 @@
+name: Feature (backlog item)
+description: A backlog item that implements a spec requirement.
+labels: ["feature"]
+body:
+  - type: input
+    id: requirement
+    attributes:
+      label: Requirement ID(s)
+      description: From docs/traceability.csv, for example FR-03.3 or NFR-SAF-1.
+      placeholder: FR-03.3
+    validations:
+      required: true
+  - type: input
+    id: backlog
+    attributes:
+      label: Backlog item
+      placeholder: B-10
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options: ["Must (MVP)", "Should (MVP if time)", "Later"]
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criterion
+      description: Copy it from the spec; it must become an automated test.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes and design considerations

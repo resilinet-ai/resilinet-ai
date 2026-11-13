@@ -1,0 +1,49 @@
+id,module,priority,requirement,backlog,issues,pull_requests,tests,evidence,status
+FR-01.1,M01,M,"Tenants, users and roles; cross-tenant isolation",,,,,,planned
+FR-01.2,M01,M,Hash-chained audit entry for every state change,,,,,,planned
+FR-01.3,M01,L,SSO via OIDC,,,,,,planned
+FR-02.1,M02,M,PostgreSQL and CSV/Parquet connectors scoped to one environment,,,,,,planned
+FR-02.2,M02,S,Redshift connector,,,,,,planned
+FR-02.3,M02,M,Credentials only as secret references,,,,,,planned
+FR-03.1,M03,M,Declarative data contracts (YAML),,,,,,planned
+FR-03.2,M03,M,"Schema drift detection, breaking vs non-breaking",,,,,,planned
+FR-03.3,M03,M,Duplicate transaction IDs within and across batches,,,,,,planned
+FR-03.4,M03,M,Rule severity and thresholds; critical fails the run,,,,,,planned
+FR-04.1,M04,M,Lineage edges with content digests,,,,,,planned
+FR-04.2,M04,L,OpenLineage ingest,,,,,,planned
+FR-05.1,M05,S,Synthetic canary privacy sentinel,,,,,,planned
+FR-06.1,M06,M,CLI and GitHub Action; non-zero exit on gate failure,,,,,,planned
+FR-06.2,M06,S,"Idempotent, resumable runs",,,,,,planned
+FR-07.1,M07,M,Fault types (first five families in MVP),,,,,,planned
+FR-07.2,M07,M,"Preflight: allow-list, not production, approved, blast radius",,,,,,planned
+FR-07.3,M07,M,Automatic fault removal and kill-switch,,,,,,planned
+FR-08.1,M08,M,RTO from onset to validated restoration,,,,,,planned
+FR-08.2,M08,M,RPO from last committed ledger record,,,,,,planned
+FR-08.3,M08,M,Post-recovery consistency checks,,,,,,planned
+FR-09.1,M09,S,Model evaluation with sample sizes,,,,,,planned
+FR-09.2,M09,S,Drift detection (PSI/KS),,,,,,planned
+FR-09.3,M09,L,Robustness tests,,,,,,planned
+FR-10.1,M10,M,"Findings with severity, owner, fix and retest",,,,,,planned
+FR-11.1,M11,M,Executive dashboard with denominators,,,,,,planned
+FR-11.2,M11,M,Persistent synthetic-data banner,,,,,,planned
+FR-12.1,M12,M,Named reviewer approvals; no self-approval,,,,,,planned
+FR-12.2,M12,M,Critical finding blocks gate unless waived with expiry,,,,,,planned
+FR-13.1,M13,M,Deterministic evidence bundle with SHA-256 manifest,,,,,,planned
+FR-13.2,M13,S,Signed manifest and rai verify,,,,,,planned
+FR-14.1,M14,M,"Docs site, quick-start and playbooks",,,,,,planned
+NFR-SAF-1,Safety,M,Deny-by-default fault injection; production fails closed,,,,,,planned
+NFR-SAF-2,Safety,M,"Max duration, blast radius, rollback; kill-switch without API",,,,,,planned
+NFR-SEC-1,Security,M,Tenant isolation in API and PostgreSQL RLS,,,,,,planned
+NFR-SEC-2,Security,M,TLS; secrets never persisted,,,,,,planned
+NFR-SEC-3,Security,M,"SSDF practices: dependency scanning, SBOM, signed images",,,,,,planned
+NFR-SEC-4,Security,M,Versioned STRIDE threat model,,,,,,planned
+NFR-REP-1,Reproducibility,M,"Runs pin versions, digests and seeds",,,,,,planned
+NFR-REP-2,Reproducibility,M,One-command stack on an 8 GB laptop,,,,,,planned
+NFR-AUD-1,Auditability,M,Append-only results and approvals,,,,,,planned
+NFR-AUD-2,Auditability,M,Honest tamper-evidence statements,,,,,,planned
+NFR-PERF-1,Performance,M,"100k-row, 30-rule validation under 10 s",,,,,,planned
+NFR-PERF-2,Performance,M,RAI overhead measured and reported,,,,,,planned
+NFR-USE-1,Usability,M,"Every metric shows definition, n and window",,,,,,planned
+NFR-USE-2,Accessibility,M,WCAG 2.2 AA,,,,,,planned
+NFR-OPS-1,Operability,M,"Structured logs, traces, health endpoints",,,,,,planned
+NFR-LIC-1,Licensing,M,Apache-2.0 with DCO sign-off,,,,,,planned
