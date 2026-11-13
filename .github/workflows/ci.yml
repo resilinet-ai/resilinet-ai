@@ -32,6 +32,17 @@ jobs:
   checks:
     name: Lint, types and tests
     runs-on: ubuntu-latest
+    services:
+      ledger-db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ledger
+          POSTGRES_PASSWORD: ci-only-not-secret
+          POSTGRES_DB: ledger_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ledger -d ledger_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -45,7 +56,9 @@ jobs:
         run: uv run mypy
       - name: Module boundaries
         run: uv run lint-imports
-      - name: Tests with coverage
+      - name: Tests with coverage (integration tests use the ledger-db service)
+        env:
+          SANDBOXBANK_TEST_DSN: postgresql://ledger:ci-only-not-secret@localhost:5432/ledger_test
         run: uv run pytest --cov --cov-report=term-missing
 
   secrets:

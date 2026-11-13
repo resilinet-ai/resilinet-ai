@@ -4,6 +4,7 @@ Every design or scope decision, newest first. Owner: Trevor Kauyu.
 
 | Date | ID | Decision | Options considered | Why |
 | --- | --- | --- | --- | --- |
+| 2026-11-13 | SBX-LEDGER | payments-api posts by txn_id idempotency key: identical repeat = replayed (200), changed content = conflict (409), rule failure = rejected (422); ledger append-only by trigger; seq + committed_at mark the last committed record for RPO | Upsert on conflict; client-supplied Idempotency-Key header | txn_id is already the business key and the D01/D02 defects target it; append-only keeps RPO ground truth trustworthy |
 | 2026-11-13 | SBX-SCHEMA | SandboxBank schema v1 (accounts, merchants, transactions_raw) as CSV; stdlib-only seeded generator; seed ranges enforced (dev 0-99,999, eval 100,000-199,999) | Parquet output; Faker/NumPy generator | Spec gave no column schema; CSV and stdlib integer draws give byte-identical output on every platform. See sandboxbank/README.md |
 | 2026-11-13 | PACE | Gate-driven pace: a sprint closes as soon as its gate passes; dates are latest-by | Fixed calendar sprints | Deliver the full workstream sooner than planned |
 | 2026-11-13 | BUILD | Day 1 = 2026-11-16; ~25 h/week baseline; AI may draft, Trevor reviews and owns every change | - | Build plan v0.1, section 9 |

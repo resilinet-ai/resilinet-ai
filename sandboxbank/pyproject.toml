@@ -5,7 +5,13 @@ description = "SandboxBank: synthetic payments system used as the reference syst
 license = "Apache-2.0"
 authors = [{ name = "Trevor Kauyu" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115",
+    "psycopg-pool>=3.2",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.7",
+    "uvicorn>=0.30",
+]
 
 [project.scripts]
 sandboxbank = "sandboxbank.cli:main"

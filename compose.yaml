@@ -33,18 +33,36 @@ services:
       POSTGRES_DB: ledger
       POSTGRES_USER: ledger
       POSTGRES_PASSWORD: ${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}
+    volumes:
+      - ledger-db-data:/var/lib/postgresql/data
     networks: [sandbox_net]
+    ports:
+      - "127.0.0.1:55432:5432" # host-only, for `sandboxbank load-reference`
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
       interval: 5s
       retries: 10
+  payments-api:
+    profiles: ["sandbox"]
+    build: ./sandboxbank
+    labels:
+      rai.sandbox: "true"
+    environment:
+      SANDBOXBANK_LEDGER_DSN: postgresql://ledger:${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}@ledger-db:5432/ledger
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+    networks: [sandbox_net]
+    ports:
+      - "127.0.0.1:18080:8080" # host-only, for `sandboxbank post`
   toxiproxy:
     profiles: ["sandbox"]
     image: ghcr.io/shopify/toxiproxy:2.9.0
     labels:
       rai.sandbox: "true"
     networks: [sandbox_net, bridge_net]
-  # TODO B-02..B-04: generator, payments-api, etl-job, analytics-db
+  # B-02: the generator is a CLI (`sandboxbank generate`), not a service.
+  # TODO B-04: etl-job, analytics-db
   # TODO B-23: rai-chaos-agent and socket-proxy (only these join bridge_net with the worker)
 
 networks:
@@ -54,3 +72,4 @@ networks:
 
 volumes:
   rai-db-data: {}
+  ledger-db-data: {}
