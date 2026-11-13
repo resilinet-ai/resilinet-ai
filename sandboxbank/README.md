@@ -9,7 +9,7 @@ SandboxBank is the synthetic payments system that RAI tests against (Spec sectio
 2. Run these from the repository root. The `export` reads `.env`, so the CLI's connection string gets the password you chose (in Command Prompt, set `SANDBOXBANK_LEDGER_DSN` by hand instead):
 
 ```
-docker compose --profile sandbox up -d --build --wait ledger-db payments-api
+docker compose --profile sandbox up -d --build --wait ledger-db analytics-db payments-api etl-job
 set -a; . ./.env; set +a
 python -m uv run sandboxbank generate --seed 42 --out data/sandboxbank --batches 2
 python -m uv run sandboxbank load-reference --data data/sandboxbank
@@ -18,7 +18,7 @@ python -m uv run sandboxbank post --data data/sandboxbank
 
 Running `post` a second time is safe. Every row comes back `replayed`, and the ledger doesn't change.
 
-## Payments API and ledger (B-03)
+## Payments API and ledger (B-03, pipeline P1)
 
 `payments-api` (FastAPI) writes to `ledger-db` (PostgreSQL 16). Both run on `sandbox_net` and are published only on `127.0.0.1`: the API on port 18080 and the database on 55432. The schema is in `src/sandboxbank/ledger/schema.sql` and is applied automatically when the API starts.
 
@@ -37,7 +37,31 @@ Running `post` a second time is safe. Every row comes back `replayed`, and the l
 
 Concurrent retries of the same `txn_id` create exactly one row. The ledger is append-only, and a trigger refuses any `UPDATE` or `DELETE`.
 
-**Integration tests** need a real PostgreSQL:
+## Settlement ETL and analytics warehouse (B-04, pipeline P2)
+
+`etl-job` is a long-running service. It copies the ledger into the `warehouse` schema of `analytics-db` (published on `127.0.0.1:55434`) every `ETL_INTERVAL_SECONDS` (default 60). Each cycle does three things:
+
+1. **Dimensions.** Copies accounts and merchants into `dim_account` and `dim_merchant`. It adds only natural keys the warehouse doesn't have yet.
+2. **Facts.** Copies posted ledger rows into `fact_transaction`, in chunks taken in ledger `seq` order. Each chunk's rows, its watermark move and its business dates commit together.
+3. **Settlement.** Rebuilds `settlement_account_daily` and `settlement_merchant_daily` for each queued business date (UTC).
+
+**Recovery behaviour, for the Protocol's chaos scenarios (SBX-ETL):**
+- Stopped or restarted mid-load (S12, S16): the job resumes from the last committed chunk with nothing lost or doubled. Compose restarts it automatically.
+- Database unreachable (S04, S07, S09): the job logs `database_unavailable` and retries every interval until the fault clears.
+- Commit timing: ledger `seq` is assigned at insert, not commit, so the job only reads rows committed at least 5 seconds ago (`--lag`). That stops it skipping a slow transaction.
+- Logging: `etl_runs` records completed cycles only. If a cycle is killed, the chunks it committed show up in `etl_watermark` but not in the run log.
+
+**Unenforced keys.** As in many real warehouses, natural keys are **not** enforced unique. This is deliberate: defects such as D12 (a duplicated dimension key inflating settlement) must be able to happen, or RAI can't be scored on catching them.
+
+**Run one cycle by hand**, after `set -a; . ./.env; set +a`:
+
+```
+python -m uv run sandboxbank etl --once --lag 0
+```
+
+## Integration tests
+
+They need a real PostgreSQL:
 
 ```
 make test-db        # or the docker run command in the Makefile
