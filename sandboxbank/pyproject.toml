@@ -7,6 +7,9 @@ authors = [{ name = "Trevor Kauyu" }]
 requires-python = ">=3.12"
 dependencies = []
 
+[project.scripts]
+sandboxbank = "sandboxbank.cli:main"
+
 [build-system]
 requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
