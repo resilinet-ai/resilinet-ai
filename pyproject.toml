@@ -64,7 +64,7 @@ addopts = "-ra --strict-markers"
 pythonpath = ["."]
 
 [tool.coverage.run]
-source = ["rai"]
+source = ["rai", "sandboxbank"]
 branch = true
 
 [tool.importlinter]

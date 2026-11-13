@@ -17,6 +17,7 @@ node_modules/
 web/dist/
 benchmarks/results/
 fixtures/*.parquet
+data/
 .DS_Store
 .idea/
 .vscode/
