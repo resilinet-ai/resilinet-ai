@@ -55,6 +55,40 @@ services:
     networks: [sandbox_net]
     ports:
       - "127.0.0.1:18080:8080" # host-only, for `sandboxbank post`
+  analytics-db:
+    profiles: ["sandbox"]
+    image: postgres:16
+    labels:
+      rai.sandbox: "true"
+    environment:
+      POSTGRES_DB: analytics
+      POSTGRES_USER: analytics
+      POSTGRES_PASSWORD: ${ANALYTICS_DB_PASSWORD:?set ANALYTICS_DB_PASSWORD in .env}
+    volumes:
+      - analytics-db-data:/var/lib/postgresql/data
+    networks: [sandbox_net]
+    ports:
+      - "127.0.0.1:55434:5432" # host-only, for inspecting the warehouse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analytics -d analytics"]
+      interval: 5s
+      retries: 10
+  etl-job:
+    profiles: ["sandbox"]
+    build: ./sandboxbank
+    command: ["sandboxbank", "etl", "--interval", "${ETL_INTERVAL_SECONDS:-60}"]
+    restart: unless-stopped # S12/S16: stopped or restarted mid-load, it resumes from the watermark
+    labels:
+      rai.sandbox: "true"
+    environment:
+      SANDBOXBANK_LEDGER_DSN: postgresql://ledger:${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}@ledger-db:5432/ledger
+      SANDBOXBANK_ANALYTICS_DSN: postgresql://analytics:${ANALYTICS_DB_PASSWORD:?set ANALYTICS_DB_PASSWORD in .env}@analytics-db:5432/analytics
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+      analytics-db:
+        condition: service_healthy
+    networks: [sandbox_net]
   toxiproxy:
     profiles: ["sandbox"]
     image: ghcr.io/shopify/toxiproxy:2.9.0
@@ -62,7 +96,6 @@ services:
       rai.sandbox: "true"
     networks: [sandbox_net, bridge_net]
   # B-02: the generator is a CLI (`sandboxbank generate`), not a service.
-  # TODO B-04: etl-job, analytics-db
   # TODO B-23: rai-chaos-agent and socket-proxy (only these join bridge_net with the worker)
 
 networks:
@@ -73,3 +106,4 @@ networks:
 volumes:
   rai-db-data: {}
   ledger-db-data: {}
+  analytics-db-data: {}

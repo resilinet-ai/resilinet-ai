@@ -5,6 +5,7 @@ sandboxbank verify data/sandboxbank
 sandboxbank load-reference --data data/sandboxbank        (needs SANDBOXBANK_LEDGER_DSN)
 sandboxbank post --data data/sandboxbank --api http://127.0.0.1:18080
 sandboxbank serve --port 8080                              (needs SANDBOXBANK_LEDGER_DSN)
+sandboxbank etl [--once]          (needs SANDBOXBANK_LEDGER_DSN and SANDBOXBANK_ANALYTICS_DSN)
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from sandboxbank.dataset import verify_dataset, write_dataset
 from sandboxbank.generator import GeneratorConfig
 
 DSN_ENV = "SANDBOXBANK_LEDGER_DSN"
+ANALYTICS_DSN_ENV = "SANDBOXBANK_ANALYTICS_DSN"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -52,6 +54,14 @@ def _parser() -> argparse.ArgumentParser:
     serve = commands.add_parser("serve", help="Run the payments-api.")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8080)
+
+    etl = commands.add_parser("etl", help="Run the P2 settlement ETL (ledger to warehouse).")
+    etl.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    etl.add_argument("--interval", type=float, default=60.0, help="Seconds between cycles")
+    etl.add_argument("--chunk", type=int, default=10_000, help="Ledger rows per committed chunk")
+    etl.add_argument(
+        "--lag", type=float, default=5.0, help="Only read rows committed this long ago"
+    )
     return parser
 
 
@@ -125,6 +135,30 @@ def _post(args: argparse.Namespace) -> int:
     return 0
 
 
+def _etl(args: argparse.Namespace) -> int:
+    import threading
+
+    from sandboxbank.etl import main_loop_signals, run_service
+
+    ledger_dsn, analytics_dsn = os.environ.get(DSN_ENV), os.environ.get(ANALYTICS_DSN_ENV)
+    if not ledger_dsn or not analytics_dsn:
+        return _error(f"set {DSN_ENV} and {ANALYTICS_DSN_ENV}")
+    if args.chunk < 1 or args.interval <= 0 or args.lag < 0:
+        return _error("--chunk must be at least 1, --interval above 0 and --lag at least 0")
+    stop = threading.Event()
+    if not args.once:  # pragma: no cover - long-running service
+        main_loop_signals(stop)
+    return run_service(
+        ledger_dsn,
+        analytics_dsn,
+        once=args.once,
+        interval=args.interval,
+        chunk_size=args.chunk,
+        lag_seconds=args.lag,
+        stop=stop,
+    )
+
+
 def _serve(args: argparse.Namespace) -> int:  # pragma: no cover - starts a server
     import uvicorn
 
@@ -138,6 +172,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "load-reference": _load_reference,
     "post": _post,
     "serve": _serve,
+    "etl": _etl,
 }
 
 
