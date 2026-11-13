@@ -37,8 +37,8 @@ NFR-SEC-1,Security,M,Tenant isolation in API and PostgreSQL RLS,,,,,,planned
 NFR-SEC-2,Security,M,TLS; secrets never persisted,,,,,,planned
 NFR-SEC-3,Security,M,"SSDF practices: dependency scanning, SBOM, signed images",,,,,,planned
 NFR-SEC-4,Security,M,Versioned STRIDE threat model,,,,,,planned
-NFR-REP-1,Reproducibility,M,"Runs pin versions, digests and seeds",B-02,,,tests/unit/test_sandboxbank_dataset.py;tests/unit/test_sandboxbank_generator.py,,in progress
-NFR-REP-2,Reproducibility,M,One-command stack on an 8 GB laptop,,,,,,planned
+NFR-REP-1,Reproducibility,M,"Runs pin versions, digests and seeds",B-02,,#1,tests/unit/test_sandboxbank_dataset.py;tests/unit/test_sandboxbank_generator.py,,in progress
+NFR-REP-2,Reproducibility,M,One-command stack on an 8 GB laptop,B-03,,,tests/integration/test_sandboxbank_ledger.py,,in progress
 NFR-AUD-1,Auditability,M,Append-only results and approvals,,,,,,planned
 NFR-AUD-2,Auditability,M,Honest tamper-evidence statements,,,,,,planned
 NFR-PERF-1,Performance,M,"100k-row, 30-rule validation under 10 s",,,,,,planned

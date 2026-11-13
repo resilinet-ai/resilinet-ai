@@ -1,4 +1,4 @@
-.PHONY: setup lint format typecheck test check up down demo benchmark
+.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark
 
 setup:
 	uv sync --all-packages
@@ -18,6 +18,14 @@ typecheck:
 
 test:
 	uv run pytest --cov --cov-report=term-missing
+
+# Throwaway PostgreSQL for integration tests; then:
+# SANDBOXBANK_TEST_DSN=postgresql://ledger:sbx-test@127.0.0.1:55433/ledger_test make test
+test-db:
+	docker run -d --rm --name sbx-test-pg -e POSTGRES_USER=ledger -e POSTGRES_PASSWORD=sbx-test 		-e POSTGRES_DB=ledger_test -p 127.0.0.1:55433:5432 postgres:16
+
+test-db-stop:
+	docker stop sbx-test-pg
 
 check: lint typecheck test
 

@@ -3,6 +3,49 @@
 SandboxBank is the synthetic payments system that RAI tests against (Spec section 5).
 **It holds synthetic data only.** Every name and identifier is generated, and nothing is sampled from real people or businesses.
 
+## Quick start: generate, load and post
+
+1. Copy `.env.example` to `.env` and choose your own passwords.
+2. Run these from the repository root. The `export` reads `.env`, so the CLI's connection string gets the password you chose (in Command Prompt, set `SANDBOXBANK_LEDGER_DSN` by hand instead):
+
+```
+docker compose --profile sandbox up -d --build --wait ledger-db payments-api
+set -a; . ./.env; set +a
+python -m uv run sandboxbank generate --seed 42 --out data/sandboxbank --batches 2
+python -m uv run sandboxbank load-reference --data data/sandboxbank
+python -m uv run sandboxbank post --data data/sandboxbank
+```
+
+Running `post` a second time is safe. Every row comes back `replayed`, and the ledger doesn't change.
+
+## Payments API and ledger (B-03)
+
+`payments-api` (FastAPI) writes to `ledger-db` (PostgreSQL 16). Both run on `sandbox_net` and are published only on `127.0.0.1`: the API on port 18080 and the database on 55432. The schema is in `src/sandboxbank/ledger/schema.sql` and is applied automatically when the API starts.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/transactions` | Post one transaction. Returns **201** created, **200** replayed, **409** conflict or **422** rejected. |
+| `POST /v1/transactions/batch` | Post up to 1,000 transactions. Returns one outcome per row, plus counts. |
+| `GET /v1/transactions/{txn_id}` | Read one ledger row. |
+| `GET /v1/ledger/head` | The last committed `seq` and `committed_at`, and the row count. B-26 measures RPO from this. |
+| `GET /healthz`, `GET /readyz` | Liveness, and readiness (which checks the database). |
+
+**Idempotency (SBX-LEDGER).** `txn_id` is the idempotency key, and the API compares a fingerprint of each request's normalised content.
+- An identical repeat is a *replay*: it returns the original `seq`.
+- The same `txn_id` with different content is a *conflict*, and nothing changes.
+- A request that fails a business rule is *rejected* without writing anything. The rules are: unknown or inactive account, amount over the account limit, or unknown merchant.
+
+Concurrent retries of the same `txn_id` create exactly one row. The ledger is append-only, and a trigger refuses any `UPDATE` or `DELETE`.
+
+**Integration tests** need a real PostgreSQL:
+
+```
+make test-db        # or the docker run command in the Makefile
+SANDBOXBANK_TEST_DSN=postgresql://ledger:sbx-test@127.0.0.1:55433/ledger_test python -m uv run pytest
+```
+
+Without `SANDBOXBANK_TEST_DSN`, these tests are skipped locally. CI always runs them against a PostgreSQL service container.
+
 ## Generate data (B-02)
 
 ```
