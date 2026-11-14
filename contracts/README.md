@@ -48,7 +48,7 @@ Each problem is reported with its path, for example `columns.amount.min`.
 
 ## SandboxBank contracts and the defect catalogue
 
-`contracts/sandboxbank/` holds the contracts RAI uses in the benchmark. Every Protocol §4 defect class is caught by at least one rule. The rule engine (B-09 to B-11) turns this mapping into tests.
+`contracts/sandboxbank/` holds the contracts RAI uses in the benchmark. Every Protocol §4 defect class is caught by at least one rule. `tests/unit/test_engine.py` replays a sealed fixture set in delivery order and checks this mapping against the answer key. Schema drift (D07–D09 as *breaking* changes) arrives with B-11.
 
 | Defect | Caught by |
 | --- | --- |

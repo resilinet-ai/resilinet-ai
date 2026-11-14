@@ -63,7 +63,7 @@ def plan(
     """Which batch gets which defect class and rate, in a seeded random order.
 
     Rates cycle evenly within a class (12 batches over 3 rates = 4 each). Batch 0 is
-    always clean, because D02 and D11 need a previous batch.
+    always clean, because D02 and D11 need an earlier delivered batch.
     """
     if batches_per_class < 1 or clean < 1:
         raise ValueError("batches_per_class and clean must be at least 1")
@@ -134,7 +134,9 @@ def build_fixtures(
     _write_csv(feed / "merchants.csv", merchants_header, merchants_table)
 
     truth_lines: list[str] = []
-    previous: list[list[str]] = []
+    previous_header: list[str] = txn_header
+    previous_rows: list[list[str]] = []
+    reemit_pool: list[list[str]] = []
     for planned in batches:
         clean_rows = [
             list(t.as_row())
@@ -158,7 +160,13 @@ def build_fixtures(
         else:
             rng = stream(injector_seed, f"injector/{planned.index}")
             ctx = Context(
-                window_start, txn_header, previous, limits, merchants_header, merchants_table
+                window_start,
+                previous_header,
+                previous_rows,
+                limits,
+                merchants_header,
+                merchants_table,
+                reemit_rows=reemit_pool,
             )
             result = inject(planned.defect_class, rng, txn_header, clean_rows, planned.rate, ctx)
             header, rows = result.header, result.rows
@@ -175,7 +183,12 @@ def build_fixtures(
                 record["dimension_file"] = dimension
         _write_csv(out_dir / record["file"], header, rows)
         truth_lines.append(_dump(record))
-        previous = clean_rows
+        # What the arms actually received is the "previous batch" for D11, and its
+        # unaffected rows (standard columns, values untouched) are what D02 re-emits.
+        previous_header, previous_rows = header, rows
+        if header == txn_header and planned.defect_class != "D09":
+            affected = set(record["rows"])
+            reemit_pool = [row for i, row in enumerate(rows) if i not in affected]
 
     answer_key = out_dir / "answer_key" / "ground_truth.jsonl"
     answer_key.parent.mkdir(parents=True, exist_ok=True)

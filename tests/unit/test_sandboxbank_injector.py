@@ -44,7 +44,9 @@ M_ROWS = [list(m.as_row()) for m in MERCHANTS]
 PREVIOUS = [list(t.as_row()) for t in generate_batch(CONFIG, ACCOUNTS, MERCHANTS, 0)]
 CLEAN = [list(t.as_row()) for t in generate_batch(CONFIG, ACCOUNTS, MERCHANTS, 1)]
 LIMITS = {a.account_id: Decimal(a.txn_limit_cents).scaleb(-2) for a in ACCOUNTS}
-CTX = Context(CONFIG.batch_start(1), HEADER, PREVIOUS, LIMITS, M_HEADER, M_ROWS)
+CTX = Context(
+    CONFIG.batch_start(1), HEADER, PREVIOUS, LIMITS, M_HEADER, M_ROWS, reemit_rows=PREVIOUS
+)
 COL = {name: i for i, name in enumerate(HEADER)}
 
 
@@ -279,7 +281,7 @@ def test_fixture_set_is_reproducible_and_sealed(tmp_path: Path) -> None:
     assert first["seed_purpose"] == "development"
     # Golden seal: CI on Linux must reproduce the answer key built on Windows exactly.
     assert first["answer_key_sha256"] == (
-        "bee1c929169aa3c1384981e01f81d31c878f8b69e00cc432b75db386a5293aa8"
+        "e5ba3fcc13ee2b937066408432f35fc99132cf2d40de83959130c13969453d5e"
     )
 
 
@@ -318,3 +320,43 @@ def test_cli_fixtures_and_seal(tmp_path: Path, capsys: pytest.CaptureFixture[str
     assert main(["seal", str(out), "--expect", "0" * 64]) == 1
     assert main(["fixtures", *args, *small]) == 2  # not empty
     capsys.readouterr()
+
+
+def test_d02_needs_earlier_delivered_rows() -> None:
+    empty = Context(CTX.window_start, HEADER, PREVIOUS, LIMITS, M_HEADER, M_ROWS)
+    with pytest.raises(ValueError, match="earlier delivered batch"):
+        inject("D02", stream(1, "x"), HEADER, CLEAN, 0.01, empty)
+
+
+def test_d02_and_d11_reuse_what_was_actually_delivered(tmp_path: Path) -> None:
+    # Regression for a B-07 realism bug found in B-10: re-using the clean generated
+    # batch could re-emit rows no arm ever received, making the defect undetectable.
+    build_fixtures(
+        tmp_path,
+        data_seed=41,
+        injector_seed=42,
+        accounts=80,
+        merchants=20,
+        rows_per_batch=200,
+        batches_per_class=4,
+        clean=4,
+    )
+    truth = [
+        json.loads(line)
+        for line in (tmp_path / "answer_key" / "ground_truth.jsonl").read_text("utf-8").splitlines()
+    ]
+    delivered: list[tuple[str, list[str]]] = []  # (txn_id, raw line) of unaffected rows
+    for index, batch in enumerate(truth):
+        lines = (tmp_path / batch["file"]).read_text("utf-8").splitlines()
+        if batch["defect_class"] == "D11":
+            previous = (tmp_path / truth[index - 1]["file"]).read_bytes()
+            assert (tmp_path / batch["file"]).read_bytes() == previous
+        if batch["defect_class"] == "D02":
+            earlier = {line for _, line in delivered}
+            for row in batch["rows"]:
+                assert lines[row + 1] in earlier, batch["batch_id"]
+        if lines[0] == ",".join(HEADER) and batch["defect_class"] != "D09":
+            flagged = set(batch["rows"])
+            delivered += [
+                (line.split(",")[0], line) for i, line in enumerate(lines[1:]) if i not in flagged
+            ]

@@ -11,7 +11,7 @@ The twelve classes and their rates are fixed by the protocol:
 ID   Class                        How it is seeded                  Rates
 ==== ============================ ================================= ===============
 D01  Duplicate key within batch   copy rows, keep txn_id            0.01%, 0.1%, 1%
-D02  Duplicate key across batches re-emit rows of an earlier batch  0.01%, 0.1%, 1%
+D02  Duplicate key across batches re-emit delivered earlier rows   0.01%, 0.1%, 1%
 D03  Missing required value       set a required field to empty     0.01%, 0.1%, 1%
 D04  Type error                   write text into ``amount``        0.01%, 0.1%, 1%
 D05  Out-of-range value           negative or over-limit amount     0.01%, 0.1%, 1%
@@ -20,7 +20,7 @@ D07  Column renamed               rename one column                 whole batch
 D08  Column dropped               remove one column                 whole batch
 D09  Column type changed          decimal amount to float or text   whole batch
 D10  Late-arriving rows           created_at before freshness       1%, 5%
-D11  Stale feed                   previous batch re-delivered       whole batch
+D11  Stale feed                   previous delivery re-sent as is   whole batch
 D12  Join fan-out                 duplicate keys in merchants dim   0.1%, 1%
 ==== ============================ ================================= ===============
 """
@@ -86,7 +86,14 @@ TEXT_AMOUNTS_FOR_D04 = ("N/A", "abc", "12.34.5", "1,234.50", "")
 
 @dataclass(frozen=True, slots=True)
 class Context:
-    """Everything a defect may need besides the batch itself."""
+    """Everything a defect may need besides the batch itself.
+
+    ``previous_header``/``previous_rows`` are the previous batch *as delivered* (D11
+    re-delivers it unchanged). ``reemit_rows`` are unaffected rows of the most recent
+    delivered batch with the standard columns (D02 re-emits some of them), so a
+    re-emitted row is a true duplicate of data the arms have seen and carries no
+    second, unrecorded defect.
+    """
 
     window_start: datetime
     previous_header: Header
@@ -94,6 +101,7 @@ class Context:
     account_limits: dict[str, Decimal]
     merchants_header: Header
     merchants_rows: Rows
+    reemit_rows: Rows = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -137,9 +145,11 @@ def d01(rng: random.Random, header: Header, rows: Rows, rate: float, ctx: Contex
 
 
 def d02(rng: random.Random, header: Header, rows: Rows, rate: float, ctx: Context) -> Injection:
-    count = instance_count(rate, len(rows))
-    sources = sorted(rng.sample(range(len(ctx.previous_rows)), min(count, len(ctx.previous_rows))))
-    out, flagged = _insert_flagged(rng, _copy(rows), [list(ctx.previous_rows[i]) for i in sources])
+    if not ctx.reemit_rows:
+        raise ValueError("D02 needs rows from an earlier delivered batch")
+    count = min(instance_count(rate, len(rows)), len(ctx.reemit_rows))
+    sources = sorted(rng.sample(range(len(ctx.reemit_rows)), count))
+    out, flagged = _insert_flagged(rng, _copy(rows), [list(ctx.reemit_rows[i]) for i in sources])
     key = header.index("txn_id")
     return Injection(header, out, flagged, ["txn_id"], [out[i][key] for i in flagged])
 
@@ -252,7 +262,7 @@ def d11(rng: random.Random, header: Header, rows: Rows, rate: float, ctx: Contex
         list(ctx.previous_header),
         _copy(ctx.previous_rows),
         whole_batch=True,
-        detail={"redelivered": "previous batch, unchanged"},
+        detail={"redelivered": "previous delivered batch, unchanged"},
     )
 
 
