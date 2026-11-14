@@ -1,5 +1,5 @@
 id,module,priority,requirement,backlog,issues,pull_requests,tests,evidence,status
-FR-01.1,M01,M,"Tenants, users and roles; cross-tenant isolation",B-05,,#4,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py,,in progress
+FR-01.1,M01,M,"Tenants, users and roles; cross-tenant isolation",B-05;B-16,,#4;#21,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py;tests/integration/test_api.py;tests/unit/test_api_security.py,docs/api.md,in progress
 FR-01.2,M01,M,Hash-chained audit entry for every state change,B-05,,#4,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py,,in progress
 FR-01.3,M01,L,SSO via OIDC,,,,,,planned
 FR-02.1,M02,M,PostgreSQL and CSV/Parquet connectors scoped to one environment,B-13,,#15,tests/unit/test_connectors.py;tests/integration/test_connectors_postgres.py,docs/connectors.md,in progress
@@ -33,7 +33,7 @@ FR-13.2,M13,S,Signed manifest and rai verify,,,,,,planned
 FR-14.1,M14,M,"Docs site, quick-start and playbooks",,,,,,planned
 NFR-SAF-1,Safety,M,Deny-by-default fault injection; production fails closed,,,,,,planned
 NFR-SAF-2,Safety,M,"Max duration, blast radius, rollback; kill-switch without API",,,,,,planned
-NFR-SEC-1,Security,M,Tenant isolation in API and PostgreSQL RLS,B-05,,#4,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py,,in progress
+NFR-SEC-1,Security,M,Tenant isolation in API and PostgreSQL RLS,B-05;B-16,,#4;#21,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py;tests/integration/test_api.py,docs/api.md,in progress
 NFR-SEC-2,Security,M,TLS; secrets never persisted,,,,,,planned
 NFR-SEC-3,Security,M,"SSDF practices: dependency scanning, SBOM, signed images",B-01;B-06;B-40,,,,,in progress
 NFR-SEC-4,Security,M,Versioned STRIDE threat model,B-06,,#5,tests/integration/test_core_schema.py,docs/threat-model.md,v1 done
