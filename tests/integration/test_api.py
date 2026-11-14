@@ -22,6 +22,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 from typer.testing import CliRunner
 
 from rai.api.app import create_app
+from rai.api.context import check_login_role
 from rai.api.settings import Settings, SettingsError
 from rai.api.tokens import issue_access_token
 from rai.cli.main import app as cli
@@ -118,13 +119,27 @@ def activate(owner: Engine, address: str) -> None:
 # ---- I-02: the API's database role ------------------------------------------------------
 
 
-def test_api_refuses_to_start_as_the_schema_owner() -> None:
+def test_api_refuses_to_start_as_the_schema_owner(owner: Engine) -> None:
     settings = Settings(database_url=db.sqlalchemy_url(DSN), jwt_secret=SECRET)
     with (
         pytest.raises(SettingsError, match="must log in as rai_api"),
         TestClient(create_app(settings)),
     ):
         pass
+
+
+def test_api_refuses_to_start_on_an_unmigrated_database(owner: Engine) -> None:
+    name = f"rai_empty_{uuid4().hex[:8]}"
+    with owner.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    empty = create_engine(make_url(db.sqlalchemy_url(DSN)).set(database=name))
+    try:
+        with empty.connect() as conn, pytest.raises(SettingsError, match="rai db upgrade"):
+            check_login_role(conn)
+    finally:
+        empty.dispose()
+        with owner.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text(f'DROP DATABASE "{name}"'))
 
 
 def test_rai_api_without_tenant_context_sees_nothing(owner: Engine, api_url: str) -> None:

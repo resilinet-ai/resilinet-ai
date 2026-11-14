@@ -65,13 +65,19 @@ def check_login_role(conn: Connection) -> None:
     row = conn.execute(
         text(
             "SELECT r.rolsuper, r.rolbypassrls, "
-            "pg_has_role(current_user, 'rai_app', 'MEMBER') AS in_app, "
+            # Roles are cluster-wide; the schema says whether this database is migrated.
+            "to_regnamespace('rai') IS NOT NULL AND to_regrole('rai_app') IS NOT NULL "
+            "AS migrated, "
+            "COALESCE(pg_has_role(current_user, to_regrole('rai_app'), 'MEMBER'), false) "
+            "AS in_app, "
             "EXISTS (SELECT FROM pg_namespace n WHERE n.nspname = 'rai' AND n.nspowner = r.oid) "
             "  OR EXISTS (SELECT FROM pg_tables t WHERE t.schemaname = 'rai' "
             "             AND t.tableowner = current_user) AS owns "
             "FROM pg_roles r WHERE r.rolname = current_user"
         )
     ).one()
+    if not row.migrated:
+        raise SettingsError("the rai schema is not set up; run `rai db upgrade` first")
     if row.rolsuper or row.rolbypassrls or row.owns or not row.in_app:
         raise SettingsError(
             "the API must log in as rai_api (a member of rai_app only), not as a superuser, "
