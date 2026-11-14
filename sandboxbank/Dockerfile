@@ -1,5 +1,5 @@
 # SandboxBank payments-api (B-03). Synthetic data only.
-# TODO B-31: pin the base image by digest and install from the uv lockfile (NFR-SEC-3).
+# TODO B-40: pin the base image by digest and install from the uv lockfile (NFR-SEC-3).
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

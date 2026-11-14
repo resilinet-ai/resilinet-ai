@@ -15,6 +15,8 @@ Of particular interest:
 - Any way to alter results, approvals or audit entries without breaking hash-chain verification.
 - Secrets appearing in logs, the database or evidence bundles.
 
+The threat model behind these priorities is in [docs/threat-model.md](docs/threat-model.md).
+
 ## Supported versions
 
 Pre-alpha: only the latest `main` is supported until v1.0.
