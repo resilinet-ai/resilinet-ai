@@ -59,6 +59,34 @@ Concurrent retries of the same `txn_id` create exactly one row. The ledger is ap
 python -m uv run sandboxbank etl --once --lag 0
 ```
 
+## Known-defect fixtures and the sealed answer key (B-07)
+
+```
+python -m uv run sandboxbank fixtures --data-seed 42 --injector-seed 43 --out data/fixtures
+python -m uv run sandboxbank seal data/fixtures --expect <sha256 committed earlier>
+```
+
+This builds one Protocol §4 fixture set for pipeline P1:
+- **180 batches**: 12 for each of the 12 defect classes, spread evenly across that class's rates, plus 36 clean control batches;
+- **100,000 rows per batch**, in a seeded random order;
+- **batch 0 is always clean**, because classes D02 and D11 need a previous batch.
+
+At the full protocol size it takes a few minutes and about 2 GB. Use `--rows`, `--per-class` and `--clean` for small development sets.
+
+| Folder | Who reads it |
+| --- | --- |
+| `feed/` | The arms under test: reference data, `transactions_raw/Bnnnnnn.csv`, and `merchants_by_batch/` for D12 |
+| `answer_key/ground_truth.jsonl` | Scoring only. One line per batch, clean batches included: class, rate, rows changed (0-based rows of the delivered file), columns, keys, window start and onset |
+| `answer_key/SEAL` | The SHA-256 of the answer key. **Commit it publicly before any arm runs** (Protocol §8) |
+
+**Seed rules (SBX-INJECT):**
+- `--data-seed` drives the generator and `--injector-seed` drives the defects. They must differ and be in the same protocol range: development 0–99,999, evaluation 100,000–199,999.
+- The defects come only from the injector, never from the generator, so a clean batch is clean by construction.
+
+**Defect rules:**
+- D10 uses a 1-hour freshness window.
+- In D09's float variant, values that are exact in binary (such as 12.25) print unchanged, as a real float pipeline would write them.
+
 ## Integration tests
 
 They need a real PostgreSQL:
