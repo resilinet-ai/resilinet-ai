@@ -1,7 +1,7 @@
 """Entry point for the ``rai`` command.
 
 Commands are added backlog item by backlog item: ``validate`` (B-14), ``contract`` (B-08),
-``db`` and ``audit`` (B-05).
+``db`` and ``audit`` (B-05), ``admin`` and ``serve`` (B-16).
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import typer
 from rich.console import Console
 
 from rai import __version__
+from rai.cli.admin import admin_app, serve_command, set_api_password_command
 from rai.cli.validate import validate_command
 
 app = typer.Typer(
@@ -31,6 +32,9 @@ app.command("validate")(validate_command)
 app.add_typer(db_app, name="db")
 app.add_typer(contract_app, name="contract")
 app.add_typer(audit_app, name="audit")
+app.add_typer(admin_app, name="admin")
+app.command("serve")(serve_command)
+db_app.command("set-api-password")(set_api_password_command)
 console = Console(soft_wrap=True)
 errors = Console(stderr=True, soft_wrap=True)
 

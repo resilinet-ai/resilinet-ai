@@ -95,10 +95,10 @@ flowchart LR
 
 | ID | Element | Threat | Mitigation | Status | Residual |
 | --- | --- | --- | --- | --- | --- |
-| S-01 | rai-api (TB1) | Someone signs in as another user | Argon2id password hashes; short-lived JWTs; optional TOTP; uniform login errors | Planned B-16 | L |
+| S-01 | rai-api (TB1) | Someone signs in as another user | Argon2id password hashes; short-lived JWTs; optional TOTP; uniform login errors | Implemented B-16: Argon2id (RFC 9106), 15-min JWT, uniform 401, failed-login throttling per email and address (`test_login_failures_look_the_same`, `test_repeated_failures_are_throttled_even_for_unknown_emails`); TOTP later | L |
 | S-02 | rai-api (TB1) | A stolen API key is reused | Only a SHA-256 hash of each key is stored; keys are project-scoped, expire within 90 days and can be revoked; the prefix identifies the key without revealing it | Planned B-20 | M |
 | S-03 | Chaos agent (TB3) | A forged or replayed fault request | Ed25519 signature from the worker's key; replay guard on run ID; the agent re-runs preflight itself | Planned B-24 | L |
-| S-04 | Audit chain (TB2) | A database session claims a false actor in `app.actor_id` | Only `rai-api` and `rai-worker` hold database credentials; the actor is set from the authenticated identity in one function (`rai.core.tenancy.set_context`) | Partial: B-05 (single code path); B-16 (actor from authentication only) | M |
+| S-04 | Audit chain (TB2) | A database session claims a false actor in `app.actor_id` | Only `rai-api` and `rai-worker` hold database credentials; the actor is set from the authenticated identity in one function (`rai.core.tenancy.set_context`) | Implemented B-05 + B-16: the actor is the verified token's user (`test_role_changes_are_audited_with_the_signed_in_admin`) | M |
 | S-05 | Allow-list (TB4) | A container imitates an allow-listed target | Targets must match both the `rai.sandbox=true` label and the registered name; the worker and the agent each check | Planned B-22, B-24 | L |
 
 ### Tampering
@@ -129,12 +129,12 @@ flowchart LR
 | ID | Element | Threat | Mitigation | Status | Residual |
 | --- | --- | --- | --- | --- | --- |
 | I-01 | Database (TB2) | Cross-tenant reads through an application bug | RLS on every tenant table, keyed on a transaction-local `app.tenant_id`; with no tenant set, nothing is visible; a CI test fails if any `rai` table lacks RLS | Implemented B-05 (`test_tenants_only_see_their_own_rows`, `test_no_tenant_context_sees_nothing`, `test_every_rai_table_has_row_level_security`) | L |
-| I-02 | Database (TB2) | **Finding:** the API connects as the schema owner and a code path forgets `set_context`, so RLS is silently bypassed (the owner is exempt) | `rai-api` and `rai-worker` log in as a dedicated role that is a member of `rai_app` only, so forgetting the context returns zero rows instead of everything | Planned B-16 (acceptance criterion) | M until B-16 |
-| I-03 | Users (TB2) | **Finding:** inviting an email that already exists raises a unique-key error, which reveals the account exists in another tenant | The invite goes through a SECURITY DEFINER function that links or creates the user and always returns the same response | Planned B-16 (acceptance criterion) | M until B-16 |
+| I-02 | Database (TB2) | **Finding:** the API connects as the schema owner and a code path forgets `set_context`, so RLS is silently bypassed (the owner is exempt) | `rai-api` and `rai-worker` log in as a dedicated role that is a member of `rai_app` only, so forgetting the context returns zero rows instead of everything | Implemented B-16: `rai_api` login role, member of `rai_app` only; the API refuses to start as owner, superuser or BYPASSRLS (`test_api_refuses_to_start_as_the_schema_owner`, `test_rai_api_without_tenant_context_sees_nothing`) | M until B-16 |
+| I-03 | Users (TB2) | **Finding:** inviting an email that already exists raises a unique-key error, which reveals the account exists in another tenant | The invite goes through a SECURITY DEFINER function that links or creates the user and always returns the same response | Implemented B-16: `rai.invite_member` SECURITY DEFINER, same 202 for every email (`test_invites_answer_the_same_whatever_the_email`) | M until B-16 |
 | I-04 | Secrets (A5) | Secrets leak through the repository, logs or bundles | gitleaks in pre-commit and CI; `.env` is git-ignored; connection strings are never logged; connectors hold secret references only; a log scrubber; secrets are excluded from bundles | Partial: gitleaks, `.env` and logging B-01 to B-05; secret references and error scrubbing implemented B-13 (`test_literal_credentials_are_refused_in_configs`, `test_wrong_password_never_appears_in_the_error`); log scrubber B-18; bundles B-34 | L |
 | I-05 | Data classes | Real personal data enters RAI | Synthetic-only rule; projects carry `data_classification`; a permanent synthetic-data banner; SandboxBank generates every identifier | Partial: SandboxBank B-02; classification B-17; banner B-37 | L |
-| I-06 | Network (TB1) | Internal services are reachable from the network | Every host port is published on `127.0.0.1` only; TLS through Caddy; the API never joins `sandbox_net` | Partial: localhost binding B-03 to B-05; Caddy B-16, B-36 | L |
-| I-07 | rai-api (TB1) | Responses reveal that another tenant's object exists | Another tenant's objects return 404, not 403 | Planned B-16 | L |
+| I-06 | Network (TB1) | Internal services are reachable from the network | Every host port is published on `127.0.0.1` only; TLS through Caddy; the API never joins `sandbox_net` | Partial: localhost binding B-03 to B-05; `rai serve` binds 127.0.0.1 (B-16); Caddy TLS B-36 | L |
+| I-07 | rai-api (TB1) | Responses reveal that another tenant's object exists | Another tenant's objects return 404, not 403 | Implemented B-16: other tenants and their objects are 404 (`test_a_user_in_tenant_a_cannot_read_any_tenant_b_object`) | L |
 
 ### Denial of service
 
@@ -142,7 +142,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- |
 | D-01 | Chaos agent (A4) | A fault stays active after the agent, worker or API crashes | A watchdog reverts any fault past its maximum duration; `kill --all` works from the local state file with the API and database down | Planned B-25 | L |
 | D-02 | Sandbox | A fault runs longer or wider than declared | Maximum duration ≤ the environment ceiling (15 min); declared blast radius checked by both preflights | Planned B-24, B-27 | L |
-| D-03 | rai-api (TB1) | Oversized or flood requests | Request size limits; rate limits per key; batch limits | Partial: the payments-api batch cap of 1,000 is B-03; API limits B-16 | M |
+| D-03 | rai-api (TB1) | Oversized or flood requests | Request size limits; rate limits per key; batch limits | Partial: payments-api batch cap B-03; API body limit 1 MiB and login throttling B-16; per-key rate limit with API keys B-20 | M |
 | D-04 | Job queue | One tenant starves the others | Per-tenant concurrency limit; leases with a retry cap of 3 | Planned B-18 | M |
 | D-05 | Audit chain | Advisory-lock contention when two tenants' `hashtext` values collide | Accepted: the only effect is that two tenants' writes are serialised briefly | Accepted | L |
 
@@ -152,7 +152,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- |
 | E-01 | Docker socket (A4, TB4) | The agent, or an attacker in it, uses the full Docker API (exec, privileged containers, mounts) | Only the agent can reach Docker, and only through a socket proxy that allows stop, start, restart, pause and network connect/disconnect, with no exec, image or volume access; the agent sits alone on `bridge_net` | Planned B-23 | M (the Docker daemon is powerful by nature) |
 | E-02 | Environments | Faults are pointed at production | The environment type enum has no PRODUCTION value; `production_flag = false` check; refusal tested | Planned B-22, B-27 | L |
-| E-03 | rai-api | A user raises their own role, or approves their own scenario | RBAC per endpoint; a separation-of-duties trigger rejects reviewer = author; role changes are audited (R-01) | Partial: audit B-05; RBAC B-16; separation of duties B-26 | L |
+| E-03 | rai-api | A user raises their own role, or approves their own scenario | RBAC per endpoint; a separation-of-duties trigger rejects reviewer = author; role changes are audited (R-01) | Partial: audit B-05; RBAC per endpoint and no self role change B-16; separation of duties B-26 | L |
 | E-04 | Database (TB2) | The application role gains more power than it needs | `rai_app` is NOLOGIN and NOBYPASSRLS, cannot create tenants, and cannot update or delete audit entries | Implemented B-05 (`test_app_role_cannot_create_tenants_or_bypass_rls`) | L |
 | E-05 | SandboxBank containers | Container breakout, or a compromised system under test reaching RAI | Images run as a non-root user; no privileged containers; SandboxBank has no route to `control_net` | Partial: non-root payments-api and etl-job images B-03; network isolation in compose; hardening B-40 | L |
 | E-06 | SandboxBank payments-api | Unauthenticated callers post transactions | Accepted: synthetic system under test, reachable only on `sandbox_net` and `127.0.0.1`; adding authentication would distort the benchmark workload | Accepted | L |
