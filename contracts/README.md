@@ -46,6 +46,19 @@ The parser rejects:
 
 Each problem is reported with its path, for example `columns.amount.min`.
 
+## Severity, thresholds and the verdict
+
+Each rule first applies its `threshold`, which sets how many failing rows it tolerates. It then ends as `pass`, `fail` or `error` (could not be evaluated, for example because a column or a reference table is missing). The batch verdict follows from those outcomes:
+
+| Rule outcome | Severity at or above `fail_on` (default `critical`) | Below `fail_on` |
+| --- | --- | --- |
+| `fail` or `error` | **blocks**: the batch fails | warning, reported only |
+| `pass` | – | – |
+
+Severity order is `info` < `warn` < `critical`. CI can be stricter without editing contracts by setting `fail_on` to `warn`.
+
+A run made of several batches or contracts fails if any one of them fails. Its exit code is `0` if it passes and `1` if it fails.
+
 ## SandboxBank contracts and the defect catalogue
 
 `contracts/sandboxbank/` holds the contracts RAI uses in the benchmark. Every Protocol §4 defect class is caught by at least one rule. `tests/unit/test_engine.py` replays a sealed fixture set in delivery order and checks this mapping against the answer key.
