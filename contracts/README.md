@@ -48,7 +48,7 @@ Each problem is reported with its path, for example `columns.amount.min`.
 
 ## SandboxBank contracts and the defect catalogue
 
-`contracts/sandboxbank/` holds the contracts RAI uses in the benchmark. Every Protocol §4 defect class is caught by at least one rule. `tests/unit/test_engine.py` replays a sealed fixture set in delivery order and checks this mapping against the answer key. Schema drift (D07–D09 as *breaking* changes) arrives with B-11.
+`contracts/sandboxbank/` holds the contracts RAI uses in the benchmark. Every Protocol §4 defect class is caught by at least one rule. `tests/unit/test_engine.py` replays a sealed fixture set in delivery order and checks this mapping against the answer key.
 
 | Defect | Caught by |
 | --- | --- |
@@ -58,9 +58,9 @@ Each problem is reported with its path, for example `columns.amount.min`.
 | D04 type error | `amount.type` |
 | D05 out-of-range value | `amount.range` (negative) and `amount.max_lookup` (over the account's limit) |
 | D06 broken reference | `account_id.references` |
-| D07 column renamed | `schema` (breaking) |
-| D08 column dropped | `schema` (breaking) |
-| D09 column type changed | `schema` (breaking type change) and `amount.type` |
+| D07 column renamed | `schema`: renamed column paired with its new name (breaking) |
+| D08 column dropped | `schema`: removed column (breaking) |
+| D09 column type changed | `schema`: type change with the observed type (breaking), and `amount.type` per row |
 | D10 late-arriving rows | `freshness` |
 | D11 stale feed | `unique_across_batches:txn_id` and `freshness` |
 | D12 join fan-out | `merchants` contract: `merchant_id.unique` (primary key) |

@@ -25,8 +25,9 @@ Rule semantics:
   not change the history unless ``record=True``; without a history the rule
   reports ``error``.
 
-Rules owned by later backlog items (``schema``: B-11) report ``skipped`` with
-that reason, so nothing passes silently.
+* ``schema`` (B-11, FR-03.2) is batch-level: it fails when the batch has a
+  breaking schema change under the contract's policy (:mod:`rai.validation.drift`)
+  and lists every change, breaking or not, in its message.
 """
 
 from __future__ import annotations
@@ -34,28 +35,25 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
 import polars as pl
 
-from rai.validation.contract import ColumnType, Contract, Rule, Severity
+from rai.validation.contract import Contract, Rule, Severity
+from rai.validation.drift import SchemaChange, detect_drift
 from rai.validation.history import KeyStore
+from rai.validation.values import bound as _bound
+from rai.validation.values import missing as _missing
+from rai.validation.values import typed as _typed
+from rai.validation.values import valid as _valid
 
 Outcome = Literal["pass", "fail", "error", "skipped"]
 SAMPLE_LIMIT = 20
 ROW = "__rai_row"
 
-DEFERRED: dict[str, str] = {
-    "schema": "schema drift detection arrives with B-11",
-}
 KEY_SEPARATOR = "\x1f"  # joins composite key parts; never appears in delivered text
-
-_UUID = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-_INTEGER = r"^-?[0-9]{1,18}$"
-_TIMESTAMP = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +79,7 @@ class ValidationReport:
     duration_seconds: float
     as_of: datetime | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
+    schema_changes: tuple[SchemaChange, ...] = field(default_factory=tuple)
 
     def by_rule(self) -> dict[str, RuleResult]:
         return {result.rule_id: result for result in self.results}
@@ -92,75 +91,6 @@ class ValidationReport:
 def read_batch(path: Path) -> pl.DataFrame:
     """Read a CSV batch with every column as text, as delivered."""
     return pl.read_csv(path, infer_schema=False)
-
-
-# ---- expressions ---------------------------------------------------------------------
-
-
-def _missing(name: str) -> pl.Expr:
-    column = pl.col(name)
-    return column.is_null() | (column.str.strip_chars() == "")
-
-
-def _decimal_pattern(column_type: ColumnType) -> str:
-    precision, scale = column_type.precision or 38, column_type.scale or 0
-    whole = max(precision - scale, 1)
-    fraction = rf"(\.[0-9]{{1,{scale}}})?" if scale else ""
-    return rf"^-?[0-9]{{1,{whole}}}{fraction}$"
-
-
-def _valid(name: str, column_type: ColumnType) -> pl.Expr:
-    """True where a present value fits the declared type."""
-    text = pl.col(name).str.strip_chars()
-    match column_type.base:
-        case "string":
-            return pl.lit(value=True)
-        case "uuid":
-            return text.str.contains(_UUID)
-        case "integer":
-            return text.str.contains(_INTEGER)
-        case "decimal":
-            return text.str.contains(_decimal_pattern(column_type))
-        case "float":
-            return text.cast(pl.Float64, strict=False).is_not_null()
-        case "boolean":
-            return text.str.to_lowercase().is_in(["true", "false"])
-        case "date":
-            return text.str.to_date("%Y-%m-%d", strict=False).is_not_null()
-        case "timestamp":
-            return text.str.contains(_TIMESTAMP) & _as_timestamp(name).is_not_null()
-    raise AssertionError(column_type)  # pragma: no cover - ColumnType is a closed set
-
-
-def _as_timestamp(name: str) -> pl.Expr:
-    iso = pl.col(name).str.strip_chars().str.replace(r"Z$", "+00:00")
-    return iso.str.to_datetime(
-        format="%Y-%m-%dT%H:%M:%S%.f%:z", strict=False, time_unit="us", time_zone="UTC"
-    )
-
-
-def _typed(name: str, column_type: ColumnType) -> pl.Expr:
-    """The value in its declared type, or null where missing or malformed."""
-    present = ~_missing(name) & _valid(name, column_type)
-    text = pl.col(name).str.strip_chars()
-    match column_type.base:
-        case "integer" | "decimal" | "float":
-            value = text.cast(pl.Float64, strict=False)
-        case "date":
-            value = text.str.to_date("%Y-%m-%d", strict=False)
-        case "timestamp":
-            value = _as_timestamp(name)
-        case _:
-            value = text
-    return pl.when(present).then(value)
-
-
-def _bound(value: Any, column_type: ColumnType) -> Any:
-    if column_type.base in {"integer", "decimal", "float"}:
-        return float(Decimal(str(value)))
-    if column_type.base == "date":
-        return datetime.fromisoformat(str(value)).date()
-    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
 
 
 # ---- evaluation ------------------------------------------------------------------------
@@ -207,8 +137,8 @@ def _plan(
     notes: list[str] = []
     references, as_of = inputs.references, inputs.as_of
     for rule in rules:
-        if rule.kind in DEFERRED:
-            continue
+        if rule.kind == "schema":
+            continue  # batch-level: evaluated in validate()
         missing_columns = [c for c in rule.columns if c not in batch.columns]
         if missing_columns:
             plan.problems[rule.id] = f"column {missing_columns[0]!r} is not in the batch"
@@ -333,6 +263,7 @@ def validate(
         if plan.failures
         else pl.DataFrame()
     )
+    changes = tuple(detect_drift(contract, text_batch))
     results = []
     for rule in rules:
 
@@ -348,8 +279,15 @@ def validate(
                 **extra,
             )
 
-        if rule.kind in DEFERRED:
-            results.append(result("skipped", message=DEFERRED[rule.kind]))
+        if rule.kind == "schema":
+            breaking = [c for c in changes if c.impact == "breaking"]
+            results.append(
+                result(
+                    "fail" if breaking else "pass",
+                    failing_count=len(breaking),
+                    message="; ".join(c.describe() for c in changes),
+                )
+            )
             continue
         if rule.id in plan.problems:
             results.append(result("error", message=plan.problems[rule.id]))
@@ -376,6 +314,7 @@ def validate(
         duration_seconds=time.perf_counter() - started,
         as_of=as_of,
         notes=tuple(dict.fromkeys(notes)),
+        schema_changes=changes,
     )
 
 
@@ -405,7 +344,6 @@ def failing_rows(
 
 
 __all__ = [
-    "DEFERRED",
     "RuleResult",
     "ValidationReport",
     "failing_rows",
