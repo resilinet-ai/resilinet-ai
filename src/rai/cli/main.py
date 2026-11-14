@@ -1,6 +1,7 @@
 """Entry point for the ``rai`` command.
 
-Commands are added backlog item by backlog item; ``validate`` arrives with B-14.
+Commands are added backlog item by backlog item: ``validate`` (B-14), ``contract`` (B-08),
+``db`` and ``audit`` (B-05).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import typer
 from rich.console import Console
 
 from rai import __version__
+from rai.cli.validate import validate_command
 
 app = typer.Typer(
     name="rai",
@@ -25,6 +27,7 @@ db_app = typer.Typer(
 )
 audit_app = typer.Typer(help="Audit hash chain (needs RAI_DATABASE_URL).", no_args_is_help=True)
 contract_app = typer.Typer(help="Data contracts (FR-03.1).", no_args_is_help=True)
+app.command("validate")(validate_command)
 app.add_typer(db_app, name="db")
 app.add_typer(contract_app, name="contract")
 app.add_typer(audit_app, name="audit")

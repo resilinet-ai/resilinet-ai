@@ -2,9 +2,9 @@ id,module,priority,requirement,backlog,issues,pull_requests,tests,evidence,statu
 FR-01.1,M01,M,"Tenants, users and roles; cross-tenant isolation",B-05,,#4,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py,,in progress
 FR-01.2,M01,M,Hash-chained audit entry for every state change,B-05,,#4,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py,,in progress
 FR-01.3,M01,L,SSO via OIDC,,,,,,planned
-FR-02.1,M02,M,PostgreSQL and CSV/Parquet connectors scoped to one environment,B-13,,,tests/unit/test_connectors.py;tests/integration/test_connectors_postgres.py,docs/connectors.md,in progress
+FR-02.1,M02,M,PostgreSQL and CSV/Parquet connectors scoped to one environment,B-13,,#15,tests/unit/test_connectors.py;tests/integration/test_connectors_postgres.py,docs/connectors.md,in progress
 FR-02.2,M02,S,Redshift connector,,,,,,planned
-FR-02.3,M02,M,Credentials only as secret references,B-13,,,tests/unit/test_connectors.py;tests/integration/test_connectors_postgres.py,docs/connectors.md,in progress
+FR-02.3,M02,M,Credentials only as secret references,B-13,,#15,tests/unit/test_connectors.py;tests/integration/test_connectors_postgres.py,docs/connectors.md,in progress
 FR-03.1,M03,M,Declarative data contracts (YAML),B-08;B-09,,#10;#11,tests/unit/test_contract.py;tests/unit/test_engine.py,contracts/sandboxbank,in progress
 FR-03.2,M03,M,"Schema drift detection, breaking vs non-breaking",B-11,,#13,tests/unit/test_drift.py;tests/unit/test_engine.py,,in progress
 FR-03.3,M03,M,Duplicate transaction IDs within and across batches,B-10,,#12,tests/unit/test_duplicates.py;tests/unit/test_engine.py,,in progress
@@ -12,7 +12,7 @@ FR-03.4,M03,M,Rule severity and thresholds; critical fails the run,B-08;B-12,,#1
 FR-04.1,M04,M,Lineage edges with content digests,,,,,,planned
 FR-04.2,M04,L,OpenLineage ingest,,,,,,planned
 FR-05.1,M05,S,Synthetic canary privacy sentinel,,,,,,planned
-FR-06.1,M06,M,CLI and GitHub Action; non-zero exit on gate failure,,,,,,planned
+FR-06.1,M06,M,CLI and GitHub Action; non-zero exit on gate failure,B-14;B-20,,,tests/unit/test_cli_validate.py,scripts/demo_slice.py;docs/demos,in progress
 FR-06.2,M06,S,"Idempotent, resumable runs",,,,,,planned
 FR-07.1,M07,M,Fault types (first five families in MVP),,,,,,planned
 FR-07.2,M07,M,"Preflight: allow-list, not production, approved, blast radius",,,,,,planned
