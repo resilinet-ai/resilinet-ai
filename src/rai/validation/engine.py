@@ -17,10 +17,16 @@ Rule semantics:
   ``max_lag``. ``as_of`` is the batch arrival time when known, otherwise the
   newest timestamp in the batch.
 * A rule on a column that is missing from the batch reports ``error``.
+* ``unique`` and ``primary_key`` (B-10, FR-03.3) flag every occurrence of a key
+  *after the first*, so the failing count is the number of extra copies.
+  Rows with a missing key part are left to ``required``.
+* ``unique_across_batches`` flags rows whose key a *different* batch delivered
+  earlier, using a key history (:mod:`rai.validation.history`). Validating does
+  not change the history unless ``record=True``; without a history the rule
+  reports ``error``.
 
-Rules owned by later backlog items (``unique``, ``primary_key``,
-``unique_across_batches``: B-10; ``schema``: B-11) report ``skipped`` with that
-reason, so nothing passes silently.
+Rules owned by later backlog items (``schema``: B-11) report ``skipped`` with
+that reason, so nothing passes silently.
 """
 
 from __future__ import annotations
@@ -36,17 +42,16 @@ from typing import Any, Literal
 import polars as pl
 
 from rai.validation.contract import ColumnType, Contract, Rule, Severity
+from rai.validation.history import KeyStore
 
 Outcome = Literal["pass", "fail", "error", "skipped"]
 SAMPLE_LIMIT = 20
 ROW = "__rai_row"
 
 DEFERRED: dict[str, str] = {
-    "unique": "duplicate detection arrives with B-10",
-    "primary_key": "duplicate detection arrives with B-10",
-    "unique_across_batches": "cross-batch duplicate detection arrives with B-10",
     "schema": "schema drift detection arrives with B-11",
 }
+KEY_SEPARATOR = "\x1f"  # joins composite key parts; never appears in delivered text
 
 _UUID = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 _INTEGER = r"^-?[0-9]{1,18}$"
@@ -168,23 +173,62 @@ class _Plan:
     failures: dict[str, pl.Expr] = field(default_factory=dict)
     problems: dict[str, str] = field(default_factory=dict)  # rule id -> error message
     frame: pl.DataFrame = field(default_factory=pl.DataFrame)
+    keys_to_record: dict[str, list[str]] = field(default_factory=dict)  # scope -> keys
+
+
+@dataclass(frozen=True, slots=True)
+class _Inputs:
+    references: Mapping[str, pl.DataFrame]
+    as_of: datetime | None
+    history: KeyStore | None
+    batch_id: str | None
+
+
+def history_scope(contract: Contract, rule: Rule) -> str:
+    """History is kept per asset and rule, not per version, so it survives new versions."""
+    return f"{contract.contract}:{rule.id}"
+
+
+def _key(columns: tuple[str, ...]) -> tuple[pl.Expr, pl.Expr]:
+    """The normalised key of each row, and whether every part of it is present."""
+    parts = [pl.col(c).str.strip_chars() for c in columns]
+    present = pl.all_horizontal([~_missing(c) for c in columns])
+    key = parts[0] if len(parts) == 1 else pl.concat_str(parts, separator=KEY_SEPARATOR)
+    return key, present
 
 
 def _plan(
     contract: Contract,
     rules: list[Rule],
     batch: pl.DataFrame,
-    references: Mapping[str, pl.DataFrame],
-    as_of: datetime | None,
+    inputs: _Inputs,
 ) -> tuple[_Plan, list[str]]:
     plan = _Plan(frame=batch.with_row_index(ROW))
     notes: list[str] = []
+    references, as_of = inputs.references, inputs.as_of
     for rule in rules:
         if rule.kind in DEFERRED:
             continue
         missing_columns = [c for c in rule.columns if c not in batch.columns]
         if missing_columns:
             plan.problems[rule.id] = f"column {missing_columns[0]!r} is not in the batch"
+            continue
+        if rule.kind in {"unique", "primary_key"}:
+            key, present_key = _key(rule.columns)
+            plan.failures[rule.id] = present_key & ~key.is_first_distinct()
+            continue
+        if rule.kind == "unique_across_batches":
+            if inputs.history is None:
+                plan.problems[rule.id] = "no batch history supplied for cross-batch duplicates"
+                continue
+            key, present_key = _key(rule.columns)
+            keys = plan.frame.filter(present_key).select(key.unique()).to_series().to_list()
+            scope = history_scope(contract, rule)
+            seen = inputs.history.seen_elsewhere(scope, keys, inputs.batch_id)
+            plan.keys_to_record[scope] = keys
+            plan.failures[rule.id] = present_key & key.is_in(
+                pl.Series(sorted(seen), dtype=pl.Utf8).implode()
+            )
             continue
         name = rule.columns[0]
         column_type = contract.columns[name].column_type
@@ -266,12 +310,22 @@ def validate(
     *,
     references: Mapping[str, pl.DataFrame] | None = None,
     as_of: datetime | None = None,
+    history: KeyStore | None = None,
+    batch_id: str | None = None,
+    record: bool = False,
 ) -> ValidationReport:
-    """Evaluate every rule of ``contract`` on ``batch`` (all columns as text)."""
+    """Evaluate every rule of ``contract`` on ``batch`` (all columns as text).
+
+    With ``record=True`` the batch's keys are added to ``history`` after evaluation,
+    attributed to ``batch_id``; a batch is never compared with itself.
+    """
+    if record and (history is None or batch_id is None):
+        raise ValueError("record=True needs both history and batch_id")
     started = time.perf_counter()
     rules = contract.rules()
     text_batch = batch.with_columns(pl.all().cast(pl.Utf8))
-    plan, notes = _plan(contract, rules, text_batch, references or {}, as_of)
+    inputs = _Inputs(references or {}, as_of, history, batch_id)
+    plan, notes = _plan(contract, rules, text_batch, inputs)
     row_count = text_batch.height
 
     flags = (
@@ -311,6 +365,9 @@ def validate(
                 message=f"{failing} of {row_count} rows fail" if failing else "",
             )
         )
+    if record and history is not None and batch_id is not None:
+        for scope, keys in plan.keys_to_record.items():
+            history.record(scope, keys, batch_id)
     return ValidationReport(
         contract_ref=contract.ref,
         contract_sha256=contract.spec_sha256,
@@ -329,13 +386,19 @@ def failing_rows(
     *,
     references: Mapping[str, pl.DataFrame] | None = None,
     as_of: datetime | None = None,
+    history: KeyStore | None = None,
+    batch_id: str | None = None,
 ) -> list[int]:
-    """Every failing row of one rule (not just the sample), for scoring and debugging."""
+    """Every failing row of one rule (not just the sample), for scoring and debugging.
+
+    Read-only: it never records keys in ``history``.
+    """
     rules = [rule for rule in contract.rules() if rule.id == rule_id]
     if not rules:
         raise KeyError(rule_id)
     text_batch = batch.with_columns(pl.all().cast(pl.Utf8))
-    plan, _ = _plan(contract, rules, text_batch, references or {}, as_of)
+    inputs = _Inputs(references or {}, as_of, history, batch_id)
+    plan, _ = _plan(contract, rules, text_batch, inputs)
     if rule_id not in plan.failures:
         return []
     return plan.frame.select(plan.failures[rule_id]).to_series().arg_true().to_list()

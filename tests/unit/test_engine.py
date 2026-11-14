@@ -25,6 +25,7 @@ from rai.validation.engine import (
     read_batch,
     validate,
 )
+from rai.validation.history import MemoryKeyStore
 from sandboxbank.fixtures import build_fixtures
 from sandboxbank.generator import (
     GeneratorConfig,
@@ -184,10 +185,14 @@ def test_thresholds_samples_and_deferred_rules() -> None:
     assert results["v.type"].sample_rows == tuple(range(SAMPLE_LIMIT))
     assert results["v.type"].threshold == "10%"
     assert results["id.type"].outcome == "pass"
-    for rule_id, kind in (("id.unique", "unique"), ("schema", "schema")):
-        assert results[rule_id].outcome == "skipped"
-        assert results[rule_id].message == DEFERRED[kind]
-    assert results["unique_across_batches:id"].outcome == "skipped"
+    assert results["id.unique"].outcome == "pass"
+    assert results["schema"].outcome == "skipped"
+    assert results["schema"].message == DEFERRED["schema"]
+    across = results["unique_across_batches:id"]
+    assert (across.outcome, across.message) == (
+        "error",
+        "no batch history supplied for cross-batch duplicates",
+    )
     within = validate(c, frame.with_columns(pl.lit("1").alias("v")).head(10)).by_rule()
     assert within["v.type"].outcome == "pass"
 
@@ -216,11 +221,13 @@ def test_failing_rows_lookup_errors() -> None:
 
 
 ROW_LEVEL = {
+    "D02": ["unique_across_batches:txn_id"],
     "D04": ["amount.type"],
     "D05": ["amount.range", "amount.max_lookup"],
     "D06": ["account_id.references"],
     "D10": ["freshness"],
 }
+MERCHANTS_CONTRACT = load_contract(ROOT / "contracts" / "sandboxbank" / "merchants.yaml")
 
 
 @pytest.fixture(scope="module")
@@ -240,6 +247,7 @@ def fixtures(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_engine_scores_exactly_against_the_answer_key(fixtures: Path) -> None:
+    """Replay the feed in delivery order, as a pipeline would, and score every batch."""
     refs = {
         "accounts": read_batch(fixtures / "feed" / "accounts.csv"),
         "merchants": read_batch(fixtures / "feed" / "merchants.csv"),
@@ -248,11 +256,14 @@ def test_engine_scores_exactly_against_the_answer_key(fixtures: Path) -> None:
         json.loads(line)
         for line in (fixtures / "answer_key" / "ground_truth.jsonl").read_text("utf-8").splitlines()
     ]
+    history = MemoryKeyStore()
     seen = set()
     for batch in truth:
         frame = read_batch(fixtures / batch["file"])
         as_of = datetime.fromisoformat(batch["onset"])
-        report = validate(TXN_CONTRACT, frame, references=refs, as_of=as_of)
+        kwargs: dict[str, Any] = {"references": refs, "as_of": as_of, "history": history}
+        kwargs["batch_id"] = batch["batch_id"]
+        report = validate(TXN_CONTRACT, frame, record=True, **kwargs)
         raised = {r.rule_id for r in report.results if r.outcome in {"fail", "error"}}
         defect = batch["defect_class"]
         seen.add(defect)
@@ -260,31 +271,53 @@ def test_engine_scores_exactly_against_the_answer_key(fixtures: Path) -> None:
         if defect in ROW_LEVEL:
             found: set[int] = set()
             for rule_id in ROW_LEVEL[defect]:
-                found |= set(
-                    failing_rows(TXN_CONTRACT, frame, rule_id, references=refs, as_of=as_of)
-                )
+                found |= set(failing_rows(TXN_CONTRACT, frame, rule_id, **kwargs))
             assert sorted(found) == batch["rows"], context
             assert raised <= set(ROW_LEVEL[defect]), context
+        elif defect == "D01":
+            # Copies land before or after their original; either way each copy is one
+            # extra occurrence, so the duplicated keys and the count match exactly.
+            rows = failing_rows(TXN_CONTRACT, frame, "txn_id.unique")
+            keys = frame.get_column("txn_id").gather(rows).to_list()
+            assert sorted(keys) == sorted(batch["keys"]), context
+            assert raised == {"txn_id.unique"}, context
         elif defect == "D03":
             rule_id = f"{batch['columns'][0]}.required"
             assert failing_rows(TXN_CONTRACT, frame, rule_id) == batch["rows"], context
-            # A blank txn_id or created_at is also not a valid uuid/timestamp: never double-counted.
+            # A blank txn_id or created_at is not also a type or duplicate failure.
             assert raised == {rule_id}, context
         elif defect == "D09":
             assert raised == {"amount.type"}, context
             assert report.by_rule()["amount.type"].failing_count > frame.height / 2, context
         elif defect in {"D07", "D08"}:
             missing = batch["columns"][0]
-            assert raised, context
             # Rules on the column, and rules that need it as a lookup key, report an error.
             assert f"{missing}.type" in raised, context
             for rule in raised:
                 result = report.by_rule()[rule]
                 assert result.outcome == "error", context
                 assert result.message == f"column {missing!r} is not in the batch", context
-        else:  # clean, B-10 classes (D01, D02, D11), and D12 (merchants contract)
+        elif defect == "D11":
+            # Every row of a re-delivered batch was delivered before (it may also carry
+            # the earlier batch's own defects, which are already in the answer key).
+            across = report.by_rule()["unique_across_batches:txn_id"]
+            with_key = frame.filter(pl.col("txn_id").str.strip_chars() != "").height
+            assert across.outcome == "fail", context
+            assert across.failing_count == with_key, context
+        elif defect == "D12":
+            assert raised == set(), context  # the batch is clean; the dimension is not
+            dimension = read_batch(fixtures / batch["dimension_file"])
+            dim_report = validate(MERCHANTS_CONTRACT, dimension).by_rule()
+            dim_raised = {k for k, r in dim_report.items() if r.outcome in {"fail", "error"}}
+            assert dim_raised == {"merchant_id.unique"}, context
+            rows = failing_rows(MERCHANTS_CONTRACT, dimension, "merchant_id.unique")
+            dup_keys = sorted(dimension.get_column("merchant_id").gather(rows).to_list())
+            assert dup_keys == batch["keys"], context
+        else:  # clean
             assert raised == set(), context
     assert seen == {None, *(f"D{n:02d}" for n in range(1, 13))}
+    clean_dimension = validate(MERCHANTS_CONTRACT, refs["merchants"])
+    assert clean_dimension.with_outcome("fail") == []
 
 
 # ---- NFR-PERF-1: a 100k-row batch against the 36-rule contract in under 10 s --------------
@@ -305,7 +338,15 @@ def test_100k_rows_validate_well_under_ten_seconds() -> None:
         ),
     }
     started = time.perf_counter()
-    report = validate(TXN_CONTRACT, frame, references=refs, as_of=config.batch_start(1))
+    report = validate(
+        TXN_CONTRACT,
+        frame,
+        references=refs,
+        as_of=config.batch_start(1),
+        history=MemoryKeyStore(),
+        batch_id="B000000",
+        record=True,
+    )
     elapsed = time.perf_counter() - started
     assert report.row_count == 100_000
     assert report.with_outcome("fail") == []
