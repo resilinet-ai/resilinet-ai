@@ -5,7 +5,7 @@ FR-01.3,M01,L,SSO via OIDC,,,,,,planned
 FR-02.1,M02,M,PostgreSQL and CSV/Parquet connectors scoped to one environment,,,,,,planned
 FR-02.2,M02,S,Redshift connector,,,,,,planned
 FR-02.3,M02,M,Credentials only as secret references,,,,,,planned
-FR-03.1,M03,M,Declarative data contracts (YAML),B-08,,,tests/unit/test_contract.py,contracts/sandboxbank,in progress
+FR-03.1,M03,M,Declarative data contracts (YAML),B-08;B-09,,#10,tests/unit/test_contract.py;tests/unit/test_engine.py,contracts/sandboxbank,in progress
 FR-03.2,M03,M,"Schema drift detection, breaking vs non-breaking",,,,,,planned
 FR-03.3,M03,M,Duplicate transaction IDs within and across batches,,,,,,planned
 FR-03.4,M03,M,Rule severity and thresholds; critical fails the run,B-08;B-12,,,tests/unit/test_contract.py,,in progress
@@ -41,7 +41,7 @@ NFR-REP-1,Reproducibility,M,"Runs pin versions, digests and seeds",B-02;B-07,,#1
 NFR-REP-2,Reproducibility,M,One-command stack on an 8 GB laptop,B-03;B-04,,#2;#3,tests/integration/test_sandboxbank_ledger.py;tests/integration/test_sandboxbank_etl.py,,in progress
 NFR-AUD-1,Auditability,M,Append-only results and approvals,,,,,,planned
 NFR-AUD-2,Auditability,M,Honest tamper-evidence statements,B-05,,#4,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py;docs/audit-chain.md,,in progress
-NFR-PERF-1,Performance,M,"100k-row, 30-rule validation under 10 s",,,,,,planned
+NFR-PERF-1,Performance,M,"100k-row, 30-rule validation under 10 s",B-09,,,tests/unit/test_engine.py,"dev laptop: 0.15 s median for 100k rows x 36 rules (2026-11-13); benchmark B-15",in progress
 NFR-PERF-2,Performance,M,RAI overhead measured and reported,,,,,,planned
 NFR-USE-1,Usability,M,"Every metric shows definition, n and window",,,,,,planned
 NFR-USE-2,Accessibility,M,WCAG 2.2 AA,,,,,,planned
