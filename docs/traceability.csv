@@ -37,12 +37,12 @@ NFR-SEC-1,Security,M,Tenant isolation in API and PostgreSQL RLS,B-05,,#4,tests/i
 NFR-SEC-2,Security,M,TLS; secrets never persisted,,,,,,planned
 NFR-SEC-3,Security,M,"SSDF practices: dependency scanning, SBOM, signed images",B-01;B-06;B-40,,,,,in progress
 NFR-SEC-4,Security,M,Versioned STRIDE threat model,B-06,,#5,tests/integration/test_core_schema.py,docs/threat-model.md,v1 done
-NFR-REP-1,Reproducibility,M,"Runs pin versions, digests and seeds",B-02;B-07,,#1;#9,tests/unit/test_sandboxbank_dataset.py;tests/unit/test_sandboxbank_generator.py;tests/unit/test_sandboxbank_injector.py,,in progress
+NFR-REP-1,Reproducibility,M,"Runs pin versions, digests and seeds",B-02;B-07;B-15,,#1;#9;#19,tests/unit/test_sandboxbank_dataset.py;tests/unit/test_sandboxbank_generator.py;tests/unit/test_sandboxbank_injector.py;tests/unit/test_bench_harness.py,benchmarks/README.md,in progress
 NFR-REP-2,Reproducibility,M,One-command stack on an 8 GB laptop,B-03;B-04,,#2;#3,tests/integration/test_sandboxbank_ledger.py;tests/integration/test_sandboxbank_etl.py,,in progress
 NFR-AUD-1,Auditability,M,Append-only results and approvals,,,,,,planned
 NFR-AUD-2,Auditability,M,Honest tamper-evidence statements,B-05,,#4,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py;docs/audit-chain.md,,in progress
-NFR-PERF-1,Performance,M,"100k-row, 30-rule validation under 10 s",B-09;B-10,,#11,tests/unit/test_engine.py,"dev laptop 2026-11-13: 0.15 s (no history); 1.2-2.6 s with a 2M-key SQLite history; full 18M-key run in B-15",in progress
-NFR-PERF-2,Performance,M,RAI overhead measured and reported,,,,,,planned
+NFR-PERF-1,Performance,M,"100k-row, 30-rule validation under 10 s",B-09;B-10;B-15,,#11;#19,tests/unit/test_engine.py;tests/unit/test_bench_harness.py,"dev laptop 2026-11-13: 0.15 s (no history); 1.2-2.6 s with a 2M-key SQLite history. 2026-11-14 (rai-bench history-scale): 6.7-7.2 s (5 runs) for 100k rows x 36 rules against an 18M-key history (1.9 GB), all 100 planted duplicates found; within budget, 28% margin; re-measure on the 8 vCPU reference machine",in progress
+NFR-PERF-2,Performance,M,RAI overhead measured and reported,B-15,,#19,tests/unit/test_bench_harness.py,"wall and CPU seconds per arm and batch in deliveries.jsonl; P50/P95 in scores.json; peak memory with containerised arms",in progress
 NFR-USE-1,Usability,M,"Every metric shows definition, n and window",,,,,,planned
 NFR-USE-2,Accessibility,M,WCAG 2.2 AA,,,,,,planned
 NFR-OPS-1,Operability,M,"Structured logs, traces, health endpoints",,,,,,planned

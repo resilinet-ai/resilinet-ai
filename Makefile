@@ -39,4 +39,4 @@ demo:
 	uv run python scripts/demo_slice.py
 
 benchmark:
-	@echo "Benchmark harness arrives with B-15."
+	uv run rai-bench dry-run
