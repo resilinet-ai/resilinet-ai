@@ -1,0 +1,32 @@
+# SandboxBank P1 feed: one micro-batch of payment transactions (schema v1).
+# Every Protocol section 4 defect class is caught by at least one rule here;
+# see contracts/README.md for the mapping.
+contract: transactions_raw
+version: 1
+owner: sandboxbank-payments
+description: Raw payment transactions from the SandboxBank payments feed. Synthetic data only.
+freshness: { column: created_at, max_lag: 1h }
+primary_key: [txn_id]
+unique_across_batches: [txn_id]
+columns:
+  txn_id:      { type: uuid, required: true }
+  batch_id:    { type: string, required: true, pattern: "^B[0-9]{6}$" }
+  account_id:  { type: string, required: true, pattern: "^ACC-[0-9]{7}$", references: accounts.account_id }
+  merchant_id: { type: string, pattern: "^MER-[0-9]{6}$", references: merchants.merchant_id }
+  channel:     { type: string, required: true, allowed: [card_present, ecommerce, ach, wire, p2p] }
+  direction:   { type: string, required: true, allowed: [debit, credit] }
+  amount:
+    type: decimal(14,2)
+    required: true
+    min: 0.01
+    max: 25000
+    max_lookup: { ref: accounts.txn_limit, key: account_id }
+  currency:    { type: string, required: true, allowed: [USD] }
+  status:      { type: string, required: true, allowed: [posted, pending, declined] }
+  created_at:  { type: timestamp, required: true }
+  is_fraud:    { type: boolean, required: true, severity: warn }
+schema_change_policy:
+  added_column: non_breaking
+  removed_or_renamed_column: breaking
+  type_change: breaking
+severity_default: critical

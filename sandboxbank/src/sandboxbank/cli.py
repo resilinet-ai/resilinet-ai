@@ -5,6 +5,8 @@ sandboxbank verify data/sandboxbank
 sandboxbank load-reference --data data/sandboxbank        (needs SANDBOXBANK_LEDGER_DSN)
 sandboxbank post --data data/sandboxbank --api http://127.0.0.1:18080
 sandboxbank serve --port 8080                              (needs SANDBOXBANK_LEDGER_DSN)
+sandboxbank fixtures --data-seed 1 --injector-seed 2 --out data/fixtures
+sandboxbank seal data/fixtures [--expect <sha256>]
 sandboxbank etl [--once]          (needs SANDBOXBANK_LEDGER_DSN and SANDBOXBANK_ANALYTICS_DSN)
 """
 
@@ -54,6 +56,23 @@ def _parser() -> argparse.ArgumentParser:
     serve = commands.add_parser("serve", help="Run the payments-api.")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8080)
+
+    fixtures = commands.add_parser(
+        "fixtures", help="Write a known-defect fixture set with a sealed answer key."
+    )
+    fixtures.add_argument("--data-seed", type=int, required=True, help="Generator seed")
+    fixtures.add_argument("--injector-seed", type=int, required=True, help="Injector seed")
+    fixtures.add_argument("--out", type=Path, required=True, help="Output directory")
+    fixtures.add_argument("--accounts", type=int, default=5_000)
+    fixtures.add_argument("--merchants", type=int, default=500)
+    fixtures.add_argument("--rows", type=int, default=100_000, help="Rows per batch")
+    fixtures.add_argument("--per-class", type=int, default=12, help="Batches per defect class")
+    fixtures.add_argument("--clean", type=int, default=36, help="Clean control batches")
+    fixtures.add_argument("--force", action="store_true", help="Overwrite a non-empty directory")
+
+    seal = commands.add_parser("seal", help="Check a fixture set's answer key against its seal.")
+    seal.add_argument("out", type=Path, help="Fixture directory")
+    seal.add_argument("--expect", help="Publicly committed SHA-256 to compare with")
 
     etl = commands.add_parser("etl", help="Run the P2 settlement ETL (ledger to warehouse).")
     etl.add_argument("--once", action="store_true", help="Run one cycle and exit")
@@ -135,6 +154,42 @@ def _post(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fixtures(args: argparse.Namespace) -> int:
+    from sandboxbank.fixtures import build_fixtures
+
+    try:
+        manifest = build_fixtures(
+            args.out,
+            data_seed=args.data_seed,
+            injector_seed=args.injector_seed,
+            accounts=args.accounts,
+            merchants=args.merchants,
+            rows_per_batch=args.rows,
+            batches_per_class=args.per_class,
+            clean=args.clean,
+            force=args.force,
+        )
+    except (ValueError, FileExistsError) as error:
+        return _error(error)
+    print(
+        f"Wrote {manifest['config']['batches']} batches "
+        f"({manifest['seed_purpose']}) to {args.out}\n"
+        f"Answer key SEAL: {manifest['answer_key_sha256']}\n"
+        "Commit the SEAL publicly before any arm runs; keep answer_key/ away from the arms."
+    )
+    return 0
+
+
+def _seal(args: argparse.Namespace) -> int:
+    from sandboxbank.fixtures import verify_seal
+
+    if verify_seal(args.out, args.expect):
+        print(f"{args.out}: answer key matches its seal")
+        return 0
+    print(f"{args.out}: answer key does NOT match its seal", file=sys.stderr)
+    return 1
+
+
 def _etl(args: argparse.Namespace) -> int:
     import threading
 
@@ -173,6 +228,8 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "post": _post,
     "serve": _serve,
     "etl": _etl,
+    "fixtures": _fixtures,
+    "seal": _seal,
 }
 
 

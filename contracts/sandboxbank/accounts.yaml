@@ -1,0 +1,14 @@
+# SandboxBank reference table: accounts (schema v1). Synthetic data only.
+contract: accounts
+version: 1
+owner: sandboxbank-core
+primary_key: [account_id]
+columns:
+  account_id:   { type: string, required: true, pattern: "^ACC-[0-9]{7}$" }
+  customer_id:  { type: string, required: true, pattern: "^CUS-[0-9]{7}$" }
+  account_type: { type: string, required: true, allowed: [checking, savings, business] }
+  currency:     { type: string, required: true, allowed: [USD] }
+  status:       { type: string, required: true, allowed: [active, dormant, closed] }
+  opened_on:    { type: date, required: true }
+  txn_limit:    { type: "decimal(14,2)", required: true, min: 0.01 }
+severity_default: critical
