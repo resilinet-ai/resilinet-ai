@@ -21,7 +21,7 @@ from sqlalchemy import Connection, Engine, text
 from rai.api.problems import Problem
 from rai.api.settings import Settings, SettingsError
 from rai.api.tokens import InvalidToken, read_access_token
-from rai.core.db import APP_ROLE
+from rai.core.db import APP_ROLE, login_role_problem
 from rai.core.tenancy import set_context
 
 Role = Literal["admin", "engineer", "reviewer", "viewer", "auditor"]
@@ -62,27 +62,9 @@ def app_transaction(engine: Engine) -> Iterator[Connection]:
 
 def check_login_role(conn: Connection) -> None:
     """Refuse to serve if the API logged in with more power than ``rai_app`` (threat I-02)."""
-    row = conn.execute(
-        text(
-            "SELECT r.rolsuper, r.rolbypassrls, "
-            # Roles are cluster-wide; the schema says whether this database is migrated.
-            "to_regnamespace('rai') IS NOT NULL AND to_regrole('rai_app') IS NOT NULL "
-            "AS migrated, "
-            "COALESCE(pg_has_role(current_user, to_regrole('rai_app'), 'MEMBER'), false) "
-            "AS in_app, "
-            "EXISTS (SELECT FROM pg_namespace n WHERE n.nspname = 'rai' AND n.nspowner = r.oid) "
-            "  OR EXISTS (SELECT FROM pg_tables t WHERE t.schemaname = 'rai' "
-            "             AND t.tableowner = current_user) AS owns "
-            "FROM pg_roles r WHERE r.rolname = current_user"
-        )
-    ).one()
-    if not row.migrated:
-        raise SettingsError("the rai schema is not set up; run `rai db upgrade` first")
-    if row.rolsuper or row.rolbypassrls or row.owns or not row.in_app:
-        raise SettingsError(
-            "the API must log in as rai_api (a member of rai_app only), not as a superuser, "
-            "an owner of the rai schema or a role that bypasses row-level security"
-        )
+    problem = login_role_problem(conn, "rai_api")
+    if problem is not None:
+        raise SettingsError(f"the API must {problem}" if problem.startswith("log in") else problem)
 
 
 def principal(request: Request) -> Principal:

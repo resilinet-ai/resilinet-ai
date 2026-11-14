@@ -12,8 +12,8 @@ from sqlalchemy import Engine, create_engine, make_url
 from rai.api.app import create_app
 from rai.api.settings import Settings
 from rai.core import db
-from rai.core.accounts import set_api_role_password
-from tests.integration.apikit import API_PASSWORD, DSN, SECRET
+from rai.core.accounts import set_api_role_password, set_role_password
+from tests.integration.apikit import API_PASSWORD, DSN, SECRET, WORKER_PASSWORD
 
 
 @pytest.fixture(scope="module")
@@ -24,6 +24,7 @@ def owner() -> Iterator[Engine]:
     engine = create_engine(db.sqlalchemy_url(DSN))
     with engine.begin() as conn:
         set_api_role_password(conn, API_PASSWORD)
+        set_role_password(conn, "rai_worker", WORKER_PASSWORD)
     yield engine
     engine.dispose()
 
@@ -39,3 +40,9 @@ def client(api_url: str) -> Iterator[TestClient]:
     settings = Settings(database_url=api_url, jwt_secret=SECRET, login_attempts=3)
     with TestClient(create_app(settings)) as test_client:
         yield test_client
+
+
+@pytest.fixture(scope="module")
+def worker_url(owner: Engine) -> str:
+    url = make_url(db.sqlalchemy_url(DSN)).set(username="rai_worker", password=WORKER_PASSWORD)
+    return url.render_as_string(hide_password=False)
