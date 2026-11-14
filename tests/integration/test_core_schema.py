@@ -390,3 +390,23 @@ def test_cli_upgrade_is_idempotent(engine: Engine) -> None:
     result = CliRunner().invoke(app, ["db", "upgrade"], env={"RAI_DATABASE_URL": DSN})
     assert result.exit_code == 0
     assert "upgraded to head" in result.output
+
+
+def test_every_rai_table_has_row_level_security(engine: Engine) -> None:
+    # Guard for future migrations (threat model I-01): a new table without RLS fails CI.
+    with engine.begin() as conn:
+        missing = conn.execute(
+            text(
+                "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'rai' AND c.relkind = 'r' AND NOT c.relrowsecurity "
+                "ORDER BY 1"
+            )
+        ).scalars()
+        assert list(missing) == []
+        tables = conn.execute(
+            text(
+                "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'rai' AND c.relkind = 'r'"
+            )
+        ).scalar_one()
+        assert tables >= 4
