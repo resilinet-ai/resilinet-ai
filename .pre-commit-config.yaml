@@ -10,7 +10,7 @@ repos:
         args: ["--maxkb=500"]
       - id: detect-private-key
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.5 # must equal the ruff version in uv.lock (tests/unit/test_tooling.py)
+    rev: v0.17.3 # must equal the ruff version in uv.lock (tests/unit/test_tooling.py)
     hooks:
       - id: ruff
         args: ["--fix"]

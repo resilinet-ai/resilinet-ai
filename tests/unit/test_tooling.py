@@ -22,6 +22,14 @@ def test_pre_commit_ruff_matches_the_locked_ruff() -> None:
     assert pinned.group(1) == locked, f"set ruff-pre-commit rev to v{locked}"
 
 
+def test_uv_never_resolves_a_release_younger_than_14_days() -> None:
+    # Decision DEP-MIN-AGE (threat model T-08): the lock itself obeys the two-week rule.
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert project["tool"]["uv"]["exclude-newer"] == "14 days"
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    assert lock["options"]["exclude-newer-span"] == "P14D", "run uv lock"
+
+
 def test_every_dependabot_update_waits_at_least_14_days() -> None:
     # Decision DEP-COOLDOWN (threat model T-08): no release younger than two weeks.
     config = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
