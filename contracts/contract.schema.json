@@ -1,0 +1,361 @@
+{
+  "$defs": {
+    "ColumnSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "max_lookup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaxLookup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "min": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pattern"
+        },
+        "references": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "References"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "info",
+                "warn",
+                "critical"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "unique": {
+          "default": false,
+          "title": "Unique",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ColumnSpec",
+      "type": "object"
+    },
+    "Freshness": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "title": "Column",
+          "type": "string"
+        },
+        "max_lag": {
+          "title": "Max Lag",
+          "type": "string"
+        }
+      },
+      "required": [
+        "column",
+        "max_lag"
+      ],
+      "title": "Freshness",
+      "type": "object"
+    },
+    "MaxLookup": {
+      "additionalProperties": false,
+      "description": "Per-row upper bound read from a reference table, e.g. each account's limit.",
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "ref": {
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "key"
+      ],
+      "title": "MaxLookup",
+      "type": "object"
+    },
+    "SchemaChangePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "added_column": {
+          "default": "non_breaking",
+          "enum": [
+            "breaking",
+            "non_breaking"
+          ],
+          "title": "Added Column",
+          "type": "string"
+        },
+        "removed_or_renamed_column": {
+          "default": "breaking",
+          "enum": [
+            "breaking",
+            "non_breaking"
+          ],
+          "title": "Removed Or Renamed Column",
+          "type": "string"
+        },
+        "type_change": {
+          "default": "breaking",
+          "enum": [
+            "breaking",
+            "non_breaking"
+          ],
+          "title": "Type Change",
+          "type": "string"
+        }
+      },
+      "title": "SchemaChangePolicy",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A validated data contract. Construct it with :func:`load_contract`.",
+  "properties": {
+    "columns": {
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,62}$": {
+          "$ref": "#/$defs/ColumnSpec"
+        }
+      },
+      "title": "Columns",
+      "type": "object"
+    },
+    "contract": {
+      "pattern": "^[a-z][a-z0-9_]{0,62}$",
+      "title": "Contract",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "freshness": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Freshness"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "owner": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Owner"
+    },
+    "primary_key": {
+      "items": {
+        "pattern": "^[a-z][a-z0-9_]{0,62}$",
+        "type": "string"
+      },
+      "title": "Primary Key",
+      "type": "array"
+    },
+    "schema_change_policy": {
+      "$ref": "#/$defs/SchemaChangePolicy"
+    },
+    "severity_default": {
+      "default": "critical",
+      "enum": [
+        "info",
+        "warn",
+        "critical"
+      ],
+      "title": "Severity Default",
+      "type": "string"
+    },
+    "threshold_default": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "default": 0,
+      "title": "Threshold Default"
+    },
+    "unique_across_batches": {
+      "items": {
+        "pattern": "^[a-z][a-z0-9_]{0,62}$",
+        "type": "string"
+      },
+      "title": "Unique Across Batches",
+      "type": "array"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "contract",
+    "version",
+    "columns"
+  ],
+  "title": "RAI data contract",
+  "type": "object"
+}
