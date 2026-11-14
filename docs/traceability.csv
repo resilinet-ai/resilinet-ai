@@ -6,8 +6,8 @@ FR-02.1,M02,M,PostgreSQL and CSV/Parquet connectors scoped to one environment,,,
 FR-02.2,M02,S,Redshift connector,,,,,,planned
 FR-02.3,M02,M,Credentials only as secret references,,,,,,planned
 FR-03.1,M03,M,Declarative data contracts (YAML),B-08;B-09,,#10;#11,tests/unit/test_contract.py;tests/unit/test_engine.py,contracts/sandboxbank,in progress
-FR-03.2,M03,M,"Schema drift detection, breaking vs non-breaking",,,,,,planned
-FR-03.3,M03,M,Duplicate transaction IDs within and across batches,B-10,,,tests/unit/test_duplicates.py;tests/unit/test_engine.py,,in progress
+FR-03.2,M03,M,"Schema drift detection, breaking vs non-breaking",B-11,,,tests/unit/test_drift.py;tests/unit/test_engine.py,,in progress
+FR-03.3,M03,M,Duplicate transaction IDs within and across batches,B-10,,#12,tests/unit/test_duplicates.py;tests/unit/test_engine.py,,in progress
 FR-03.4,M03,M,Rule severity and thresholds; critical fails the run,B-08;B-12,,,tests/unit/test_contract.py,,in progress
 FR-04.1,M04,M,Lineage edges with content digests,,,,,,planned
 FR-04.2,M04,L,OpenLineage ingest,,,,,,planned

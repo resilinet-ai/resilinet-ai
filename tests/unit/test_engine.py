@@ -19,7 +19,6 @@ import pytest
 
 from rai.validation.contract import Contract, load_contract, parse_contract
 from rai.validation.engine import (
-    DEFERRED,
     SAMPLE_LIMIT,
     failing_rows,
     read_batch,
@@ -173,7 +172,7 @@ def test_date_freshness() -> None:
 # ---- report shape ------------------------------------------------------------------------
 
 
-def test_thresholds_samples_and_deferred_rules() -> None:
+def test_thresholds_samples_and_batch_level_rules() -> None:
     c = contract(
         '  id: { type: integer, unique: true }\n  v: { type: integer, threshold: "10%" }',
         "unique_across_batches: [id]",
@@ -186,8 +185,11 @@ def test_thresholds_samples_and_deferred_rules() -> None:
     assert results["v.type"].threshold == "10%"
     assert results["id.type"].outcome == "pass"
     assert results["id.unique"].outcome == "pass"
-    assert results["schema"].outcome == "skipped"
-    assert results["schema"].message == DEFERRED["schema"]
+    # 25 of 30 values no longer fit "integer": beyond a value error, that is a type change.
+    assert (results["schema"].outcome, results["schema"].message) == (
+        "fail",
+        "column 'v' type integer -> string (breaking)",
+    )
     across = results["unique_across_batches:id"]
     assert (across.outcome, across.message) == (
         "error",
@@ -287,13 +289,30 @@ def test_engine_scores_exactly_against_the_answer_key(fixtures: Path) -> None:
             # A blank txn_id or created_at is not also a type or duplicate failure.
             assert raised == {rule_id}, context
         elif defect == "D09":
-            assert raised == {"amount.type"}, context
+            # Row-level (amount.type) and batch-level (schema: breaking type change).
+            assert raised == {"amount.type", "schema"}, context
             assert report.by_rule()["amount.type"].failing_count > frame.height / 2, context
+            (change,) = report.schema_changes
+            assert (change.kind, change.column, change.impact) == (
+                "type_change",
+                "amount",
+                "breaking",
+            ), context
+            expected = "string" if batch["detail"]["became"] == "string" else "decimal("
+            assert change.observed_type is not None, context
+            assert change.observed_type.startswith(expected), context
         elif defect in {"D07", "D08"}:
             missing = batch["columns"][0]
+            (change,) = report.schema_changes
+            if defect == "D07":  # spec acceptance: a renamed column is flagged breaking
+                expected = ("renamed", missing, batch["detail"]["renamed_to"], "breaking")
+            else:
+                expected = ("removed", missing, None, "breaking")
+            assert (change.kind, change.column, change.new_name, change.impact) == expected
+            assert report.by_rule()["schema"].outcome == "fail", context
             # Rules on the column, and rules that need it as a lookup key, report an error.
             assert f"{missing}.type" in raised, context
-            for rule in raised:
+            for rule in raised - {"schema"}:
                 result = report.by_rule()[rule]
                 assert result.outcome == "error", context
                 assert result.message == f"column {missing!r} is not in the batch", context
