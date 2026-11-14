@@ -70,6 +70,15 @@ def _parser() -> argparse.ArgumentParser:
     fixtures.add_argument("--clean", type=int, default=36, help="Clean control batches")
     fixtures.add_argument("--force", action="store_true", help="Overwrite a non-empty directory")
 
+    slice_ = commands.add_parser(
+        "slice", help="First runnable slice: a clean batch, then one re-sending 0.1%% of it."
+    )
+    slice_.add_argument("--data-seed", type=int, default=7, help="Generator seed")
+    slice_.add_argument("--injector-seed", type=int, default=8, help="Injector seed")
+    slice_.add_argument("--out", type=Path, required=True, help="Output directory")
+    slice_.add_argument("--rows", type=int, default=100_000, help="Rows per batch")
+    slice_.add_argument("--force", action="store_true", help="Replace a non-empty directory")
+
     seal = commands.add_parser("seal", help="Check a fixture set's answer key against its seal.")
     seal.add_argument("out", type=Path, help="Fixture directory")
     seal.add_argument("--expect", help="Publicly committed SHA-256 to compare with")
@@ -180,6 +189,27 @@ def _fixtures(args: argparse.Namespace) -> int:
     return 0
 
 
+def _slice(args: argparse.Namespace) -> int:
+    from sandboxbank.fixtures import build_slice
+
+    try:
+        result = build_slice(
+            args.out,
+            data_seed=args.data_seed,
+            injector_seed=args.injector_seed,
+            rows_per_batch=args.rows,
+            force=args.force,
+        )
+    except (ValueError, FileExistsError) as error:
+        return _error(error)
+    defective = result["batches"][1]
+    print(
+        f"Wrote clean batch {result['batches'][0]['batch_id']} and "
+        f"{defective['batch_id']} with {len(defective['rows'])} re-sent rows (D02) to {args.out}"
+    )
+    return 0
+
+
 def _seal(args: argparse.Namespace) -> int:
     from sandboxbank.fixtures import verify_seal
 
@@ -230,6 +260,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "etl": _etl,
     "fixtures": _fixtures,
     "seal": _seal,
+    "slice": _slice,
 }
 
 
