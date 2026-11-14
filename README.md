@@ -52,6 +52,8 @@ uv run rai validate --contract contracts/sandboxbank/transactions_raw.yaml \
 
 `--format json` (or `--report FILE`) gives a deterministic JSON report. Contracts are described in [contracts/README.md](contracts/README.md), and connectors (PostgreSQL, Parquet, CSV) in [docs/connectors.md](docs/connectors.md).
 
+`make benchmark` runs the benchmark harness end to end on a small development fixture set; see [benchmarks/README.md](benchmarks/README.md).
+
 ## Repository layout
 
 | Path | Contents |

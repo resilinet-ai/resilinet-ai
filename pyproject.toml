@@ -43,19 +43,19 @@ build-backend = "hatchling.build"
 packages = ["src/rai"]
 
 [tool.uv.workspace]
-members = ["chaos_agent", "sandboxbank"]
+members = ["chaos_agent", "sandboxbank", "benchmarks"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "chaos_agent/src", "sandboxbank/src", "tests", "scripts"]
+src = ["src", "chaos_agent/src", "sandboxbank/src", "benchmarks/src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "RUF", "PT"]
 ignore = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["rai", "chaos_agent", "sandboxbank", "scripts"]
+known-first-party = ["rai", "chaos_agent", "sandboxbank", "rai_bench", "scripts"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S608"] # tests build SQL only from constants
@@ -65,7 +65,7 @@ known-first-party = ["rai", "chaos_agent", "sandboxbank", "scripts"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src", "chaos_agent/src", "sandboxbank/src", "scripts"]
+files = ["src", "chaos_agent/src", "sandboxbank/src", "benchmarks/src", "scripts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -73,7 +73,7 @@ addopts = "-ra --strict-markers"
 pythonpath = ["."]
 
 [tool.coverage.run]
-source = ["rai", "sandboxbank"]
+source = ["rai", "sandboxbank", "rai_bench"]
 branch = true
 # Alembic exec()s env.py, which coverage cannot trace; every migration test runs it.
 omit = ["*/rai/migrations/env.py"]
