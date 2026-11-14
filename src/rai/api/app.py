@@ -14,7 +14,13 @@ from fastapi import FastAPI, Request, Response
 from sqlalchemy import Engine, create_engine
 
 from rai import __version__
-from rai.api import problems, routes_auth, routes_members
+from rai.api import (
+    problems,
+    routes_auth,
+    routes_definitions,
+    routes_members,
+    routes_projects,
+)
 from rai.api.context import check_login_role
 from rai.api.problems import Problem, problem_response
 from rai.api.ratelimit import FailureLimiter
@@ -67,6 +73,8 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
 
     app.include_router(routes_auth.router)
     app.include_router(routes_members.router)
+    app.include_router(routes_projects.router)
+    app.include_router(routes_definitions.router)
     return app
 
 

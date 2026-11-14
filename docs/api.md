@@ -1,6 +1,6 @@
 # RAI API
 
-The REST API under `/v1` (Data Model sections 7 and 8). B-16 adds sign-in, tenants and members; later items add projects, contracts, runs and evidence. Synthetic data only.
+The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; later items add runs and evidence. Synthetic data only.
 
 ## Run it locally
 
@@ -48,6 +48,44 @@ Send `X-RAI-Tenant: <tenant id>` if you belong to several tenants. With one tena
 - **A wrong role** is `403`.
 - **Tenants are created** with `rai admin create-tenant`, because the API's database role may not create tenants.
 - **An invited account** gets its first password from the operator (`rai admin set-password`) until self-service activation exists.
+
+## Projects and test definitions
+
+What a run will test. Contracts, test cases and plans are **immutable once published**: publishing again creates the next version, and a run pins the exact version.
+
+| Endpoint | Write roles | Notes |
+| --- | --- | --- |
+| `GET, POST /v1/projects` | admin, engineer | `?status=active` filter |
+| `GET, PATCH /v1/projects/{id}` | admin, engineer | PATCH needs `If-Match` with the `ETag` from GET |
+| `GET, POST /v1/projects/{id}/assets` | engineer | Asset names are unique per project |
+| `GET /v1/assets/{id}` | | |
+| `GET, POST /v1/assets/{id}/contracts` | engineer | Body `{"source": "<contract YAML or JSON>"}` |
+| `GET /v1/assets/{id}/contracts/{version}` | | Full spec and the source as published |
+| `GET, POST /v1/projects/{id}/test-cases` | engineer | Next version per `name`; `?name=` lists its versions |
+| `GET, POST /v1/projects/{id}/plans` | engineer | Ordered items: test cases, optionally pinned to a contract version |
+
+Every role in the tenant can read.
+
+**Publishing a contract:**
+- It is checked exactly as `rai contract check` checks it; problems come back in `errors`.
+- Its `version:` must be higher than the latest published one.
+- Its `contract:` name must match earlier versions of the same asset.
+- The response carries `ref` (e.g. `transactions_raw@3`) and `spec_sha256`, the same values `rai validate` writes into its reports.
+
+**Updating a project:**
+
+```bash
+curl -s localhost:8000/v1/projects/$ID -H "authorization: Bearer $ACCESS" -i | grep -i etag
+# ETag: "v1"
+curl -s -X PATCH localhost:8000/v1/projects/$ID -H "authorization: Bearer $ACCESS" \
+  -H 'If-Match: "v1"' -H 'content-type: application/json' -d '{"status": "archived"}'
+```
+
+- **No `If-Match`:** `428`.
+- **An old `ETag`:** `412`. Read the project again.
+- **An archived project** accepts no new assets or definitions (`409`).
+
+**Lists** are paginated: `?limit=50` (at most 200), then pass `next_cursor` back as `?cursor=`. The answer is `{"items": [...], "next_cursor": null}` on the last page.
 
 ## Errors
 

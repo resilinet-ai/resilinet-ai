@@ -64,7 +64,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "RUF", "PT"]
 ignore = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["rai", "chaos_agent", "sandboxbank", "rai_bench", "scripts"]
+known-first-party = ["rai", "chaos_agent", "sandboxbank", "rai_bench", "scripts", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S608"] # tests build SQL only from constants
