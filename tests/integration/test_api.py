@@ -8,12 +8,7 @@ login errors and throttling (S-01); the audit actor comes from the token (S-04).
 
 from __future__ import annotations
 
-import os
-import secrets
-from collections.abc import Iterator
-from dataclasses import dataclass
-from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,93 +22,23 @@ from rai.api.settings import Settings, SettingsError
 from rai.api.tokens import issue_access_token
 from rai.cli.main import app as cli
 from rai.core import db
-from rai.core.accounts import create_tenant, set_api_role_password, set_password
 from rai.core.passwords import hash_password
 from rai.core.tenancy import set_context
+from tests.integration.apikit import (
+    API_PASSWORD,
+    DSN,
+    PASSWORD,
+    SECRET,
+    activate,
+    auth,
+    email,
+    login,
+    member,
+    needs_db,
+    new_tenant,
+)
 
-DSN = os.environ.get("RAI_TEST_DSN", "")
-if os.environ.get("CI") == "true" and not DSN:  # never skip silently in CI
-    raise RuntimeError("RAI_TEST_DSN must be set in CI")
-pytestmark = pytest.mark.skipif(not DSN, reason="RAI_TEST_DSN not set")
-
-API_PASSWORD = "api-role-test-password"  # noqa: S105 - throwaway test database
-SECRET = secrets.token_urlsafe(48)  # a fresh signing key per test run
-PASSWORD = "a long test password"  # noqa: S105 - synthetic test account
-
-
-@pytest.fixture(scope="module")
-def owner() -> Iterator[Engine]:
-    db.upgrade(DSN)
-    db.downgrade(DSN)  # both migrations reverse cleanly
-    db.upgrade(DSN)
-    engine = create_engine(db.sqlalchemy_url(DSN))
-    with engine.begin() as conn:
-        set_api_role_password(conn, API_PASSWORD)
-    yield engine
-    engine.dispose()
-
-
-@pytest.fixture(scope="module")
-def api_url(owner: Engine) -> str:
-    url = make_url(db.sqlalchemy_url(DSN)).set(username="rai_api", password=API_PASSWORD)
-    return url.render_as_string(hide_password=False)
-
-
-@pytest.fixture(scope="module")
-def client(api_url: str) -> Iterator[TestClient]:
-    settings = Settings(database_url=api_url, jwt_secret=SECRET, login_attempts=3)
-    with TestClient(create_app(settings)) as test_client:
-        yield test_client
-
-
-@dataclass(frozen=True)
-class Tenant:
-    tenant_id: UUID
-    admin_id: UUID
-    admin_email: str
-
-
-def email() -> str:
-    return f"{uuid4().hex[:12]}@example.test"
-
-
-def new_tenant(owner: Engine, admin_email: str | None = None) -> Tenant:
-    address = admin_email or email()
-    slug = f"t-{uuid4().hex[:12]}"
-    with owner.begin() as conn:
-        made = create_tenant(
-            conn, name=slug, slug=slug, admin_email=address, admin_name="Admin",
-            password_hash=hash_password(PASSWORD),
-        )  # fmt: skip
-    return Tenant(made.tenant_id, made.admin_user_id, address)
-
-
-def login(client: TestClient, address: str, password: str = PASSWORD) -> dict[str, Any]:
-    response = client.post("/v1/auth/login", json={"email": address, "password": password})
-    assert response.status_code == 200, response.text
-    tokens: dict[str, Any] = response.json()
-    return tokens
-
-
-def auth(tokens: dict[str, Any], tenant: UUID | None = None) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
-    if tenant is not None:
-        headers["X-RAI-Tenant"] = str(tenant)
-    return headers
-
-
-def member(client: TestClient, admin: Tenant, role: str) -> str:
-    """Invite a new account with ``role`` into the admin's tenant; returns its email."""
-    address = email()
-    headers = auth(login(client, admin.admin_email), admin.tenant_id)
-    body = {"email": address, "display_name": role.title(), "role": role}
-    assert client.post("/v1/members", json=body, headers=headers).status_code == 202
-    return address
-
-
-def activate(owner: Engine, address: str) -> None:
-    with owner.begin() as conn:
-        assert set_password(conn, email=address, password_hash=hash_password(PASSWORD))
+pytestmark = needs_db
 
 
 # ---- I-02: the API's database role ------------------------------------------------------
