@@ -1,16 +1,23 @@
 # Keeps pinned dependencies current (threat model T-08, NFR-SEC-3).
+# Version updates wait 14 days after a release, so a compromised or broken release
+# has time to be noticed and yanked first (decision DEP-COOLDOWN). Security updates
+# are not delayed: cooldown applies only to version updates.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: ci
   - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: build
     open-pull-requests-limit: 5
