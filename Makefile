@@ -36,7 +36,7 @@ down:
 	docker compose --profile core --profile sandbox down
 
 demo:
-	@echo "Demo arrives with SandboxBank (B-02 to B-04)."
+	uv run python scripts/demo_slice.py
 
 benchmark:
 	@echo "Benchmark harness arrives with B-15."

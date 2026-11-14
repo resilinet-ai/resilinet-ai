@@ -236,3 +236,93 @@ def verify_seal(out_dir: Path, expected: str | None = None) -> bool:
     actual = hashlib.sha256(answer_key.read_bytes()).hexdigest()
     sealed = seal_file.read_text(encoding="utf-8").strip()
     return actual == sealed and (expected is None or actual == expected)
+
+
+SLICE_DEFECT = "D02"
+SLICE_RATE = 0.001
+
+
+def build_slice(
+    out_dir: Path,
+    *,
+    data_seed: int,
+    injector_seed: int,
+    accounts: int = 5_000,
+    merchants: int = 500,
+    rows_per_batch: int = 100_000,
+    force: bool = False,
+) -> dict[str, Any]:
+    """The first runnable slice (Build Plan section 5): one clean batch, then one batch
+    that re-sends 0.1% of the first batch's rows (D02: 100 of 100,000).
+
+    Same layout as a fixture set (``feed/``, ``answer_key/``), with two batches.
+    """
+    if seed_purpose(data_seed) != seed_purpose(injector_seed):
+        raise ValueError("data_seed and injector_seed must be in the same protocol range")
+    if data_seed == injector_seed:
+        raise ValueError("data_seed and injector_seed must differ")
+    if out_dir.exists() and any(out_dir.iterdir()) and not force:
+        raise FileExistsError(f"{out_dir} is not empty; pass force=True to overwrite")
+    if force and out_dir.exists():
+        for path in sorted(out_dir.rglob("*"), reverse=True):
+            path.unlink() if path.is_file() else path.rmdir()
+
+    config = GeneratorConfig(
+        seed=data_seed,
+        accounts=accounts,
+        merchants=merchants,
+        batches=2,
+        rows_per_batch=rows_per_batch,
+    )
+    account_rows = generate_accounts(config)
+    merchant_rows = generate_merchants(config)
+    txn_header = list(column_names("transactions_raw"))
+    merchants_header = list(column_names("merchants"))
+    merchants_table = [list(m.as_row()) for m in merchant_rows]
+    feed = out_dir / "feed"
+    _write_csv(
+        feed / "accounts.csv",
+        list(column_names("accounts")),
+        [list(a.as_row()) for a in account_rows],
+    )
+    _write_csv(feed / "merchants.csv", merchants_header, merchants_table)
+
+    clean = [list(t.as_row()) for t in generate_batch(config, account_rows, merchant_rows, 0)]
+    second = [list(t.as_row()) for t in generate_batch(config, account_rows, merchant_rows, 1)]
+    limits = {a.account_id: Decimal(a.txn_limit_cents).scaleb(-2) for a in account_rows}
+    ctx = Context(
+        config.batch_start(1),
+        txn_header,
+        clean,
+        limits,
+        merchants_header,
+        merchants_table,
+        reemit_rows=clean,
+    )
+    result = inject(
+        SLICE_DEFECT, stream(injector_seed, "injector/slice"), txn_header, second, SLICE_RATE, ctx
+    )
+    truth = []
+    for index, (rows, defect) in enumerate(((clean, None), (result.rows, SLICE_DEFECT))):
+        name = batch_id(index)
+        _write_csv(feed / "transactions_raw" / f"{name}.csv", txn_header, rows)
+        truth.append(
+            {
+                "batch_id": name,
+                "file": f"feed/transactions_raw/{name}.csv",
+                "defect_class": defect,
+                "class_name": CLASS_NAMES.get(defect or ""),
+                "rate": SLICE_RATE if defect else None,
+                "rows": result.rows_affected if defect else [],
+                "columns": result.columns if defect else [],
+                "keys": result.keys if defect else [],
+                "window_start": format_timestamp(config.batch_start(index)),
+                "onset": format_timestamp(config.batch_start(index + 1)),
+            }
+        )
+    answer_key = out_dir / "answer_key" / "ground_truth.jsonl"
+    answer_key.parent.mkdir(parents=True, exist_ok=True)
+    answer_key.write_text("\n".join(_dump(t) for t in truth) + "\n", encoding="utf-8", newline="\n")
+    seal = sha256_file(answer_key)
+    (out_dir / "answer_key" / "SEAL").write_text(seal + "\n", encoding="utf-8", newline="\n")
+    return {"answer_key_sha256": seal, "batches": truth, "seed_purpose": seed_purpose(data_seed)}

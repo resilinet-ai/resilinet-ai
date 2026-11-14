@@ -17,7 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from sandboxbank.cli import main
-from sandboxbank.fixtures import build_fixtures, plan, verify_seal
+from sandboxbank.fixtures import build_fixtures, build_slice, plan, verify_seal
 from sandboxbank.generator import (
     GeneratorConfig,
     generate_accounts,
@@ -360,3 +360,19 @@ def test_d02_and_d11_reuse_what_was_actually_delivered(tmp_path: Path) -> None:
             delivered += [
                 (line.split(",")[0], line) for i, line in enumerate(lines[1:]) if i not in flagged
             ]
+
+
+def test_slice_command_and_its_checks(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    out = tmp_path / "slice"
+    args = ["slice", "--out", str(out), "--rows", "2000"]
+    assert main(args) == 0
+    assert "with 2 re-sent rows (D02)" in capsys.readouterr().out
+    assert main(args) == 2  # not empty without --force
+    assert main([*args, "--force"]) == 0
+    assert (
+        main(["slice", "--out", str(tmp_path / "x"), "--data-seed", "9", "--injector-seed", "9"])
+        == 2
+    )
+    capsys.readouterr()
+    with pytest.raises(ValueError, match="same protocol range"):
+        build_slice(tmp_path / "y", data_seed=1, injector_seed=100_001)
