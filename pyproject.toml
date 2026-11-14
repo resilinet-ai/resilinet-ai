@@ -42,6 +42,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/rai"]
 
+[tool.uv]
+# Never resolve a release younger than 14 days (decision DEP-MIN-AGE, threat model T-08).
+# Rolling: each `uv lock` applies it from that day. Matches the Dependabot cooldown.
+exclude-newer = "14 days"
+
 [tool.uv.workspace]
 members = ["chaos_agent", "sandboxbank", "benchmarks"]
 
