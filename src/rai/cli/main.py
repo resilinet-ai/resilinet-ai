@@ -5,6 +5,7 @@ Commands are added backlog item by backlog item; ``validate`` arrives with B-14.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
@@ -23,10 +24,12 @@ db_app = typer.Typer(
     help="Database schema migrations (needs RAI_DATABASE_URL).", no_args_is_help=True
 )
 audit_app = typer.Typer(help="Audit hash chain (needs RAI_DATABASE_URL).", no_args_is_help=True)
+contract_app = typer.Typer(help="Data contracts (FR-03.1).", no_args_is_help=True)
 app.add_typer(db_app, name="db")
+app.add_typer(contract_app, name="contract")
 app.add_typer(audit_app, name="audit")
-console = Console()
-errors = Console(stderr=True)
+console = Console(soft_wrap=True)
+errors = Console(stderr=True, soft_wrap=True)
 
 
 @app.callback()
@@ -89,3 +92,39 @@ def audit_verify(
         f"after {result.checked} records: {result.reason}"
     )
     raise typer.Exit(1)
+
+
+@contract_app.command("check")
+def contract_check(
+    files: Annotated[list[Path], typer.Argument(help="Contract YAML files", exists=True)],
+) -> None:
+    """Validate contracts and list their rules; exit 1 if any is invalid."""
+    from rai.validation.contract import ContractError, load_contract
+
+    failed = False
+    for path in files:
+        try:
+            contract = load_contract(path)
+        except ContractError as error:
+            failed = True
+            errors.print(f"{path}: INVALID")
+            for problem in error.problems:
+                errors.print(f"  - {problem}")
+            continue
+        rules = contract.rules()
+        console.print(
+            f"{path}: OK {contract.ref}, {len(contract.columns)} columns, {len(rules)} rules, "
+            f"sha256 {contract.spec_sha256}"
+        )
+    if failed:
+        raise typer.Exit(1)
+
+
+@contract_app.command("schema")
+def contract_schema() -> None:
+    """Print the JSON Schema of the contract format."""
+    import json
+
+    from rai.validation.contract import contract_json_schema
+
+    print(json.dumps(contract_json_schema(), indent=2, sort_keys=True))

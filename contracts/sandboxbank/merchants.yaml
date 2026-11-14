@@ -1,0 +1,13 @@
+# SandboxBank reference table: merchants (schema v1). Synthetic data only.
+# The primary key rule catches D12 (a duplicated dimension key that fans out joins).
+contract: merchants
+version: 1
+owner: sandboxbank-core
+primary_key: [merchant_id]
+columns:
+  merchant_id: { type: string, required: true, pattern: "^MER-[0-9]{6}$" }
+  name:        { type: string, required: true }
+  mcc:         { type: string, required: true, pattern: "^[0-9]{4}$" }
+  category:    { type: string, required: true }
+  country:     { type: string, required: true, pattern: "^[A-Z]{2}$" }
+severity_default: critical
