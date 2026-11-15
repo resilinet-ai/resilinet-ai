@@ -29,6 +29,7 @@ class Settings:
     max_body_bytes: int = 1 << 20
     login_attempts: int = 5  # failed logins per email per window
     login_window: timedelta = timedelta(minutes=15)
+    key_requests_per_minute: int = 120  # per API key (threat D-03)
 
     def __post_init__(self) -> None:
         if len(self.jwt_secret.encode("utf-8")) < MIN_SECRET_BYTES:

@@ -1,6 +1,6 @@
 # RAI API
 
-The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; B-18 runs and the worker; B-19 lineage; later items add evidence. Synthetic data only.
+The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; B-18 runs and the worker; B-19 lineage; B-20 API keys and the CI gate; later items add evidence. Synthetic data only.
 
 ## Run it locally
 
@@ -181,6 +181,49 @@ curl -s localhost:8000/v1/assurance/runs/$RUN/lineage -H "authorization: Bearer 
 - It counts duplicate rows and tells a null from an empty string.
 
 `rai validate` reports the same value as `batch.source.content_sha256`, so a run's digests can be checked locally. The exact encoding is documented in `src/rai/lineage/digest.py`, and a test pins it.
+
+## API keys and the CI gate
+
+CI signs in with a **project API key**, not a user account (FR-06.1, threat S-02).
+
+| Endpoint | Roles | Notes |
+| --- | --- | --- |
+| `POST /v1/api-keys` | admin, engineer | `{"project_id": ..., "name": "github-actions", "expires_in_days": 30}`; the key is in this response only |
+| `GET /v1/api-keys` | admin, engineer | `?project_id=`; prefix, scopes, state; never the secret |
+| `GET, DELETE /v1/api-keys/{id}` | admin, engineer | `DELETE` revokes at once |
+
+- **Format:** `Authorization: Bearer rai_<prefix>_<secret>`. Only the SHA-256 of the secret is stored; the prefix identifies the key in lists and the audit log.
+- **Expiry is required:** 1 to 90 days (default 30). Revocation is the only change a key ever takes; keys are never deleted, and both events are audited.
+- **Scopes:** `runs:start` and `runs:read` (both by default). A key starts and reads runs of **its own project only**; another project's runs are `404`, and every other endpoint is `403` (`auth.key_scope`, or `auth.key_not_allowed` for account endpoints such as `/v1/me`).
+- **A key never outlives its creator's access.** It stops working when the user who created it is removed, disabled or no longer an admin or engineer, and when its project is archived.
+- **Accountability:** a run started by a key records the key (`api_key_id`) and its creator (`triggered_by`); the audit log names the key as actor.
+- **Rate limit:** 120 requests per minute per key (`429` with `Retry-After`).
+
+**`rai run`** starts a plan and gates on its verdict:
+
+```bash
+export RAI_API_URL=https://rai.example.test RAI_API_KEY=rai_...   # never on the command line
+uv run rai run --plan ci-contracts          # a plan name runs its newest version
+# run 0193... queued (plan ci-contracts @ 4f2a9c1)
+# FAILED run 0193...: item-1 pass, item-2 fail
+#   FAIL  item-2 unique_across_batches:txn_id (critical) 2/2,002 rows ...
+```
+
+- **Exit codes:** `0` passed, `1` failed (the gate), `2` no verdict (refused, error, timeout, unknown plan, bad key, API unreachable), the same as `rai validate`.
+- `--trigger-ref` defaults to `GITHUB_SHA`; `--idempotency-key` makes a retried request return the same run; `--no-wait` only queues.
+- Plain `http://` is refused except to localhost, so a key never crosses a network in clear.
+
+**The GitHub Action** (`action.yml` at the repository root) wraps `rai run`. It installs RAI from this repository's lockfile and writes a job summary:
+
+```yaml
+- uses: resilinet-ai/resilinet-ai@<commit SHA>   # pin by SHA
+  with:
+    api-url: https://rai.example.test
+    api-key: ${{ secrets.RAI_API_KEY }}
+    plan: ci-contracts
+```
+
+Make the job a **required status check** on the branch, and a failing contract blocks the pull request. Outputs: `run-id`, `state`, `verdict`. This repository's CI job "CI gate" runs the action against a live API and worker on every pull request: a clean plan must pass, and a plan whose batch re-sends rows must fail.
 
 ## Errors
 

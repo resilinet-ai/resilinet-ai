@@ -1,4 +1,4 @@
-"""Failed-login limiter (threats S-01, D-03).
+"""Failed-login limiter (threats S-01, D-03) and the per-API-key request limit (B-20).
 
 Counts failures per key (the lower-cased email, and separately the client
 address) in a sliding window. Unknown emails are counted exactly like known ones,
@@ -52,3 +52,19 @@ class FailureLimiter:
     def clear(self, key: str) -> None:
         with self._lock:
             self._failures.pop(key, None)
+
+
+class RequestLimiter:
+    """At most ``limit`` requests per key in a sliding window (API keys, threat D-03)."""
+
+    def __init__(
+        self, limit: int, window_seconds: float, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._failures = FailureLimiter(limit, window_seconds, clock)
+
+    def take(self, key: str) -> int | None:
+        """Count one request; returns the seconds to wait instead if the key is over."""
+        wait = self._failures.retry_after(key)
+        if wait is None:
+            self._failures.fail(key)
+        return wait

@@ -6,7 +6,17 @@ Videos are **not** committed: pre-commit rejects files over 500 KB, and a video 
 
 | Date | Demo | What it shows | Video (link) | SHA-256 |
 | --- | --- | --- | --- | --- |
+| _pending_ | CI gate blocks a pull request (B-20, FR-06.1 acceptance) | A demo repository's pull request whose batch re-sends rows: the RAI gate check fails and GitHub blocks the merge; after the fix the check passes | _to add_ | _to add_ |
 | _pending_ | First runnable slice (B-14) | `make demo`: SandboxBank generates two 100k-row batches; the injector re-sends 100 rows; `rai validate` passes batch 1 (exit 0) and fails batch 2 with exactly those 100 rows (exit 1); the JSON report is byte-identical across runs | _to add_ | _to add_ |
+
+## Recording the CI gate blocking a pull request (about 5 minutes)
+
+The CI job "CI gate" proves the action on every pull request. For the recorded demo, use a separate, public demo repository and a RAI the runner can reach over https.
+
+1. In the demo repository, add the secret `RAI_API_KEY` (a key from `POST /v1/api-keys`) and a workflow that runs `resilinet-ai/resilinet-ai@<commit SHA>` with `plan: ci-contracts`.
+2. In **Settings > Branches**, make that job a required status check for `main`.
+3. Open a pull request that points the plan's test at a batch with re-sent rows. Record the failing check, the job summary naming `unique_across_batches:txn_id`, and the disabled merge button.
+4. Push the fix, record the check turning green, then hash the video and fill in the row above.
 
 ## Recording the first runnable slice (about 2 minutes)
 

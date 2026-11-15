@@ -62,6 +62,88 @@ jobs:
           RAI_TEST_DSN: postgresql://ledger:ci-only-not-secret@localhost:5432/ledger_test
         run: uv run pytest --cov --cov-report=term-missing
 
+  gate:
+    # FR-06.1 acceptance: the RAI gate action against a live API and worker. A clean
+    # plan must pass; a plan whose batch re-sends rows must fail the step.
+    name: CI gate (rai run action)
+    runs-on: ubuntu-latest
+    services:
+      rai-db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ledger
+          POSTGRES_PASSWORD: ci-only-not-secret
+          POSTGRES_DB: rai_gate
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ledger -d rai_gate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      RAI_DATABASE_URL: postgresql://ledger:ci-only-not-secret@localhost:5432/rai_gate
+      RAI_GATE_EMAIL: gate-admin@example.test
+      RAI_WORKER_STATE: ${{ runner.temp }}/gate/state
+      RAI_WORKER_CONNECTORS: ${{ runner.temp }}/gate/connectors
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install
+        run: uv sync --all-packages --locked
+      - name: Generated credentials (masked)
+        run: |
+          for name in RAI_NEW_PASSWORD RAI_API_DB_PASSWORD RAI_WORKER_DB_PASSWORD RAI_JWT_SECRET; do
+            value="$(uv run python -c 'import secrets; print(secrets.token_urlsafe(36))')"
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+      - name: Database, login roles and a tenant
+        run: |
+          echo "RAI_API_DATABASE_URL=postgresql://rai_api:${RAI_API_DB_PASSWORD}@localhost:5432/rai_gate" >> "$GITHUB_ENV"
+          echo "RAI_WORKER_DATABASE_URL=postgresql://rai_worker:${RAI_WORKER_DB_PASSWORD}@localhost:5432/rai_gate" >> "$GITHUB_ENV"
+          uv run rai db upgrade
+          uv run rai db set-api-password
+          uv run rai db set-worker-password
+          uv run rai admin create-tenant --slug gate --name "CI gate" \
+            --admin-email "$RAI_GATE_EMAIL" --admin-name "Gate Admin"
+      - name: Start the API and a worker
+        run: |
+          uv run python scripts/ci_gate.py data "$RUNNER_TEMP/gate"
+          nohup uv run rai serve > "$RUNNER_TEMP/serve.log" 2>&1 &
+          nohup uv run rai worker --poll 0.5 > "$RUNNER_TEMP/worker.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/healthz && break
+            sleep 1
+          done
+      - name: Seed a project, two plans and an API key
+        id: seed
+        run: uv run python scripts/ci_gate.py seed
+      - name: Gate on a clean batch (must pass)
+        uses: ./
+        with:
+          api-url: http://127.0.0.1:8000
+          api-key: ${{ steps.seed.outputs.api-key }}
+          plan: ci-clean
+          timeout: "300"
+      - name: Gate on re-sent rows (must fail)
+        id: blocked
+        continue-on-error: true
+        uses: ./
+        with:
+          api-url: http://127.0.0.1:8000
+          api-key: ${{ steps.seed.outputs.api-key }}
+          plan: ci-resent
+          timeout: "300"
+      - name: The failing contract blocked the gate
+        env:
+          OUTCOME: ${{ steps.blocked.outcome }}
+          VERDICT: ${{ steps.blocked.outputs.verdict }}
+        run: |
+          echo "outcome=$OUTCOME verdict=$VERDICT"
+          test "$OUTCOME" = failure
+          test "$VERDICT" = fail
+      - name: Service logs
+        if: always()
+        run: tail -n 50 "$RUNNER_TEMP/serve.log" "$RUNNER_TEMP/worker.log"
+
   secrets:
     name: Secret scan and hygiene
     runs-on: ubuntu-latest
