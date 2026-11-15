@@ -153,6 +153,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       COMPOSE_PROJECT_NAME: rai-chaos-ci
+      # Compose interpolates every service, even those outside the active profiles.
+      RAI_DB_PASSWORD: ci-only-not-secret
       LEDGER_DB_PASSWORD: ci-only-not-secret
       ANALYTICS_DB_PASSWORD: ci-only-not-secret
       RAI_AGENT_UNSIGNED_DEV: "1" # until signed requests (B-24): CI only
