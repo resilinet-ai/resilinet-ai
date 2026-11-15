@@ -115,7 +115,10 @@ class HttpDocker:
         try:
             _call(self.base, "POST", f"/containers/{container_id}/{verb}", timeout=60)
         except BackendError as error:
-            if "HTTP 304" not in str(error):  # 304: already in that state
+            # 304: already in that state; 409 "is not paused": already unpaused. Reverts
+            # must be idempotent: the agent and the watchdog may both try one (B-25).
+            text = str(error)
+            if "HTTP 304" not in text and not (verb == "unpause" and "is not paused" in text):
                 raise
 
     def disconnect(self, network: str, container_id: str) -> None:
@@ -123,5 +126,9 @@ class HttpDocker:
               {"Container": container_id, "Force": True})  # fmt: skip
 
     def connect(self, network: str, container_id: str, aliases: list[str]) -> None:
-        _call(self.base, "POST", f"/networks/{network}/connect",
-              {"Container": container_id, "EndpointConfig": {"Aliases": aliases}})  # fmt: skip
+        try:
+            _call(self.base, "POST", f"/networks/{network}/connect",
+                  {"Container": container_id, "EndpointConfig": {"Aliases": aliases}})  # fmt: skip
+        except BackendError as error:
+            if "already exists" not in str(error):  # already connected: reverted (B-25)
+                raise
