@@ -99,7 +99,7 @@ flowchart LR
 | S-02 | rai-api (TB1) | A stolen API key is reused | Only a SHA-256 hash of each key is stored; keys are project-scoped, expire within 90 days and can be revoked; the prefix identifies the key without revealing it | Implemented B-20: SHA-256 only, expiry required (at most 90 days, database check), revoke-only trigger, project and scope checks on every request, keys die with their creator's access (`test_a_key_works_only_within_its_project_and_scopes`, `test_a_key_stops_working_when_its_creator_loses_access`) | M |
 | S-03 | Chaos agent (TB3) | A forged or replayed fault request | Ed25519 signature from the worker's key; replay guard on run ID; the agent re-runs preflight itself | Planned B-24 | L |
 | S-04 | Audit chain (TB2) | A database session claims a false actor in `app.actor_id` | Only `rai-api` and `rai-worker` hold database credentials; the actor is set from the authenticated identity in one function (`rai.core.tenancy.set_context`) | Implemented B-05 + B-16: the actor is the verified token's user (`test_role_changes_are_audited_with_the_signed_in_admin`) | M |
-| S-05 | Allow-list (TB4) | A container imitates an allow-listed target | Targets must match both the `rai.sandbox=true` label and the registered name; the worker and the agent each check | Registry B-22 (each container or proxy target records the label it must carry; targets are added and removed only by admins, audited); checks B-24 | L |
+| S-05 | Allow-list (TB4) | A container imitates an allow-listed target | Targets must match both the `rai.sandbox=true` label and the registered name; the worker and the agent each check | Registry B-22 (each container or proxy target records the label it must carry; targets are added and removed only by admins, audited); agent check B-23 (`rai.sandbox=true`, the registered label, exactly one container, in the agent's own Compose project); worker check B-24 | L |
 
 ### Tampering
 
@@ -122,7 +122,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- |
 | R-01 | Memberships, tenants | Someone denies changing a role or suspending a tenant | Triggers write an audit entry for every insert, update and delete, with the actor | Implemented B-05 (`test_tenant_and_membership_changes_are_audited`) | L (depends on S-04) |
 | R-02 | Approvals, waivers | A reviewer denies approving a scenario or waiving a finding | Named reviewer; append-only approvals; audit entry; waivers expire | Planned B-26, B-33 | L |
-| R-03 | Chaos agent | A fault is injected with no record of it | The agent persists active faults locally before acting; the worker records onset and refusals as observations; refused runs are kept | Planned B-23, B-24 | L |
+| R-03 | Chaos agent | A fault is injected with no record of it | The agent persists active faults locally before acting; the worker records onset and refusals as observations; refused runs are kept | Agent side implemented B-23 (state file written atomically before acting; onset recorded; failures undone and kept; `test_the_fault_is_recorded_before_it_acts_and_undone_if_it_fails`); worker side B-24 | L |
 
 ### Information disclosure
 
@@ -140,7 +140,7 @@ flowchart LR
 
 | ID | Element | Threat | Mitigation | Status | Residual |
 | --- | --- | --- | --- | --- | --- |
-| D-01 | Chaos agent (A4) | A fault stays active after the agent, worker or API crashes | A watchdog reverts any fault past its maximum duration; `kill --all` works from the local state file with the API and database down | Planned B-25 | L |
+| D-01 | Chaos agent (A4) | A fault stays active after the agent, worker or API crashes | A watchdog reverts any fault past its maximum duration; `kill --all` works from the local state file with the API and database down | Partial B-23: in-agent expiry loop, crash recovery at start-up, `kill --all` from the state file; independent watchdog and drill B-25 | L |
 | D-02 | Sandbox | A fault runs longer or wider than declared | Maximum duration ≤ the environment ceiling (15 min); declared blast radius checked by both preflights | Planned B-24, B-27 | L |
 | D-03 | rai-api (TB1) | Oversized or flood requests | Request size limits; rate limits per key; batch limits | Partial: payments-api batch cap B-03; API body limit 1 MiB and login throttling B-16; per-key rate limit B-20 (120/min, `test_each_key_has_a_request_limit`) | M |
 | D-04 | Job queue | One tenant starves the others | Per-tenant concurrency limit; leases with a retry cap of 3 | Planned B-18 | M |
@@ -150,7 +150,7 @@ flowchart LR
 
 | ID | Element | Threat | Mitigation | Status | Residual |
 | --- | --- | --- | --- | --- | --- |
-| E-01 | Docker socket (A4, TB4) | The agent, or an attacker in it, uses the full Docker API (exec, privileged containers, mounts) | Only the agent can reach Docker, and only through a socket proxy that allows stop, start, restart, pause and network connect/disconnect, with no exec, image or volume access; the agent sits alone on `bridge_net` | Planned B-23 | M (the Docker daemon is powerful by nature) |
+| E-01 | Docker socket (A4, TB4) | The agent, or an attacker in it, uses the full Docker API (exec, privileged containers, mounts) | Only the agent can reach Docker, and only through a socket proxy that allows stop, start, restart, pause and network connect/disconnect, with no exec, image or volume access; the agent sits alone on `bridge_net` | Implemented B-23: wollomatic/socket-proxy allows exactly those verbs plus listing and inspecting, only from the agent; the socket proxy and Toxiproxy admin are on internal `chaos_net` with the agent only; refusals of create, exec, image pull and volumes checked in CI (job "Chaos agent") | M (the Docker daemon is powerful by nature) |
 | E-02 | Environments | Faults are pointed at production | The environment type enum has no PRODUCTION value; `production_flag = false` check; refusal tested | Implemented B-22: enum without PRODUCTION, flag check, `PROD` refused in names, name and type immutable (`test_production_is_refused_at_the_schema_level`); refusal suite B-27 | L |
 | E-03 | rai-api | A user raises their own role, or approves their own scenario | RBAC per endpoint; a separation-of-duties trigger rejects reviewer = author; role changes are audited (R-01) | Partial: audit B-05; RBAC per endpoint and no self role change B-16; separation of duties B-26 | L |
 | E-04 | Database (TB2) | The application role gains more power than it needs | `rai_app` is NOLOGIN and NOBYPASSRLS, cannot create tenants, and cannot update or delete audit entries | Implemented B-05 (`test_app_role_cannot_create_tenants_or_bypass_rls`) | L |

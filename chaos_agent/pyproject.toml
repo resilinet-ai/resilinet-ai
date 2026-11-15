@@ -5,8 +5,11 @@ description = "RAI chaos agent: the only component allowed to inject faults, san
 license = "Apache-2.0"
 authors = [{ name = "Trevor Kauyu" }]
 requires-python = ">=3.12"
-# Deliberately minimal dependencies (Architecture section 2): added only when B-23 needs them.
+# Deliberately minimal (Architecture section 2): the standard library only.
 dependencies = []
+
+[project.scripts]
+rai-chaos-agent = "chaos_agent.server:main"
 
 [build-system]
 requires = ["hatchling>=1.25"]

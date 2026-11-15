@@ -59,6 +59,10 @@ Concurrent retries of the same `txn_id` create exactly one row. The ledger is ap
 python -m uv run sandboxbank etl --once --lag 0
 ```
 
+## Fault paths (B-23)
+
+In Compose, SandboxBank's database traffic goes through Toxiproxy ([`toxiproxy.json`](toxiproxy.json)): `ledger-db-proxy` (payments-api and the ETL to ledger-db) and `analytics-db-proxy` (the ETL to analytics-db). Every service the chaos agent may act on carries `rai.sandbox=true` and a `rai.target` label. See [docs/chaos-agent.md](../docs/chaos-agent.md).
+
 ## Known-defect fixtures and the sealed answer key (B-07)
 
 ```

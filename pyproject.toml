@@ -83,7 +83,7 @@ addopts = "-ra --strict-markers"
 pythonpath = ["."]
 
 [tool.coverage.run]
-source = ["rai", "sandboxbank", "rai_bench"]
+source = ["rai", "sandboxbank", "rai_bench", "chaos_agent"]
 branch = true
 # Alembic exec()s env.py, which coverage cannot trace; every migration test runs it.
 omit = ["*/rai/migrations/env.py"]
