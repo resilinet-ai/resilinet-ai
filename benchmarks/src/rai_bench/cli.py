@@ -1,4 +1,4 @@
-"""``rai-bench``: run the arms, score a run, dry-run the whole chain (B-15).
+"""``rai-bench``: run the arms, score a run, dry-run the whole chain (B-15), profile B2 (B-21).
 
 Exit codes: 0 done, 2 the command could not run (bad inputs, broken seal,
 evaluation fixtures without --allow-evaluation, results folder not empty).
@@ -15,22 +15,36 @@ import typer
 
 from rai.validation.contract import ContractError
 from rai_bench.arms import Arm, RaiArm
+from rai_bench.baselines import B2_DIR, B1Arm, B2Arm, effort, write_suites
 from rai_bench.runner import HarnessError, run
 from rai_bench.scale import history_scale
 from rai_bench.scoring import score
+from sandboxbank.dataset import write_dataset
 from sandboxbank.fixtures import build_fixtures
+from sandboxbank.generator import GeneratorConfig
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help=__doc__)
 
 DRY_RUN_SEEDS = (15_001, 15_002)  # development range; never evaluation seeds
 DEFAULT_CONTRACTS = Path("contracts") / "sandboxbank"
+PROFILE_SEED = 45_000  # development range; the 30 clean batches B2 is profiled on
+ARM_NAMES = ("B1", "B2", "R")
 
 
 def _arms(names: list[str], contracts: Path) -> list[Arm]:
     arms: list[Arm] = []
     for name in names:
-        if name != "R":
-            raise HarnessError(f"arm {name!r} is not available yet (B1 and B2 freeze days 45-50)")
+        if name not in ARM_NAMES:
+            raise HarnessError(f"unknown arm {name!r}; choose from {', '.join(ARM_NAMES)}")
+        if name == "B1":
+            arms.append(B1Arm())
+            continue
+        if name == "B2":
+            try:
+                arms.append(B2Arm())
+            except ImportError:
+                raise HarnessError("arm B2 needs Great Expectations: uv sync --extra b2") from None
+            continue
         try:
             arms.append(RaiArm(contracts))
         except (OSError, ContractError) as error:
@@ -108,6 +122,7 @@ def dry_run_command(
         typer.Option(help="Results folder (default: benchmarks/results/dry-run-<UTC time>)"),
     ] = None,
     rows: Annotated[int, typer.Option(help="Rows per batch")] = 10_000,
+    arm: Annotated[list[str] | None, typer.Option(help="Arm to run (repeatable)")] = None,
     contracts: Annotated[Path, typer.Option(help="RAI contracts folder")] = DEFAULT_CONTRACTS,
 ) -> None:
     """Whole chain on a small development fixture set: one batch per defect class,
@@ -118,7 +133,7 @@ def dry_run_command(
     try:
         if out.exists() and any(out.iterdir()):
             raise HarnessError(f"{out} is not empty; results are never overwritten")
-        arms = _arms(["R"], contracts)
+        arms = _arms(arm or ["R"], contracts)
         data_seed, injector_seed = DRY_RUN_SEEDS
         build_fixtures(
             out / "fixtures",
@@ -131,10 +146,40 @@ def dry_run_command(
             clean=3,
         )
         summary = run(out / "fixtures", out / "run", arms)
-        typer.echo(f"{summary.batches} batches delivered to arm R; results in {out}")
+        names = ", ".join(a.name for a in arms)
+        typer.echo(f"{summary.batches} batches delivered to arms {names}; results in {out}")
         _print_scores(score(out / "fixtures", out / "run"))
     except HarnessError as problem:
         raise _fail(problem) from None
+
+
+@app.command("b2-profile")
+def b2_profile_command(
+    work: Annotated[Path, typer.Option(help="Folder for the clean batches (must be new or empty)")],
+    out: Annotated[Path, typer.Option(help="Where to write the suites")] = B2_DIR,
+    batches: Annotated[int, typer.Option(help="Clean development batches")] = 30,
+    rows: Annotated[int, typer.Option(help="Rows per batch")] = 100_000,
+) -> None:
+    """Generate the clean development batches and write B2's profiled and tightened
+    suites (Protocol section 3). Development seed only; never evaluation data."""
+    try:
+        if work.exists() and any(work.iterdir()):
+            raise HarnessError(f"{work} is not empty")
+        config = GeneratorConfig(seed=PROFILE_SEED, batches=batches, rows_per_batch=rows)
+        write_dataset(config, work)
+        written = write_suites(work, out)
+    except HarnessError as problem:
+        raise _fail(problem) from None
+    for name, path in written.items():
+        typer.echo(f"{name}: {path}")
+
+
+@app.command("effort")
+def effort_command(
+    contracts: Annotated[Path, typer.Option(help="RAI contracts folder")] = DEFAULT_CONTRACTS,
+) -> None:
+    """Rule counts and lines of code per arm (Protocol section 3), as JSON."""
+    typer.echo(json.dumps(effort(contracts), indent=2, sort_keys=True))
 
 
 @app.command("history-scale")
