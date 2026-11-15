@@ -84,7 +84,10 @@ What a run will test. Contracts, test cases and plans are **immutable once publi
 | `GET, POST /v1/assets/{id}/contracts` | engineer | Body `{"source": "<contract YAML or JSON>"}` |
 | `GET /v1/assets/{id}/contracts/{version}` | | Full spec and the source as published |
 | `GET, POST /v1/projects/{id}/test-cases` | engineer | Next version per `name`; `?name=` lists its versions |
-| `GET, POST /v1/projects/{id}/plans` | engineer | Ordered items: test cases, optionally pinned to a contract version |
+| `GET, POST /v1/projects/{id}/plans` | engineer | Ordered items: test cases (optionally pinned to a contract version) and chaos scenarios (`{"item_type": "scenario", "scenario_id": ...}`) |
+| `GET, POST /v1/projects/{id}/scenarios` | engineer | Chaos scenarios: next version per `name`; see [Chaos scenarios](#chaos-scenarios) |
+| `GET /v1/scenarios/{id}` | | The version, its status and every review decision |
+| `POST /v1/scenarios/{id}/approvals` | reviewer, admin | `{"decision": "approve" or "reject", "comment": ...}`; never by the scenario's author |
 | `GET, POST /v1/assets/{id}/inputs` | engineer | What the asset is derived from (see [Lineage](#lineage)) |
 | `DELETE /v1/assets/{id}/inputs/{input_id}` | engineer | Remove a wrong declaration; queued runs keep their pinned graph |
 
@@ -110,6 +113,23 @@ curl -s -X PATCH localhost:8000/v1/projects/$ID -H "authorization: Bearer $ACCES
 - **An archived project** accepts no new assets or definitions (`409`).
 
 **Lists** are paginated: `?limit=50` (at most 200), then pass `next_cursor` back as `?cursor=`. The answer is `{"items": [...], "next_cursor": null}` on the last page.
+
+### Chaos scenarios
+
+A scenario declares its **blast radius** (every target it may touch) and its **faults**, run in order. Every fault's target must be in the radius.
+
+```json
+{"name": "ledger-outage", "description": "drop the ledger, then stop the API",
+ "blast_radius": ["ledger-db-proxy", "payments-api"],
+ "faults": [{"type": "connection_drop", "target": "ledger-db-proxy", "duration_seconds": 60},
+            {"type": "container_stop", "target": "payments-api", "duration_seconds": 30}]}
+```
+
+The fault types and their fields are those of the [chaos agent](chaos-agent.md): `latency` needs `latency_ms` (optional `jitter_ms`), and `network_partition` needs `network`.
+
+- **New versions start `pending`.** A reviewer or an admin approves or rejects them. Decisions are kept, and the latest one counts, so a later `reject` withdraws an approval.
+- **Separation of duties.** Nobody reviews their own scenario (`403 scenarios.self_review`). The database refuses it too.
+- **Starting a run.** Every scenario in the plan must be approved (`409 runs.scenario_not_approved`), and the plan or its project must have an environment (`422 runs.scenario_needs_environment`). The run pins the scenario version and the approval it runs under.
 
 ## Runs
 
@@ -160,6 +180,13 @@ uv run rai worker            # or: rai worker --once
 - **Cross-batch duplicates** are checked against a key history kept per tenant in `RAI_WORKER_STATE`.
 - **`environment`** must be a registered, active environment (see [Environments and targets](#environments-and-targets)); otherwise the run is refused.
 - **Not yet supported:** recovery assertions, consistency checks, TEVV metrics and drift checks. A plan containing them is refused with a reason, never passed silently.
+
+**A chaos scenario item** needs a worker set up for faults: `RAI_WORKER_SIGNING_KEY` and `RAI_WORKER_CHAOS_AGENT_URL` (see the [chaos agent](chaos-agent.md)). Otherwise the run is refused.
+
+- **Preflight.** The worker checks again that the scenario's latest review is an approval. It also checks every fault against the environment's allow-list and ceiling. Any problem refuses the run, and nothing reaches the agent.
+- **Each fault in order:** signed and injected, with its onset recorded (`fault.onset`). The worker then holds the fault for its duration, renewing its lease, and asks the agent to revert it (`fault.reverted`). Faults use the step keys `item-N.fault-1`, `item-N.fault-2` and so on.
+- **A fault the agent refuses, or that fails,** ends the step in `error` with the reason. Later faults are not tried, and the run fails.
+- **A worker that dies mid-scenario** leaves the open fault to the agent's expiry and the watchdog. The retry gets the agent's record of each fault it already injected, waits out what remains, and records nothing twice.
 
 ## Lineage
 

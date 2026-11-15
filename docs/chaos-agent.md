@@ -97,4 +97,6 @@ On Linux, set `DOCKER_GID` to the group that owns `/var/run/docker.sock` (`stat 
 
 The envelope is `{"format": "rai-signed-fault/1", "key_id": ..., "payload": ..., "signature": ...}`. Its payload is `{"format": "rai-fault-request/1", "issued_at": ..., "expires_at": ..., "request": {...}}`, and the request inside looks like this: `{"type": "container_stop", "target": "payments-api", "duration_seconds": 60, "required_label": "rai.target=payments-api", "run_id": ..., "step_key": "item-1", "tenant_id": ..., "environment": "SANDBOXBANK", "max_duration_seconds": 900, "blast_radius": ["payments-api"]}`. See `chaos_agent/signing.py`.
 
-**Coming next:** scenario steps that call the agent through the worker (B-26), and the scenario-level blast radius (B-27).
+**Scenarios (B-26).** Runs reach the agent through approved chaos scenarios: the worker signs one request per fault, holds it for its duration and then asks the agent to revert it (see [Chaos scenarios](api.md#chaos-scenarios)).
+
+**Coming next:** measuring recovery (RTO and RPO, FR-08.1 and FR-08.2) from each fault's onset and revert, and the scenario-level blast radius (B-27).

@@ -348,11 +348,25 @@ def _plans(conn: Connection, rows: list[Any]) -> list[PlanOut]:
 def _check_items(conn: Connection, project_id: UUID, items: list[PlanItemIn]) -> None:
     for position, item in enumerate(items, start=1):
         where = f"items[{position - 1}]"
-        if item.item_type == "scenario" or item.scenario_id is not None:
+        if item.item_type == "scenario":  # B-26: a chaos scenario version
+            if item.scenario_id is None or item.test_id is not None or item.contract_id:
+                raise Problem(422, "plans.scenario_required",
+                              f"{where}: a scenario item names scenario_id only")  # fmt: skip
+            found = conn.execute(
+                text(
+                    "SELECT 1 FROM rai.chaos_scenarios WHERE scenario_id = :s AND project_id = :p"
+                ),
+                {"s": item.scenario_id, "p": project_id},
+            ).first()
+            if found is None:
+                raise Problem(
+                    422, "plans.unknown_scenario", f"{where}: the scenario is not in this project"
+                )
+            continue
+        if item.scenario_id is not None:
             raise Problem(
-                422, "plans.scenarios_not_yet", "Chaos scenarios arrive with scenario versions",
-                detail=f"{where}: plans hold test cases until B-26",
-            )  # fmt: skip
+                422, "plans.test_required", f"{where}: a test_case item has no scenario_id"
+            )
         if item.test_id is None:
             raise Problem(422, "plans.test_required", f"{where}: test_id is required")
         test = conn.execute(
@@ -430,10 +444,19 @@ def create_plan(
     session.conn.execute(
         text(
             "INSERT INTO rai.plan_items (project_id, plan_id, position, item_type, test_id, "
-            "contract_id) VALUES (:p, :plan, :pos, 'test_case', :t, :c)"
+            "scenario_id, contract_id) VALUES (:p, :plan, :pos, CAST(:k AS rai.plan_item_type), "
+            ":t, :s, :c)"
         ),
         [
-            {"p": project_id, "plan": plan_id, "pos": n, "t": i.test_id, "c": i.contract_id}
+            {
+                "p": project_id,
+                "plan": plan_id,
+                "pos": n,
+                "k": i.item_type,
+                "t": i.test_id,
+                "s": i.scenario_id,
+                "c": i.contract_id,
+            }
             for n, i in enumerate(body.items, start=1)
         ],
     )

@@ -30,6 +30,7 @@ from rai.api.context import ROLES, TenantSession, require
 from rai.api.listing import Page, PageOut, after_uuid, page, paged
 from rai.api.problems import Problem
 from rai.api.routes_projects import find_project, is_unique_violation
+from rai.api.routes_scenarios import runnable_decision
 from rai.core.runs import (
     PinnedAsset,
     PinnedContract,
@@ -37,6 +38,7 @@ from rai.core.runs import (
     PinnedInput,
     PinnedItem,
     PinnedPlan,
+    PinnedScenario,
     PinnedTest,
     Pins,
     RunState,
@@ -188,15 +190,18 @@ def _pins(session: TenantSession, plan_id: UUID) -> tuple[UUID, Pins]:
     find_project(conn, plan.project_id, for_change=True)
     rows = conn.execute(
         text(
-            "SELECT i.position, i.contract_id, t.test_id, t.name, t.version, t.type::text, "
-            "t.severity::text, t.definition, t.target_asset_id "
-            "FROM rai.plan_items i JOIN rai.test_cases t USING (test_id) "
+            "SELECT i.position, i.contract_id, i.scenario_id, t.test_id, t.name, t.version, "
+            "t.type::text, t.severity::text, t.definition, t.target_asset_id "
+            "FROM rai.plan_items i LEFT JOIN rai.test_cases t USING (test_id) "
             "WHERE i.plan_id = :p ORDER BY i.position"
         ),
         {"p": plan_id},
     ).all()
     items = []
     for row in rows:
+        if row.scenario_id is not None:
+            items.append(_scenario_item(conn, row.position, row.scenario_id))
+            continue
         asset = contract = None
         upstream: tuple[PinnedInput, ...] = ()
         if row.target_asset_id is not None:
@@ -242,10 +247,38 @@ def _pins(session: TenantSession, plan_id: UUID) -> tuple[UUID, Pins]:
             )
         )
     pinned = PinnedPlan(plan_id=plan.plan_id, name=plan.name, version=plan.version)
+    environment = _environment(conn, plan.plan_id)
+    if environment is None and any(i.scenario for i in items):
+        raise Problem(
+            422, "runs.scenario_needs_environment", "A chaos scenario needs an environment",
+            detail="set the plan's environment_id or the project's default environment",
+        )  # fmt: skip
     return plan.project_id, Pins(
-        rai_version=__version__, plan=pinned, items=items,
-        environment=_environment(conn, plan.plan_id),
+        rai_version=__version__, plan=pinned, items=items, environment=environment
+    )
+
+
+def _scenario_item(conn: Connection, position: int, scenario_id: UUID) -> PinnedItem:
+    """A scenario version and the approval it runs under (B-26: FR-07.2). Only the latest
+    decision counts: an unreviewed or rejected version does not start."""
+    row = conn.execute(
+        text(
+            "SELECT scenario_id, name, version, blast_radius, faults "
+            "FROM rai.chaos_scenarios WHERE scenario_id = :s"
+        ),
+        {"s": scenario_id},
+    ).one()
+    approval_id = runnable_decision(conn, scenario_id)
+    if approval_id is None:
+        raise Problem(
+            409, "runs.scenario_not_approved", "A chaos scenario in the plan is not approved",
+            detail=f"plan item {position}: {row.name} v{row.version} needs a reviewer's approval",
+        )  # fmt: skip
+    scenario = PinnedScenario(
+        scenario_id=row.scenario_id, name=row.name, version=row.version,
+        blast_radius=tuple(row.blast_radius), faults=tuple(row.faults), approval_id=approval_id,
     )  # fmt: skip
+    return PinnedItem(position=position, step_key=step_key(position), scenario=scenario)
 
 
 def _environment(conn: Connection, plan_id: UUID) -> PinnedEnvironment | None:
