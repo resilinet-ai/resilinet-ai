@@ -1,4 +1,5 @@
-"""Assurance projects and pipeline assets (B-17: FR-01.1, FR-04.1, FR-11.2).
+"""Assurance projects, pipeline assets and their declared inputs (B-17, B-19: FR-01.1,
+FR-04.1, FR-11.2).
 
 Write roles follow the Data Model endpoint catalogue: projects by admins and
 engineers, assets by engineers. Every role in the tenant can read.
@@ -26,6 +27,7 @@ project_writer = require("admin", "engineer")
 engineer = require("engineer")
 
 UNIQUE_VIOLATION = "23505"
+CHECK_VIOLATION = "23514"
 Classification = Literal["synthetic", "authorized_snapshot"]
 AssetKind = Literal["source", "table", "transform", "feature_set", "model"]
 
@@ -274,3 +276,111 @@ def find_asset(conn: Connection, asset_id: UUID) -> AssetOut:
 @router.get("/assets/{asset_id}")
 def get_asset(asset_id: UUID, session: Annotated[TenantSession, Depends(anyone)]) -> AssetOut:
     return find_asset(session.conn, asset_id)
+
+
+# ---- declared inputs (lineage, B-19: FR-04.1) ------------------------------------------------
+
+
+class InputIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    input_asset_id: UUID = Field(description="the asset this one is derived from")
+    transform_ref: str | None = Field(
+        default=None, min_length=1, max_length=300, description="e.g. etl-job@<commit SHA>"
+    )
+
+
+class InputOut(BaseModel):
+    input_id: UUID
+    asset_id: UUID
+    input_asset_id: UUID
+    input_name: str
+    input_kind: AssetKind
+    transform_ref: str | None
+    created_by: UUID
+    created_at: datetime
+
+
+_INPUT = (
+    "SELECT i.input_id, i.asset_id, i.input_asset_id, a.name AS input_name, "
+    "a.kind::text AS input_kind, i.transform_ref, i.created_by, i.created_at "
+    "FROM rai.asset_inputs i JOIN rai.pipeline_assets a ON a.asset_id = i.input_asset_id"
+)
+
+
+@router.get("/assets/{asset_id}/inputs")
+def list_inputs(
+    asset_id: UUID,
+    session: Annotated[TenantSession, Depends(anyone)],
+    wanted: Annotated[Page, Depends(page)],
+) -> PageOut[InputOut]:
+    """What this asset is derived from (one hop; a run pins every hop upstream)."""
+    find_asset(session.conn, asset_id)
+    after = after_uuid(wanted)
+    rows = session.conn.execute(
+        text(
+            f"{_INPUT} WHERE i.asset_id = :a "
+            "AND (CAST(:after AS uuid) IS NULL OR i.input_id > :after) "
+            "ORDER BY i.input_id LIMIT :n"
+        ),
+        {"a": asset_id, "after": after, "n": wanted.limit + 1},
+    ).all()
+    inputs = [InputOut.model_validate(r._asdict()) for r in rows]
+    return paged(inputs, wanted, lambda i: str(i.input_id))
+
+
+@router.post("/assets/{asset_id}/inputs", status_code=201)
+def declare_input(
+    asset_id: UUID,
+    body: InputIn,
+    response: Response,
+    session: Annotated[TenantSession, Depends(engineer)],
+) -> InputOut:
+    asset = find_asset(session.conn, asset_id)
+    find_project(session.conn, asset.project_id, for_change=True)
+    source = find_asset(session.conn, body.input_asset_id)
+    if source.project_id != asset.project_id:
+        raise Problem(422, "lineage.other_project", "Both assets must be in the same project")
+    if source.asset_id == asset.asset_id:
+        raise Problem(422, "lineage.cycle", "An asset cannot be derived from itself")
+    try:
+        with session.conn.begin_nested():
+            input_id = session.conn.execute(
+                text(
+                    "INSERT INTO rai.asset_inputs (project_id, asset_id, input_asset_id, "
+                    "transform_ref, created_by) VALUES (:p, :a, :i, :t, :u) RETURNING input_id"
+                ),
+                {
+                    "p": asset.project_id, "a": asset_id, "i": body.input_asset_id,
+                    "t": body.transform_ref, "u": session.user_id,
+                },
+            ).scalar_one()  # fmt: skip
+    except IntegrityError as error:
+        if is_unique_violation(error):
+            raise Problem(
+                409, "lineage.duplicate_input", "This input is already declared"
+            ) from None
+        if getattr(error.orig, "sqlstate", None) == CHECK_VIOLATION:
+            raise Problem(
+                422, "lineage.cycle", "This input would close a cycle",
+                detail=f"{asset.name} already feeds {source.name}, directly or indirectly",
+            ) from None  # fmt: skip
+        raise
+    response.headers["Location"] = f"/v1/assets/{asset_id}/inputs/{input_id}"
+    row = session.conn.execute(text(f"{_INPUT} WHERE i.input_id = :i"), {"i": input_id}).one()
+    return InputOut.model_validate(row._asdict())
+
+
+@router.delete("/assets/{asset_id}/inputs/{input_id}", status_code=204)
+def remove_input(
+    asset_id: UUID, input_id: UUID, session: Annotated[TenantSession, Depends(engineer)]
+) -> Response:
+    """Remove a wrong declaration. Runs already queued keep the graph they pinned."""
+    asset = find_asset(session.conn, asset_id)
+    find_project(session.conn, asset.project_id, for_change=True)
+    removed = session.conn.execute(
+        text("DELETE FROM rai.asset_inputs WHERE input_id = :i AND asset_id = :a"),
+        {"i": input_id, "a": asset_id},
+    ).rowcount
+    if not removed:
+        raise Problem(404, "lineage.input_not_found", "Input not found")
+    return Response(status_code=204)

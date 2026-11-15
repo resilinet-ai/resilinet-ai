@@ -29,6 +29,7 @@ from rich.console import Console
 
 from rai.connectors import ConnectorError, connector
 from rai.connectors.base import to_text
+from rai.lineage.digest import frame_digest
 from rai.validation.contract import ContractError, Severity, load_contract
 from rai.validation.engine import ValidationReport, read_batch, validate
 from rai.validation.history import SqliteKeyStore
@@ -91,7 +92,10 @@ def _load_inputs(
     if data is not None:
         references = {name: _read_file(Path(location)) for name, location in refs.items()}
         frame = _read_file(data)
-        source = {"type": "file", "path": data.as_posix(), "sha256": file_sha256(data)}
+        source = {
+            "type": "file", "path": data.as_posix(), "sha256": file_sha256(data),
+            "content_sha256": frame_digest(frame),
+        }  # fmt: skip
         return frame, references, source, data.stem
     if connector_file is None or not asset or not environment:
         raise UsageProblem("--connector needs --asset and --environment")
@@ -115,6 +119,7 @@ def _load_inputs(
         "connector": source_connector.config.name,
         "environment": environment,
         "asset": asset,
+        "content_sha256": frame_digest(frame),
     }
     return frame, references, source, asset
 

@@ -1,6 +1,6 @@
 # RAI API
 
-The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; B-18 runs and the worker; later items add evidence. Synthetic data only.
+The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; B-18 runs and the worker; B-19 lineage; later items add evidence. Synthetic data only.
 
 ## Run it locally
 
@@ -65,6 +65,8 @@ What a run will test. Contracts, test cases and plans are **immutable once publi
 | `GET /v1/assets/{id}/contracts/{version}` | | Full spec and the source as published |
 | `GET, POST /v1/projects/{id}/test-cases` | engineer | Next version per `name`; `?name=` lists its versions |
 | `GET, POST /v1/projects/{id}/plans` | engineer | Ordered items: test cases, optionally pinned to a contract version |
+| `GET, POST /v1/assets/{id}/inputs` | engineer | What the asset is derived from (see [Lineage](#lineage)) |
+| `DELETE /v1/assets/{id}/inputs/{input_id}` | engineer | Remove a wrong declaration; queued runs keep their pinned graph |
 
 Every role in the tenant can read.
 
@@ -91,7 +93,7 @@ curl -s -X PATCH localhost:8000/v1/projects/$ID -H "authorization: Bearer $ACCES
 
 ## Runs
 
-A run executes one plan version. It **pins every input** when it is queued: the plan, each test-case version with its definition, the target asset, and the contract version with its SHA-256. The worker executes from the pins alone.
+A run executes one plan version. It **pins every input** when it is queued: the plan, each test-case version with its definition, the target asset, the contract version with its SHA-256, and the target's declared upstream graph. The worker executes from the pins alone.
 
 | Endpoint | Write roles | Notes |
 | --- | --- | --- |
@@ -99,6 +101,7 @@ A run executes one plan version. It **pins every input** when it is queued: the 
 | `GET /v1/assurance/runs` | | Newest first; `?project_id=`, `?state=`, `?since=` |
 | `GET /v1/assurance/runs/{id}` | | State, verdict, reason, pins, steps, observation counts by outcome |
 | `GET /v1/assurance/runs/{id}/observations` | | One per rule; `?outcome=fail` |
+| `GET /v1/assurance/runs/{id}/lineage` | | Every hop with the SHA-256 of the data read (see [Lineage](#lineage)) |
 
 **States:** `queued → preflight → running → evaluating → passed | failed`.
 - **`refused`:** preflight found something this worker cannot run. The reason lists every problem.
@@ -127,13 +130,57 @@ uv run rai worker            # or: rai worker --once
 {"name": "txn.contract", "type": "contract_rule", "target_asset_id": "...",
  "definition": {"connector": "feed", "environment": "SANDBOX-01",
                 "references": {"accounts": "accounts.csv", "merchants": "merchants.csv"},
-                "fail_on": "critical", "freshness_reference": "newest_row"}}
+                "fail_on": "critical", "freshness_reference": "newest_row",
+                "upstream": {"ledger_postings": "ledger"}}}
 ```
 
 - **The asset's `locator`** is read through that connector (a file under its root, or a table in a read-only session).
 - **`freshness_reference`:** `newest_row` (default) matches `rai validate` without `--as-of`; `now` measures against the run's clock, for live feeds.
+- **`upstream`** (optional) maps upstream asset names to worker connectors, so their data is read and digested for lineage.
 - **Cross-batch duplicates** are checked against a key history kept per tenant in `RAI_WORKER_STATE`.
 - **Not yet supported:** recovery assertions, consistency checks, TEVV metrics and drift checks. A plan containing them is refused with a reason, never passed silently.
+
+## Lineage
+
+Lineage records **which data a run actually read**, as SHA-256 digests (FR-04.1).
+
+**1. Declare how the pipeline fits together.** Each declaration says "this asset is derived from that one", optionally through a named transform:
+
+```bash
+curl -s -X POST localhost:8000/v1/assets/$TXN_TABLE/inputs -H "authorization: Bearer $ACCESS"   -H 'content-type: application/json'   -d '{"input_asset_id": "'$ETL_JOB'", "transform_ref": "etl-job@4f2a9c1"}'
+```
+
+- Both assets must be in the same project (`422 lineage.other_project`).
+- A declaration that would close a cycle is refused (`422 lineage.cycle`); a repeated one is `409`.
+- Asset kinds follow the chain `source -> transform -> table -> feature_set -> model`; a transform usually has no locator.
+
+**2. Run.** When a run is queued it pins every hop upstream of each target (at most 100 per plan item). The worker then records, in the same transaction as the step's observations:
+
+- every pinned hop, with the digest of each end it read;
+- the target into the run;
+- each reference dataset into the run (`from_name` `reference:accounts`).
+
+An upstream asset is read and digested only if the test definition maps it to a connector (`upstream`). Otherwise it still appears as a hop, with a null digest. A step that could not read its data records no lineage.
+
+**3. Read the graph:**
+
+```bash
+curl -s localhost:8000/v1/assurance/runs/$RUN/lineage -H "authorization: Bearer $ACCESS"
+# {"digest_format": "rai-frame-digest/1", "assets": [...],
+#  "edges": [{"step_key": "item-1", "from_name": "txn_table", "from_digest": "e03e85e9...",
+#             "from_rows": 2002, "to_asset_id": "...", "to_digest": "0d8dd300...",
+#             "transform_ref": "features@9b3e", ...}, ...]}
+```
+
+`to_asset_id: null` means the run itself.
+
+**The digest (`rai-frame-digest/1`)** is the SHA-256 of the batch **after** the connector has normalised it to text:
+
+- The same data has the same digest from CSV, Parquet or PostgreSQL.
+- It ignores row and column order, because a PostgreSQL read has no defined order.
+- It counts duplicate rows and tells a null from an empty string.
+
+`rai validate` reports the same value as `batch.source.content_sha256`, so a run's digests can be checked locally. The exact encoding is documented in `src/rai/lineage/digest.py`, and a test pins it.
 
 ## Errors
 

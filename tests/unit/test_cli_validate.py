@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rai.cli.main import app
+from rai.lineage.digest import frame_digest
 from sandboxbank.fixtures import build_slice
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -96,6 +97,7 @@ def test_text_report_and_report_file(small: Path, tmp_path: Path) -> None:
     assert saved["batch"]["id"] == "first"
     assert saved["as_of"] == "2026-01-01T00:15:00+00:00"
     assert saved["batch"]["source"]["sha256"] is not None
+    assert len(saved["batch"]["source"]["content_sha256"]) == 64
     assert saved["notes"] == []
 
 
@@ -136,11 +138,14 @@ def test_connector_mode(small: Path, tmp_path: Path) -> None:
         "--format", "json",
     )  # fmt: skip
     assert code == 0, output
+    batch = small / "feed" / "transactions_raw" / "B000000.csv"
     assert json.loads(output)["batch"]["source"] == {
         "type": "connector",
         "connector": "feed",
         "environment": "SANDBOX-01",
         "asset": "transactions_raw/B000000.csv",
+        # rai-frame-digest/1: the same value a worker records in lineage (B-19)
+        "content_sha256": frame_digest(pl.read_csv(batch, infer_schema=False)),
     }
     code, output = run(
         "--contract",
