@@ -1,4 +1,4 @@
-.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark
+.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e
 
 setup:
 	uv sync --all-packages
@@ -40,3 +40,8 @@ demo:
 
 benchmark:
 	uv run rai-bench dry-run
+
+# FR-07.1: each fault type on SandboxBank (unsigned dev requests: local and CI only).
+chaos-e2e:
+	RAI_AGENT_UNSIGNED_DEV=1 ETL_INTERVAL_SECONDS=2 COMPOSE_PROJECT_NAME=rai-chaos-e2e docker compose --profile sandbox --profile chaos up -d --build --wait
+	COMPOSE_PROJECT_NAME=rai-chaos-e2e uv run python scripts/chaos_e2e.py; status=$$?; COMPOSE_PROJECT_NAME=rai-chaos-e2e docker compose --profile sandbox --profile chaos down -v; exit $$status

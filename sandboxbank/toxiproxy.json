@@ -1,0 +1,14 @@
+[
+  {
+    "name": "ledger-db-proxy",
+    "listen": "0.0.0.0:15432",
+    "upstream": "ledger-db:5432",
+    "enabled": true
+  },
+  {
+    "name": "analytics-db-proxy",
+    "listen": "0.0.0.0:15434",
+    "upstream": "analytics-db:5432",
+    "enabled": true
+  }
+]

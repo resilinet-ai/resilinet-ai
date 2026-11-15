@@ -31,6 +31,7 @@ services:
     image: postgres:16
     labels:
       rai.sandbox: "true"
+      rai.target: ledger-db
     environment:
       POSTGRES_DB: ledger
       POSTGRES_USER: ledger
@@ -49,11 +50,15 @@ services:
     build: ./sandboxbank
     labels:
       rai.sandbox: "true"
+      rai.target: payments-api
     environment:
-      SANDBOXBANK_LEDGER_DSN: postgresql://ledger:${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}@ledger-db:5432/ledger
+      # Through Toxiproxy (ledger-db-proxy), so network faults can reach this path (B-23).
+      SANDBOXBANK_LEDGER_DSN: postgresql://ledger:${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}@toxiproxy:15432/ledger
     depends_on:
       ledger-db:
         condition: service_healthy
+      toxiproxy:
+        condition: service_started
     networks: [sandbox_net]
     ports:
       - "127.0.0.1:18080:8080" # host-only, for `sandboxbank post`
@@ -62,6 +67,7 @@ services:
     image: postgres:16
     labels:
       rai.sandbox: "true"
+      rai.target: analytics-db
     environment:
       POSTGRES_DB: analytics
       POSTGRES_USER: analytics
@@ -80,32 +86,84 @@ services:
     build: ./sandboxbank
     command: ["sandboxbank", "etl", "--interval", "${ETL_INTERVAL_SECONDS:-60}"]
     restart: unless-stopped # S12/S16: stopped or restarted mid-load, it resumes from the watermark
+    healthcheck:
+      disable: true # the image's check probes payments-api's HTTP port, which the ETL lacks
     labels:
       rai.sandbox: "true"
+      rai.target: etl-job
     environment:
-      SANDBOXBANK_LEDGER_DSN: postgresql://ledger:${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}@ledger-db:5432/ledger
-      SANDBOXBANK_ANALYTICS_DSN: postgresql://analytics:${ANALYTICS_DB_PASSWORD:?set ANALYTICS_DB_PASSWORD in .env}@analytics-db:5432/analytics
+      SANDBOXBANK_LEDGER_DSN: postgresql://ledger:${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}@toxiproxy:15432/ledger
+      SANDBOXBANK_ANALYTICS_DSN: postgresql://analytics:${ANALYTICS_DB_PASSWORD:?set ANALYTICS_DB_PASSWORD in .env}@toxiproxy:15434/analytics
     depends_on:
       ledger-db:
         condition: service_healthy
       analytics-db:
         condition: service_healthy
+      toxiproxy:
+        condition: service_started
     networks: [sandbox_net]
   toxiproxy:
     profiles: ["sandbox"]
     image: ghcr.io/shopify/toxiproxy:2.9.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
     labels:
       rai.sandbox: "true"
-    networks: [sandbox_net, bridge_net]
+      rai.target: toxiproxy
+    volumes:
+      - ./sandboxbank/toxiproxy.json:/config/toxiproxy.json:ro # ledger-db-proxy, analytics-db-proxy
+    # The admin API (8474) is on chaos_net only: just the chaos agent can configure faults (TB5).
+    networks: [sandbox_net, chaos_net]
   # B-02: the generator is a CLI (`sandboxbank generate`), not a service.
-  # TODO B-23: rai-chaos-agent and socket-proxy (only these join bridge_net with the worker)
+
+  # ---- chaos profile: fault injection (opt in: --profile sandbox --profile chaos) ----
+  socket-proxy:
+    profiles: ["chaos"]
+    image: wollomatic/socket-proxy:1.13.2
+    # Exactly the verbs the chaos agent needs (threat E-01): list and inspect containers;
+    # stop, start, restart, pause, unpause; network connect and disconnect. No exec, no
+    # images, no volumes, no create. Only the agent may connect.
+    command:
+      - -listenip=0.0.0.0
+      - -allowfrom=rai-chaos-agent
+      - -allowGET=/v1\.41/containers/(json|[a-zA-Z0-9_.-]+/json)
+      - -allowPOST=/v1\.41/(containers/[a-zA-Z0-9_.-]+/(stop|start|restart|pause|unpause)|networks/[a-zA-Z0-9_.-]+/(connect|disconnect))
+      - -watchdoginterval=30
+      - -stoponwatchdog
+    user: "65534:${DOCKER_GID:-0}" # the group that owns the Docker socket on this host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [chaos_net]
+  rai-chaos-agent:
+    profiles: ["chaos"]
+    build: ./chaos_agent
+    # No rai.sandbox label: the agent can never target itself or the socket proxy.
+    environment:
+      RAI_AGENT_TOXIPROXY_URL: http://toxiproxy:8474
+      RAI_AGENT_DOCKER_URL: http://socket-proxy:2375
+      # Until signed requests (B-24), fault requests are refused unless this is 1 (tests only).
+      RAI_AGENT_UNSIGNED_DEV: ${RAI_AGENT_UNSIGNED_DEV:-0}
+    volumes:
+      - chaos-agent-state:/var/lib/rai-chaos-agent # active faults survive a crash (R-03)
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [socket-proxy, toxiproxy]
+    networks: [chaos_net, bridge_net]
+    ports:
+      - "127.0.0.1:18090:8090" # host-only: `kill --all` and the end-to-end check
 
 networks:
   control_net: {}
   sandbox_net: {}
   bridge_net: {}
+  chaos_net:
+    internal: true # no route out: the socket proxy and Toxiproxy admin stay inside
 
 volumes:
   rai-db-data: {}
   ledger-db-data: {}
   analytics-db-data: {}
+  chaos-agent-state: {}
