@@ -64,8 +64,16 @@ Every arm writes `alerts/<arm>.jsonl`, one JSON object per line:
 | Arm | Status |
 | --- | --- |
 | `R`, RAI | Adapter in `rai_bench.arms`: the SandboxBank contracts through the validation engine with a persistent key history. One alert per rule that does not pass, and one per breaking schema change. |
-| `B1`, conventional suite | Written and frozen on day 45, after external review (Protocol section 3) |
-| `B2`, Great Expectations | Written and frozen on day 50 |
+| `B1`, conventional suite | Drafted for review (B-21): the pytest file [`baselines/b1/test_feed.py`](baselines/b1/test_feed.py), run once per delivery. Frozen on day 45 after external review |
+| `B2`, Great Expectations | Drafted for review (B-21): suites profiled on 30 clean development batches, then hand-tightened from the specification ([`baselines/b2/`](baselines/b2/)). Frozen on day 50 |
+
+The review packet, with what each baseline checks, the hand edits, effort counts and open questions for the reviewer, is [`baselines/REVIEW.md`](baselines/REVIEW.md). The baselines need the `b1` and `b2` extras: `uv sync --all-packages --all-extras`.
+
+```bash
+uv run rai-bench run data/fx --out benchmarks/results/run-2 --arm B1 --arm B2 --arm R
+uv run rai-bench effort          # rule counts and lines of code per arm (Protocol section 3)
+uv run rai-bench b2-profile --work data/b2-dev   # regenerate B2's suites (development seed only)
+```
 
 Fault injections (scenarios S01 to S20) use the same alert format with `subject.kind = "injection"`; they are scored once the chaos agent writes its fault log.
 

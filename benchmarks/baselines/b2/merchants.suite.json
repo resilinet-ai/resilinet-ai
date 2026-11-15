@@ -1,0 +1,253 @@
+{
+  "expectations": [
+    {
+      "kwargs": {
+        "column_list": [
+          "merchant_id",
+          "name",
+          "mcc",
+          "category",
+          "country"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_table_columns_to_match_ordered_list"
+    },
+    {
+      "kwargs": {
+        "max_value": 500,
+        "min_value": 500
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_table_row_count_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "merchant_id",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "merchant_id"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "merchant_id"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_unique"
+    },
+    {
+      "kwargs": {
+        "column": "name",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "name"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "name"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_unique"
+    },
+    {
+      "kwargs": {
+        "column": "mcc",
+        "type_list": [
+          "int64"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "mcc"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "mcc",
+        "value_set": [
+          4111,
+          4900,
+          5411,
+          5541,
+          5732,
+          5812,
+          5967,
+          5999,
+          6051,
+          7011,
+          7995
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "mcc",
+        "max_value": 7995.0,
+        "min_value": 4111.0
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "category",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "category"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "category",
+        "value_set": [
+          "direct_marketing",
+          "electronics",
+          "fuel",
+          "gambling",
+          "grocery",
+          "hotels",
+          "quasi_cash",
+          "restaurants",
+          "retail",
+          "transport",
+          "utilities"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "country",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "country"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "country",
+        "value_set": [
+          "BR",
+          "CA",
+          "DE",
+          "GB",
+          "NG",
+          "US"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "merchant_id",
+        "regex": "^MER-\\d{6}$"
+      },
+      "meta": {
+        "id": "K7",
+        "source": "tightened",
+        "spec": "merchant_id: Primary key, MER- followed by 6 digits"
+      },
+      "type": "expect_column_values_to_match_regex"
+    }
+  ],
+  "meta": {
+    "dataset": {
+      "config": {
+        "accounts": 5000,
+        "batch_window_seconds": 900,
+        "batches": 30,
+        "merchants": 500,
+        "rows_per_batch": 100000,
+        "start": "2026-01-01T00:00:00.000Z"
+      },
+      "schema_version": "1",
+      "seed": 45000,
+      "seed_purpose": "development"
+    },
+    "profiled_from": "1 clean development file(s)"
+  },
+  "name": "merchants"
+}

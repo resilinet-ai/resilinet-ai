@@ -260,14 +260,14 @@ def test_cli_run_score_and_dry_run(fixtures: Path, tmp_path: Path) -> None:
     dry = tmp_path / "dry"
     result = runner.invoke(app, ["dry-run", "--out", str(dry), "--rows", "1500", *contracts])
     assert result.exit_code == 0, result.output
-    assert "15 batches delivered to arm R" in result.output
+    assert "15 batches delivered to arms R;" in result.output
     assert (dry / "run" / "scores.json").is_file()
 
 
 @pytest.mark.parametrize(
     ("args", "message"),
     [
-        (["run", "{fx}", "--out", "{tmp}/a", "--arm", "B1"], "not available yet"),
+        (["run", "{fx}", "--out", "{tmp}/a", "--arm", "B3"], "unknown arm"),
         (["run", "{fx}", "--out", "{tmp}/a", "--contracts", "{tmp}"], "could not load the RAI"),
         (["run", "{tmp}", "--out", "{tmp}/a"], "no manifest.json"),
         (["score", "{fx}", "{tmp}"], "no run.json"),

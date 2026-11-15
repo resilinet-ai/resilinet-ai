@@ -11,6 +11,11 @@ dependencies = [
     "typer>=0.12",
 ]
 
+[project.optional-dependencies]
+# Baseline arms (Protocol section 3). Kept out of rai's own dependencies.
+b1 = ["pytest>=8.3"]
+b2 = ["great-expectations>=1.20,<2", "pandas>=2.2,<3"]  # GX 1.24 misreads pandas 3 string dtypes
+
 [project.scripts]
 rai-bench = "rai_bench.cli:app"
 
