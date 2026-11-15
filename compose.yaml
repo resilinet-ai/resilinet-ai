@@ -121,10 +121,10 @@ services:
     image: wollomatic/socket-proxy:1.13.2
     # Exactly the verbs the chaos agent needs (threat E-01): list and inspect containers;
     # stop, start, restart, pause, unpause; network connect and disconnect. No exec, no
-    # images, no volumes, no create. Only the agent may connect.
+    # images, no volumes, no create. Only the agent and its watchdog (B-25) may connect.
     command:
       - -listenip=0.0.0.0
-      - -allowfrom=rai-chaos-agent
+      - -allowfrom=rai-chaos-agent,rai-chaos-watchdog
       - -allowGET=/v1\.41/containers/(json|[a-zA-Z0-9_.-]+/json)
       - -allowPOST=/v1\.41/(containers/[a-zA-Z0-9_.-]+/(stop|start|restart|pause|unpause)|networks/[a-zA-Z0-9_.-]+/(connect|disconnect))
       - -watchdoginterval=30
@@ -156,6 +156,30 @@ services:
     networks: [chaos_net, bridge_net]
     ports:
       - "127.0.0.1:18090:8090" # host-only: `kill --all` and the end-to-end check
+  rai-chaos-watchdog:
+    # B-25 (threat D-01): reverts any fault past its deadline whatever happens to the
+    # agent. Same image, its own process and container; no HTTP interface and no
+    # bridge_net, so nothing can ask it to inject. Shares only the state volume.
+    profiles: ["chaos"]
+    build: ./chaos_agent
+    command: ["rai-chaos-agent", "watchdog"]
+    environment:
+      RAI_AGENT_TOXIPROXY_URL: http://toxiproxy:8474
+      RAI_AGENT_DOCKER_URL: http://socket-proxy:2375
+      RAI_WATCHDOG_GRACE_SECONDS: ${RAI_WATCHDOG_GRACE_SECONDS:-30} # after a fault's duration
+    volumes:
+      - chaos-agent-state:/var/lib/rai-chaos-agent
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "rai-chaos-agent", "watchdog-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    depends_on: [socket-proxy, toxiproxy]
+    networks: [chaos_net]
 
 networks:
   control_net: {}

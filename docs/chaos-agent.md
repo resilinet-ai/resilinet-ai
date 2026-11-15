@@ -45,12 +45,23 @@ The agent does not trust whoever asks, even a signed request. Before acting, it 
 - **A proxy target:** the proxy exists in Toxiproxy.
 - **One fault per target.**
 
-**Recorded before acting.** Every fault is written to the agent's state file first, then marked active with its onset (t0), or marked failed and undone. Faults past their duration are reverted automatically. Faults left open by a crash are reverted when the agent starts.
+**Recorded before acting.** Every fault is written to the agent's state file first, then marked active with its onset (t0), or marked failed and undone. Faults past their duration are reverted automatically. Faults left open by a crash are reverted when the agent starts. Every revert records who made it (`reverted_by`): `request`, `expiry`, `kill`, `startup` or `watchdog`.
+
+## Getting faults out: the watchdog and the kill switch (B-25)
+
+A fault must end even if the agent does not.
+
+- **The watchdog** (`rai-chaos-watchdog`) is a second process in its own container, built from the same image. It shares only the state volume and the two backends. It has no HTTP interface and is not on `bridge_net`, so nothing can ask it to inject. Every 5 s it reverts any open fault past its deadline. The deadline is the time of the request plus the fault's duration plus a grace period (`RAI_WATCHDOG_GRACE_SECONDS`, default 30 s). Counting from the request means a fault the agent left half-injected when it died is covered too. The grace lets the agent's own expiry act first in normal running. Its health check fails if a sweep has not finished within the last minute, and it restarts with Docker.
+- **One lock.** The agent and the watchdog take the same lock on the state file across processes (`flock` on `state.json.lock`). The agent holds it for a whole check, record and act sequence, so the watchdog never undoes an injection in progress. If the lock stays held for more than 20 s, the agent is presumed hung, and the watchdog reverts overdue faults anyway. Every revert is idempotent, and a revert only ever makes the sandbox healthier.
+- **The kill switch.** `rai-chaos-agent kill --all` reverts every open fault from the state file. It needs no RAI API, no database and not even the agent's HTTP server.
+- **The drill** (in `make chaos-e2e` and the CI job "Chaos agent"):
+  1. The agent is killed with `payments-api` stopped. The watchdog restarts `payments-api` once the fault's duration and grace have passed, and the state file shows it as reverted by the watchdog.
+  2. With no RAI API or database in the stack, two 10-minute faults are open. `kill --all` reverts both.
 
 ## Least privilege
 
-- **The Docker socket** is mounted only by the socket proxy (`wollomatic/socket-proxy`). It allows only listing and inspecting containers; stop, start, restart, pause and unpause; and network connect and disconnect. Only the agent may connect to it. Container creation, exec, image pulls and volume access are refused; CI checks this on every pull request.
-- **Networks.** The socket proxy and Toxiproxy's admin API are on `chaos_net`, an internal network with no route out, shared only with the agent. The agent also joins `bridge_net`, where the worker will reach it.
+- **The Docker socket** is mounted only by the socket proxy (`wollomatic/socket-proxy`). It allows only listing and inspecting containers; stop, start, restart, pause and unpause; and network connect and disconnect. Only the agent and the watchdog may connect to it. Container creation, exec, image pulls and volume access are refused; CI checks this on every pull request.
+- **Networks.** The socket proxy and Toxiproxy's admin API are on `chaos_net`, an internal network with no route out, shared only with the agent and the watchdog. The agent also joins `bridge_net`, where the worker reaches it; the watchdog does not.
 - **Opt-in profile.** The agent and the socket proxy are in the `chaos` profile, so the socket is mounted only when chaos is asked for.
 - **Pinned dependency.** The agent's one dependency, `cryptography`, is installed from `requirements.txt` with every hash pinned. That file is exported from `uv.lock`, and a test keeps the two in step.
 
@@ -58,7 +69,7 @@ The agent does not trust whoever asks, even a signed request. Before acting, it 
 
 ```bash
 docker compose --profile sandbox --profile chaos up -d --build
-docker compose exec rai-chaos-agent rai-chaos-agent status     # open faults
+docker compose exec rai-chaos-agent rai-chaos-agent status     # open faults (--all: every fault)
 docker compose exec rai-chaos-agent rai-chaos-agent kill --all # revert everything
 curl -s -X POST 127.0.0.1:18090/kill                           # the same, from the host
 ```
@@ -68,7 +79,8 @@ curl -s -X POST 127.0.0.1:18090/kill                           # the same, from 
 The end-to-end check makes a throwaway worker key, starts the stack trusting only that key, and signs every request with it:
 
 ```bash
-make chaos-e2e   # every fault type, its effect and recovery; forged, replayed and expired requests refused
+make chaos-e2e   # every fault type, its effect and recovery; forged, replayed and expired
+                 # requests refused; the watchdog after the agent is killed; kill --all
 ```
 
 On Linux, set `DOCKER_GID` to the group that owns `/var/run/docker.sock` (`stat -c %g /var/run/docker.sock`); Docker Desktop needs nothing.
@@ -85,5 +97,4 @@ On Linux, set `DOCKER_GID` to the group that owns `/var/run/docker.sock` (`stat 
 
 The envelope is `{"format": "rai-signed-fault/1", "key_id": ..., "payload": ..., "signature": ...}`. Its payload is `{"format": "rai-fault-request/1", "issued_at": ..., "expires_at": ..., "request": {...}}`, and the request inside looks like this: `{"type": "container_stop", "target": "payments-api", "duration_seconds": 60, "required_label": "rai.target=payments-api", "run_id": ..., "step_key": "item-1", "tenant_id": ..., "environment": "SANDBOXBANK", "max_duration_seconds": 900, "blast_radius": ["payments-api"]}`. See `chaos_agent/signing.py`.
 
-**Coming next:**
-- **B-25:** the independent watchdog and the kill-switch drill with the API and database down.
+**Coming next:** scenario steps that call the agent through the worker (B-26), and the scenario-level blast radius (B-27).

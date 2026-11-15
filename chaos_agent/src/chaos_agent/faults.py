@@ -24,9 +24,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import tempfile
 import threading
+import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -148,6 +152,8 @@ class Fault:
     detail: dict[str, Any] = field(default_factory=dict)  # what the revert needs
     error: str | None = None
     signed_by: str | None = None  # the worker key that signed the request (B-24)
+    # B-25: who reverted it: request, expiry, kill, startup or watchdog.
+    reverted_by: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -159,14 +165,46 @@ class Fault:
         return cls(**{**data, "request": FaultRequest(**request)})
 
 
+class LockTimeout(TimeoutError):
+    """Another process has held the state lock for longer than we may wait."""
+
+
 class StateFile:
     """Active faults on local disk, written before the agent acts (threat R-03), so a
-    revert works after a crash and with the API and database down."""
+    revert works after a crash and with the API and database down.
+
+    B-25: the agent and the watchdog are separate processes (separate containers on
+    one volume), so :meth:`locked` takes an advisory lock on ``<state>.lock`` as well
+    as a thread lock. The lock is held for a whole check-persist-act sequence and is
+    released by the kernel if its holder dies.
+    """
 
     def __init__(self, path: Path) -> None:
         self.path = path
         self._lock = threading.RLock()
+        self._depth = 0  # re-entry within the thread that holds the file lock
+        self._handle: Any = None
         path.parent.mkdir(parents=True, exist_ok=True)
+
+    @contextmanager
+    def locked(self, timeout: float | None = None) -> Iterator[None]:
+        """Hold the state for one sequence of reads and writes, across processes.
+        Raises :class:`LockTimeout` if it cannot be had within ``timeout`` seconds."""
+        if not self._lock.acquire(timeout=-1 if timeout is None else timeout):
+            raise LockTimeout("another thread holds the state")
+        try:
+            if self._depth == 0:
+                self._handle = _acquire(self.path.with_name(self.path.name + ".lock"), timeout)
+            self._depth += 1
+            try:
+                yield
+            finally:
+                self._depth -= 1
+                if self._depth == 0:
+                    _release(self._handle)
+                    self._handle = None
+        finally:
+            self._lock.release()
 
     def load(self) -> dict[str, Fault]:
         with self._lock:
@@ -194,3 +232,48 @@ class StateFile:
             faults = self.load()
             faults[fault.fault_id] = fault
             self.save(faults)
+
+
+# ---- the cross-process lock: flock on Linux (the containers), msvcrt for local tests ---------
+
+
+def _acquire(path: Path, timeout: float | None) -> Any:
+    handle = path.open("a+b")
+    deadline = None if timeout is None else time.monotonic() + timeout
+    while True:
+        try:
+            _try_lock(handle)
+            return handle
+        except OSError:
+            if deadline is not None and time.monotonic() >= deadline:
+                handle.close()
+                raise LockTimeout(f"{path} is held by another process") from None
+            time.sleep(0.05)
+
+
+def _release(handle: Any) -> None:
+    try:
+        _unlock(handle)
+    finally:
+        handle.close()
+
+
+if sys.platform == "win32":  # pragma: no cover - development on Windows
+    import msvcrt
+
+    def _try_lock(handle: Any) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+
+    def _unlock(handle: Any) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _try_lock(handle: Any) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(handle: Any) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

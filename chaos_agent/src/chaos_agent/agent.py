@@ -26,13 +26,13 @@ the signature checked in :mod:`chaos_agent.signing`:
 Every fault is written to the state file **before** it acts, then marked active
 with its onset (t0), or failed. Faults past their duration are reverted by the
 expiry loop; faults found active when the agent starts (it crashed) are reverted
-first. The watchdog and the kill-switch drill come with B-25.
+first. The agent and the independent watchdog (:mod:`chaos_agent.watchdog`, B-25) share
+one cross-process lock on the state file, and every revert is idempotent.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -88,7 +88,6 @@ class Agent:
         self.environment = environment  # the one environment it serves (B-24)
         self.max_fault_seconds = min(max_fault_seconds, HARD_MAX_SECONDS)
         self.max_open_faults = max_open_faults
-        self._lock = threading.Lock()
 
     # ---- checks ----------------------------------------------------------------------------
 
@@ -162,7 +161,7 @@ class Agent:
     def _apply(self, fault: Fault) -> None:
         request, detail = fault.request, fault.detail
         if request.type in ("latency", "timeout"):
-            name = f"rai-{fault.fault_id[:8]}"
+            name = detail["toxic"]  # named before the fault was recorded
             attributes = (
                 {"latency": request.latency_ms, "jitter": request.jitter_ms}
                 if request.type == "latency" else {"timeout": 0}
@@ -171,7 +170,6 @@ class Agent:
                 "name": name, "type": request.type, "stream": "downstream", "toxicity": 1.0,
                 "attributes": attributes,
             })  # fmt: skip
-            detail["toxic"] = name
         elif request.type == "connection_drop":
             self.toxiproxy.set_enabled(request.target, False)
         elif request.type == "network_partition":
@@ -198,8 +196,11 @@ class Agent:
 
     def inject(self, request: FaultRequest, *, signed_by: str | None = None) -> Fault:
         """Check, persist, act; returns the fault with its onset (t0)."""
-        with self._lock:
+        with self.state.locked():  # across processes: the watchdog waits (B-25)
             fault = Fault(request=request, detail=self._check(request), signed_by=signed_by)
+            if request.type in ("latency", "timeout"):
+                # Named now, so a revert after a crash mid-injection can find the toxic.
+                fault.detail["toxic"] = f"rai-{fault.fault_id[:8]}"
             self.state.put(fault)  # recorded before anything changes (R-03)
             try:
                 self._apply(fault)
@@ -223,10 +224,12 @@ class Agent:
                      fault.onset)  # fmt: skip
             return fault
 
-    def revert(self, fault_id: str, *, expired_by: datetime | None = None) -> Fault:
+    def revert(
+        self, fault_id: str, *, expired_by: datetime | None = None, by: str = "request"
+    ) -> Fault:
         """Revert one fault. With ``expired_by``, only if it has expired by then (checked
         under the lock, so an injection in progress is never undone by the expiry loop)."""
-        with self._lock:
+        with self.state.locked():
             fault = self.state.load().get(fault_id)
             if fault is None:
                 raise KeyError(fault_id)
@@ -236,20 +239,20 @@ class Agent:
                 return fault
             if fault.status in OPEN:
                 self._undo(fault)
-                fault.status, fault.reverted_at = "reverted", stamp(now())
+                fault.status, fault.reverted_at, fault.reverted_by = "reverted", stamp(now()), by
                 self.state.put(fault)
-                log.info("fault %s reverted", fault_id)
+                log.info("fault %s reverted (%s)", fault_id, by)
             return fault
 
     def open_faults(self) -> list[Fault]:
         return [f for f in self.state.load().values() if f.status in OPEN]
 
-    def revert_all(self) -> list[Fault]:
+    def revert_all(self, *, by: str = "kill") -> list[Fault]:
         """Revert every open fault (kill --all); keeps going past failures."""
         reverted = []
         for fault in self.open_faults():
             try:
-                reverted.append(self.revert(fault.fault_id))
+                reverted.append(self.revert(fault.fault_id, by=by))
             except BackendError:
                 log.exception("could not revert %s", fault.fault_id)
         return reverted
@@ -261,7 +264,7 @@ class Agent:
         reverted = []
         for fault in self.open_faults():
             if fault.expires_at is not None and _parse(fault.expires_at) <= moment:
-                done = self.revert(fault.fault_id, expired_by=moment)
+                done = self.revert(fault.fault_id, expired_by=moment, by="expiry")
                 if done.status == "reverted":
                     reverted.append(done)
         return reverted

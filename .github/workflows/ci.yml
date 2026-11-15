@@ -151,6 +151,8 @@ jobs:
     # checks each effect and its recovery, and checks the socket proxy refuses the rest.
     # B-24 (S-03): every request is signed with a throwaway worker key; unsigned, forged,
     # replayed, expired and other-environment requests are refused.
+    # B-25 (FR-07.3, D-01): the kill-switch drill; the watchdog reverts a fault after the
+    # agent is killed, and kill --all works with no RAI API or database in the stack.
     name: Chaos agent (7 fault types)
     runs-on: ubuntu-latest
     env:
@@ -160,6 +162,7 @@ jobs:
       LEDGER_DB_PASSWORD: ci-only-not-secret
       ANALYTICS_DB_PASSWORD: ci-only-not-secret
       ETL_INTERVAL_SECONDS: "2"
+      RAI_WATCHDOG_GRACE_SECONDS: "3" # the drill waits for the watchdog, not 30 s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -177,7 +180,7 @@ jobs:
           RAI_CHAOS_E2E_KEY: ${{ runner.temp }}/worker.pem
       - name: Service logs
         if: always()
-        run: docker compose --profile sandbox --profile chaos logs --tail 40 rai-chaos-agent socket-proxy payments-api etl-job
+        run: docker compose --profile sandbox --profile chaos logs --tail 40 rai-chaos-agent rai-chaos-watchdog socket-proxy payments-api etl-job
       - name: Stop
         if: always()
         run: docker compose --profile sandbox --profile chaos down -v

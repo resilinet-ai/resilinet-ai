@@ -1,8 +1,13 @@
-"""The agent's local HTTP interface and its command line (B-23).
+"""The agent's local HTTP interface and its command line (B-23, B-25).
 
     rai-chaos-agent serve           # listen (RAI_AGENT_LISTEN, default 0.0.0.0:8090)
-    rai-chaos-agent status          # the open faults in the state file
+    rai-chaos-agent status [--all]  # the open faults (or every fault) in the state file
     rai-chaos-agent kill --all      # revert every open fault from the state file
+    rai-chaos-agent watchdog        # the independent watchdog (its own container, B-25)
+    rai-chaos-agent watchdog-health # exit 0 if the watchdog swept within the last minute
+
+``kill --all`` needs nothing but the state file and the two backends: no API, no
+database, not even the agent's HTTP server (the kill-switch drill, FR-07.3).
 
 HTTP:
 
@@ -28,6 +33,7 @@ import argparse
 import json
 import logging
 import os
+import signal
 import socket
 import sys
 import threading
@@ -38,6 +44,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from chaos_agent import watchdog
 from chaos_agent.agent import DEFAULT_MAX_FAULT_SECONDS, DEFAULT_MAX_OPEN_FAULTS, Agent, FaultReplay
 from chaos_agent.clients import BackendError, HttpDocker, HttpToxiproxy
 from chaos_agent.faults import FaultError, FaultRequest, StateFile, now
@@ -158,7 +165,7 @@ def expiry_loop(agent: Agent, stop: threading.Event) -> None:
 
 
 def serve(agent: Agent, keys: dict[str, Ed25519PublicKey], host: str, port: int) -> None:
-    left = agent.revert_all()  # faults from before a crash are undone first
+    left = agent.revert_all(by="startup")  # faults from before a crash are undone first
     log = logging.getLogger("rai.chaos_agent")
     if left:
         log.warning("reverted %d fault(s) left open by an earlier run", len(left))
@@ -181,18 +188,31 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rai-chaos-agent", description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="run the agent")
-    commands.add_parser("status", help="list open faults")
+    status = commands.add_parser("status", help="list open faults")
+    status.add_argument("--all", action="store_true", help="every fault, reverted ones too")
     kill = commands.add_parser("kill", help="revert faults from the state file")
     kill.add_argument("--all", action="store_true", required=True, help="every open fault")
+    commands.add_parser("watchdog", help="revert overdue faults, whatever the agent does")
+    commands.add_parser("watchdog-health", help="exit 0 if the watchdog swept recently")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    if args.command == "watchdog-health":
+        state = Path(os.environ.get("RAI_AGENT_STATE", "/var/lib/rai-chaos-agent/state.json"))
+        return 0 if watchdog.healthy(state.parent) else 1
     agent = build()
+    if args.command == "watchdog":
+        grace, lock_wait, interval = watchdog.settings()
+        stop = threading.Event()
+        signal.signal(signal.SIGTERM, lambda *_: stop.set())
+        watchdog.Watchdog(agent, grace_seconds=grace, lock_wait=lock_wait).run(stop, interval)
+        return 0
     if args.command == "serve":
         host, _, port = os.environ.get("RAI_AGENT_LISTEN", "0.0.0.0:8090").rpartition(":")
         serve(agent, trusted_keys(), host, int(port))
         return 0
     if args.command == "status":
-        sys.stdout.write(json.dumps([f.to_json() for f in agent.open_faults()], indent=2) + "\n")
+        faults = list(agent.state.load().values()) if args.all else agent.open_faults()
+        sys.stdout.write(json.dumps([f.to_json() for f in faults], indent=2) + "\n")
         return 0
     reverted = agent.revert_all()
     sys.stdout.write(f"reverted {len(reverted)} fault(s)\n")

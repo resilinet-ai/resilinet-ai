@@ -5,13 +5,17 @@ exactly as the worker signs it (``rai.worker.chaos.Signer``). The CI job "Chaos
 agent" (and ``make chaos-e2e``) runs it like this:
 
     RAI_AGENT_WORKER_KEYS="$(uv run rai admin chaos-keygen --out /tmp/k/worker.pem)" \\
-      ETL_INTERVAL_SECONDS=2 docker compose --profile sandbox --profile chaos up -d --build --wait
+      ETL_INTERVAL_SECONDS=2 RAI_WATCHDOG_GRACE_SECONDS=3 \\
+      docker compose --profile sandbox --profile chaos up -d --build --wait
     RAI_CHAOS_E2E_KEY=/tmp/k/worker.pem uv run python scripts/chaos_e2e.py
 
 For each of the seven fault types it injects one fault through the agent's HTTP
 interface, shows its effect on SandboxBank, reverts it, and shows the recovery. It
 also checks that the agent refuses unsigned, forged, replayed, expired and
-other-environment requests. Exit code 0 only if every check passed.
+other-environment requests. Then the kill-switch drill (B-25: FR-07.3, threat D-01):
+the agent is killed mid-fault and the independent watchdog restores the target; and
+``kill --all`` reverts every open fault from the state file alone, in a stack with no
+RAI API and no database. Exit code 0 only if every check passed.
 """
 
 from __future__ import annotations
@@ -267,6 +271,73 @@ def socket_proxy() -> None:
     expect(listing == 200, "the socket proxy refused an allowed call")
 
 
+def compose(*args: str) -> str:
+    return subprocess.run(["docker", "compose", *args], check=True,  # noqa: S603, S607
+                          capture_output=True, text=True).stdout  # fmt: skip
+
+
+def history() -> dict[str, dict[str, Any]]:
+    """Every fault in the state file, read from the watchdog (it works with the agent dead)."""
+    out = compose("exec", "-T", "rai-chaos-watchdog", "rai-chaos-agent", "status", "--all")
+    return {f["fault_id"]: f for f in json.loads(out)}
+
+
+def agent_up() -> bool:
+    try:
+        return http(f"{AGENT}/healthz", timeout=2)[0] == 200
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
+
+
+def watchdog_after_agent_crash() -> None:
+    """D-01: the agent dies with a fault active; the watchdog reverts it after its
+    duration plus the grace, with nobody else acting."""
+    expect("rai-chaos-watchdog" in compose("ps", "--status", "running", "--services"),
+           "the watchdog is not running")  # fmt: skip
+    fault = inject({"type": "container_stop", "target": "payments-api", "duration_seconds": 5,
+                    "required_label": "rai.target=payments-api"})  # fmt: skip
+    killed = time.monotonic()
+    compose("kill", "rai-chaos-agent")
+    try:
+        expect(not agent_up(), "the agent still answers after being killed")
+        expect(not ready(), "payments-api answers while stopped")
+        eventually(ready, "the watchdog restores payments-api", within=90)
+        print(f"  agent killed; payments-api back {time.monotonic() - killed:.0f} s later "
+              "(duration 5 s + grace)")  # fmt: skip
+        record = history()[fault]
+        expect(record["reverted_by"] == "watchdog", f"reverted by {record['reverted_by']}")
+        print(f"  state file: reverted at {record['reverted_at']} by the watchdog")
+    finally:
+        compose("start", "rai-chaos-agent")
+        eventually(agent_up, "the agent is back")
+
+
+def kill_switch_drill() -> None:
+    """FR-07.3: `kill --all` from the state file reverts every open fault with no RAI API
+    and no database in the stack, and without the agent's HTTP server."""
+    running = compose("ps", "--status", "running", "--services").split()
+    expect("rai-db" not in running, "rai-db is running; the drill needs it down")
+    print(f"  running: {', '.join(sorted(running))} (no RAI API, no rai-db)")
+    both = ["etl-job", "ledger-db-proxy"]
+    drill = f"drill-{uuid.uuid4()}"
+    for body in ({"type": "stale_upstream", "target": "etl-job",
+                  "required_label": "rai.target=etl-job"},
+                 {"type": "connection_drop", "target": "ledger-db-proxy"}):  # fmt: skip
+        inject(body | {"duration_seconds": 600, "run_id": drill, "blast_radius": both})
+    expect(inspect("etl-job", "{{.State.Paused}}") == "true", "etl-job is not paused")
+    eventually(lambda: not ready(timeout=3), "payments-api is down")
+    start = time.monotonic()
+    out = compose("exec", "-T", "rai-chaos-agent", "rai-chaos-agent", "kill", "--all")
+    seconds = time.monotonic() - start
+    print(f"  kill --all: {out.strip()} in {seconds:.1f} s")
+    expect("reverted 2 fault(s)" in out, "kill --all did not revert both faults")
+    expect(inspect("etl-job", "{{.State.Paused}}") == "false", "etl-job is still paused")
+    eventually(ready, "payments-api is ready again")
+    kinds = {f["request"]["run_id"]: f["reverted_by"] for f in history().values()
+             if f["request"]["run_id"] == drill}  # fmt: skip
+    expect(kinds == {drill: "kill"}, f"not recorded as a kill: {kinds}")
+
+
 CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("socket_proxy", socket_proxy),
     ("signatures", signatures),
@@ -278,6 +349,8 @@ CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("container_restart", restart),
     ("stale_upstream", stale),
     ("refusal", refused),
+    ("watchdog_after_agent_crash", watchdog_after_agent_crash),
+    ("kill_switch_drill", kill_switch_drill),
 ]
 
 
@@ -293,7 +366,8 @@ def main() -> int:
         except Exception as error:  # report every failure, then carry on with the next type
             print(f"  FAILED: {error}")
             failed.append(name)
-            http(f"{AGENT}/kill", "POST", {})
+            if agent_up():
+                http(f"{AGENT}/kill", "POST", {})
     left = http(f"{AGENT}/faults")[1]["faults"]
     print(f"open faults left: {len(left)}")
     print("all fault types observed and reverted" if not failed else f"failed: {failed}")
