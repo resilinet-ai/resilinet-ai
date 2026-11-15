@@ -95,10 +95,20 @@ def set_password(conn: Connection, *, email: str, password_hash: str) -> bool:
     return True
 
 
-def set_api_role_password(conn: Connection, password: str) -> None:
-    """ALTER ROLE needs a literal, so the password is quoted by psycopg, never formatted."""
+LOGIN_ROLES = (API_ROLE, "rai_worker")
+
+
+def set_role_password(conn: Connection, role: str, password: str) -> None:
+    """ALTER ROLE needs a literal, so the password is quoted by psycopg, never formatted.
+    Only the service login roles can be changed this way."""
+    if role not in LOGIN_ROLES:
+        raise ValueError(f"role must be one of {', '.join(LOGIN_ROLES)}")
     raw = conn.connection.driver_connection
     statement = sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {}").format(
-        sql.Identifier(API_ROLE), sql.Literal(password)
+        sql.Identifier(role), sql.Literal(password)
     )
     conn.exec_driver_sql(statement.as_string(raw))
+
+
+def set_api_role_password(conn: Connection, password: str) -> None:
+    set_role_password(conn, API_ROLE, password)

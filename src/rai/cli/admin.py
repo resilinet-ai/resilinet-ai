@@ -25,6 +25,7 @@ errors = Console(stderr=True, soft_wrap=True)
 
 NEW_PASSWORD_ENV = "RAI_NEW_PASSWORD"  # noqa: S105 - a variable name, not a secret
 API_DB_PASSWORD_ENV = "RAI_API_DB_PASSWORD"  # noqa: S105 - a variable name
+WORKER_DB_PASSWORD_ENV = "RAI_WORKER_DB_PASSWORD"  # noqa: S105 - a variable name
 
 
 def owner_engine() -> Engine:
@@ -109,18 +110,55 @@ def set_password_command(
     console.print(f"password set for {email}; existing sessions ended")
 
 
-def set_api_password_command() -> None:
-    """Set the password of the rai_api login role (from RAI_API_DB_PASSWORD or a prompt)."""
-    from rai.core.accounts import set_api_role_password
+def _set_role_password(role: str, env: str, url_env: str) -> None:
+    from rai.core.accounts import set_role_password
 
-    password = read_password(API_DB_PASSWORD_ENV, "rai_api database password")
+    password = read_password(env, f"{role} database password")
     engine = owner_engine()
     try:
         with engine.begin() as conn:
-            set_api_role_password(conn, password)
+            set_role_password(conn, role, password)
     finally:
         engine.dispose()
-    console.print("rai_api password set; point RAI_API_DATABASE_URL at it")
+    console.print(f"{role} password set; point {url_env} at it")
+
+
+def set_api_password_command() -> None:
+    """Set the password of the rai_api login role (from RAI_API_DB_PASSWORD or a prompt)."""
+    _set_role_password("rai_api", API_DB_PASSWORD_ENV, "RAI_API_DATABASE_URL")
+
+
+def set_worker_password_command() -> None:
+    """Set the password of the rai_worker login role (RAI_WORKER_DB_PASSWORD or a prompt)."""
+    _set_role_password("rai_worker", WORKER_DB_PASSWORD_ENV, "RAI_WORKER_DATABASE_URL")
+
+
+def worker_command(
+    once: Annotated[bool, typer.Option(help="Process at most one job, then exit")] = False,
+    poll: Annotated[float, typer.Option(help="Seconds between polls when idle")] = 2.0,
+) -> None:
+    """Run the worker: claim queued runs and execute them (needs RAI_WORKER_DATABASE_URL)."""
+    import logging
+    import signal
+    import threading
+
+    from rai.worker.service import WorkerSettings, WorkerSetupError, build
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    try:
+        worker = build(WorkerSettings.from_env())
+    except WorkerSetupError as error:
+        errors.print(f"error: {error}")
+        raise typer.Exit(2) from None
+    if once:
+        processed = worker.run_once()
+        console.print("processed one job" if processed else "no job waiting")
+        return
+    stop = threading.Event()
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    console.print(f"worker {worker.config.name} started; Ctrl+C to stop")
+    worker.serve(stop, poll_seconds=poll)
 
 
 def serve_command(

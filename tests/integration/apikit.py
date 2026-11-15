@@ -21,6 +21,7 @@ if os.environ.get("CI") == "true" and not DSN:  # never skip silently in CI
 needs_db = pytest.mark.skipif(not DSN, reason="RAI_TEST_DSN not set")
 
 API_PASSWORD = "api-role-test-password"  # noqa: S105 - throwaway test database
+WORKER_PASSWORD = "worker-role-test-password"  # noqa: S105 - throwaway test database
 SECRET = secrets.token_urlsafe(48)  # a fresh signing key per test run
 PASSWORD = "a long test password"  # noqa: S105 - synthetic test account
 

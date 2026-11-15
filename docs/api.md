@@ -1,6 +1,6 @@
 # RAI API
 
-The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; later items add runs and evidence. Synthetic data only.
+The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; B-18 runs and the worker; later items add evidence. Synthetic data only.
 
 ## Run it locally
 
@@ -11,6 +11,8 @@ uv run rai db set-api-password               # password of the rai_api login rol
 uv run rai admin create-tenant --slug demo-cu --name "Demo CU" \
     --admin-email admin@example.test --admin-name "Demo Admin"
 uv run rai serve                             # 127.0.0.1:8000
+uv run rai db set-worker-password            # password of the rai_worker login role
+uv run rai worker                            # in a second terminal: executes queued runs
 ```
 
 `rai serve` needs `RAI_API_DATABASE_URL` (logging in as `rai_api`) and `RAI_JWT_SECRET` (at least 32 bytes) or `RAI_JWT_SECRET_FILE`; see `.env.example`. Passwords are read from `RAI_NEW_PASSWORD` / `RAI_API_DB_PASSWORD` or a hidden prompt, never from command-line arguments.
@@ -86,6 +88,52 @@ curl -s -X PATCH localhost:8000/v1/projects/$ID -H "authorization: Bearer $ACCES
 - **An archived project** accepts no new assets or definitions (`409`).
 
 **Lists** are paginated: `?limit=50` (at most 200), then pass `next_cursor` back as `?cursor=`. The answer is `{"items": [...], "next_cursor": null}` on the last page.
+
+## Runs
+
+A run executes one plan version. It **pins every input** when it is queued: the plan, each test-case version with its definition, the target asset, and the contract version with its SHA-256. The worker executes from the pins alone.
+
+| Endpoint | Write roles | Notes |
+| --- | --- | --- |
+| `POST /v1/assurance/runs` | engineer | `{"plan_id": ..., "trigger_ref": "<commit SHA>"}`; answers `202` with the run |
+| `GET /v1/assurance/runs` | | Newest first; `?project_id=`, `?state=`, `?since=` |
+| `GET /v1/assurance/runs/{id}` | | State, verdict, reason, pins, steps, observation counts by outcome |
+| `GET /v1/assurance/runs/{id}/observations` | | One per rule; `?outcome=fail` |
+
+**States:** `queued → preflight → running → evaluating → passed | failed`.
+- **`refused`:** preflight found something this worker cannot run. The reason lists every problem.
+- **`error`:** the platform failed three times.
+- **`aborted`:** reserved for the kill-switch.
+
+Finished runs never change; to try again, start a new run.
+
+**`Idempotency-Key`:** sending the same request with the same key returns the same run, which is safe for CI retries. Reusing a key for a different request is `422`.
+
+### The worker
+
+```bash
+export RAI_WORKER_DATABASE_URL=postgresql://rai_worker:...@127.0.0.1:55431/rai
+export RAI_WORKER_CONNECTORS=./worker-connectors     # *.yaml connector configs
+uv run rai worker            # or: rai worker --once
+```
+
+- **One step at a time.** The worker claims a queued run, renews its lease between steps and executes each plan item as one step.
+- **Steps are atomic.** A step's observations are committed together with the step. If the worker dies, another worker resumes the run after the lease (5 minutes) runs out: finished steps are never repeated, so observations are never duplicated.
+- **The worker refuses to start** unless it logs in as `rai_worker`.
+
+**A `contract_rule` test case** names a connector configured on the worker, never a path:
+
+```json
+{"name": "txn.contract", "type": "contract_rule", "target_asset_id": "...",
+ "definition": {"connector": "feed", "environment": "SANDBOX-01",
+                "references": {"accounts": "accounts.csv", "merchants": "merchants.csv"},
+                "fail_on": "critical", "freshness_reference": "newest_row"}}
+```
+
+- **The asset's `locator`** is read through that connector (a file under its root, or a table in a read-only session).
+- **`freshness_reference`:** `newest_row` (default) matches `rai validate` without `--as-of`; `now` measures against the run's clock, for live feeds.
+- **Cross-batch duplicates** are checked against a key history kept per tenant in `RAI_WORKER_STATE`.
+- **Not yet supported:** recovery assertions, consistency checks, TEVV metrics and drift checks. A plan containing them is refused with a reason, never passed silently.
 
 ## Errors
 
