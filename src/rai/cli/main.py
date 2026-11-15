@@ -21,6 +21,7 @@ from rai.cli.admin import (
     set_worker_password_command,
     worker_command,
 )
+from rai.cli.run import run_command
 from rai.cli.validate import validate_command
 
 app = typer.Typer(
@@ -35,6 +36,7 @@ db_app = typer.Typer(
 audit_app = typer.Typer(help="Audit hash chain (needs RAI_DATABASE_URL).", no_args_is_help=True)
 contract_app = typer.Typer(help="Data contracts (FR-03.1).", no_args_is_help=True)
 app.command("validate")(validate_command)
+app.command("run")(run_command)
 app.add_typer(db_app, name="db")
 app.add_typer(contract_app, name="contract")
 app.add_typer(audit_app, name="audit")

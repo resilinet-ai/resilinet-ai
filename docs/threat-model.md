@@ -96,7 +96,7 @@ flowchart LR
 | ID | Element | Threat | Mitigation | Status | Residual |
 | --- | --- | --- | --- | --- | --- |
 | S-01 | rai-api (TB1) | Someone signs in as another user | Argon2id password hashes; short-lived JWTs; optional TOTP; uniform login errors | Implemented B-16: Argon2id (RFC 9106), 15-min JWT, uniform 401, failed-login throttling per email and address (`test_login_failures_look_the_same`, `test_repeated_failures_are_throttled_even_for_unknown_emails`); TOTP later | L |
-| S-02 | rai-api (TB1) | A stolen API key is reused | Only a SHA-256 hash of each key is stored; keys are project-scoped, expire within 90 days and can be revoked; the prefix identifies the key without revealing it | Planned B-20 | M |
+| S-02 | rai-api (TB1) | A stolen API key is reused | Only a SHA-256 hash of each key is stored; keys are project-scoped, expire within 90 days and can be revoked; the prefix identifies the key without revealing it | Implemented B-20: SHA-256 only, expiry required (at most 90 days, database check), revoke-only trigger, project and scope checks on every request, keys die with their creator's access (`test_a_key_works_only_within_its_project_and_scopes`, `test_a_key_stops_working_when_its_creator_loses_access`) | M |
 | S-03 | Chaos agent (TB3) | A forged or replayed fault request | Ed25519 signature from the worker's key; replay guard on run ID; the agent re-runs preflight itself | Planned B-24 | L |
 | S-04 | Audit chain (TB2) | A database session claims a false actor in `app.actor_id` | Only `rai-api` and `rai-worker` hold database credentials; the actor is set from the authenticated identity in one function (`rai.core.tenancy.set_context`) | Implemented B-05 + B-16: the actor is the verified token's user (`test_role_changes_are_audited_with_the_signed_in_admin`) | M |
 | S-05 | Allow-list (TB4) | A container imitates an allow-listed target | Targets must match both the `rai.sandbox=true` label and the registered name; the worker and the agent each check | Planned B-22, B-24 | L |
@@ -142,7 +142,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- |
 | D-01 | Chaos agent (A4) | A fault stays active after the agent, worker or API crashes | A watchdog reverts any fault past its maximum duration; `kill --all` works from the local state file with the API and database down | Planned B-25 | L |
 | D-02 | Sandbox | A fault runs longer or wider than declared | Maximum duration ≤ the environment ceiling (15 min); declared blast radius checked by both preflights | Planned B-24, B-27 | L |
-| D-03 | rai-api (TB1) | Oversized or flood requests | Request size limits; rate limits per key; batch limits | Partial: payments-api batch cap B-03; API body limit 1 MiB and login throttling B-16; per-key rate limit with API keys B-20 | M |
+| D-03 | rai-api (TB1) | Oversized or flood requests | Request size limits; rate limits per key; batch limits | Partial: payments-api batch cap B-03; API body limit 1 MiB and login throttling B-16; per-key rate limit B-20 (120/min, `test_each_key_has_a_request_limit`) | M |
 | D-04 | Job queue | One tenant starves the others | Per-tenant concurrency limit; leases with a retry cap of 3 | Planned B-18 | M |
 | D-05 | Audit chain | Advisory-lock contention when two tenants' `hashtext` values collide | Accepted: the only effect is that two tenants' writes are serialised briefly | Accepted | L |
 

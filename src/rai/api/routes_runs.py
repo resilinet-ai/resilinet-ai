@@ -4,6 +4,12 @@
 (state ``queued``) and its job in one transaction, and answers 202 with the run.
 With an ``Idempotency-Key``, sending the same request again returns the same run;
 reusing the key for a different request is refused (422).
+
+**API keys (B-20).** A project API key with scope ``runs:start`` may start runs of
+its own project's plans, by id or by name (the newest version, as ``rai run
+--plan ci-contracts`` does); with ``runs:read`` it may read its project's runs.
+Runs of other projects are 404 to it. The run records the key, and its creator as
+``triggered_by``.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import Connection, text
 from sqlalchemy.exc import IntegrityError
 
@@ -39,15 +45,27 @@ from rai.lineage.digest import DIGEST_FORMAT
 
 router = APIRouter(prefix="/v1/assurance/runs", tags=["runs"])
 
-anyone = require(*ROLES)
-starter = require("engineer")
+anyone = require(*ROLES, key_scope="runs:read")
+starter = require("engineer", key_scope="runs:start")
 MAX_UPSTREAM = 100  # declared hops pinned per plan item
 
 
 class RunIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    plan_id: UUID
+    plan_id: UUID | None = None
+    plan: str | None = Field(
+        default=None, min_length=1, max_length=200, description="a plan name: its newest version"
+    )
+    project_id: UUID | None = Field(
+        default=None, description="with plan: the project (an API key implies its own)"
+    )
     trigger_ref: str | None = Field(default=None, max_length=200, description="e.g. a commit SHA")
+
+    @model_validator(mode="after")
+    def _one_plan(self) -> RunIn:
+        if (self.plan_id is None) == (self.plan is None):
+            raise ValueError("give exactly one of plan_id or plan")
+        return self
 
 
 class RunOut(BaseModel):
@@ -58,6 +76,7 @@ class RunOut(BaseModel):
     verdict: Literal["pass", "fail"] | None
     reason: str | None
     triggered_by: UUID
+    api_key_id: UUID | None
     trigger_ref: str | None
     rai_version: str
     queued_at: datetime
@@ -99,7 +118,7 @@ class ObservationOut(BaseModel):
 
 _RUN = (
     "SELECT run_id, project_id, plan_id, state::text, verdict::text, reason, triggered_by, "
-    "trigger_ref, rai_version, queued_at, started_at, finished_at FROM rai.runs"
+    "api_key_id, trigger_ref, rai_version, queued_at, started_at, finished_at FROM rai.runs"
 )
 
 
@@ -135,12 +154,33 @@ def _upstream(conn: Connection, asset_id: UUID, position: int) -> tuple[PinnedIn
     )
 
 
-def _pins(conn: Connection, plan_id: UUID) -> tuple[UUID, Pins]:
+def _plan_id(session: TenantSession, body: RunIn) -> UUID:
+    """The plan to run: by id, or the newest version of a plan name in a project."""
+    if body.plan_id is not None:
+        return body.plan_id
+    project_id = body.project_id or (session.key.project_id if session.key else None)
+    if project_id is None:
+        raise Problem(422, "runs.project_required", "Give project_id with a plan name")
+    found = session.conn.execute(
+        text(
+            "SELECT plan_id FROM rai.test_plans WHERE project_id = :p AND name = :n "
+            "ORDER BY version DESC LIMIT 1"
+        ),
+        {"p": project_id, "n": body.plan},
+    ).scalar_one_or_none()
+    if found is None or not session.own_project(project_id):
+        raise Problem(404, "plans.not_found", "Plan not found")
+    plan_id: UUID = found
+    return plan_id
+
+
+def _pins(session: TenantSession, plan_id: UUID) -> tuple[UUID, Pins]:
+    conn = session.conn
     plan = conn.execute(
         text("SELECT plan_id, project_id, name, version FROM rai.test_plans WHERE plan_id = :p"),
         {"p": plan_id},
     ).first()
-    if plan is None:
+    if plan is None or not session.own_project(plan.project_id):
         raise Problem(404, "plans.not_found", "Plan not found")
     find_project(conn, plan.project_id, for_change=True)
     rows = conn.execute(
@@ -207,14 +247,14 @@ def _request_hash(body: RunIn) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _replay(conn: Connection, key: str, digest: str) -> RunOut | None:
-    row = conn.execute(
+def _replay(session: TenantSession, key: str, digest: str) -> RunOut | None:
+    row = session.conn.execute(
         text(f"{_RUN.replace(' FROM', ', request_sha256 FROM')} WHERE idempotency_key = :k"),
         {"k": key},
     ).first()
     if row is None:
         return None
-    if row.request_sha256 != digest:
+    if row.request_sha256 != digest or not session.own_project(row.project_id):
         raise Problem(
             422, "idempotency.key_reused", "This Idempotency-Key was used for a different request"
         )
@@ -223,9 +263,10 @@ def _replay(conn: Connection, key: str, digest: str) -> RunOut | None:
     return RunOut.model_validate(data)
 
 
-def find_run(conn: Connection, run_id: UUID) -> RunOut:
-    row = conn.execute(text(f"{_RUN} WHERE run_id = :r"), {"r": run_id}).first()
-    if row is None:
+def find_run(session: TenantSession, run_id: UUID) -> RunOut:
+    """The run, or 404 (another tenant's, or for an API key another project's)."""
+    row = session.conn.execute(text(f"{_RUN} WHERE run_id = :r"), {"r": run_id}).first()
+    if row is None or not session.own_project(row.project_id):
         raise Problem(404, "runs.not_found", "Run not found")
     return RunOut.model_validate(row._asdict())
 
@@ -241,21 +282,23 @@ def start_run(
 ) -> RunOut:
     digest = _request_hash(body)
     if idempotency_key is not None:
-        earlier = _replay(session.conn, idempotency_key, digest)
+        earlier = _replay(session, idempotency_key, digest)
         if earlier is not None:
             response.headers["Location"] = f"/v1/assurance/runs/{earlier.run_id}"
             return earlier
-    project_id, pins = _pins(session.conn, body.plan_id)
+    project_id, pins = _pins(session, _plan_id(session, body))
     try:
         with session.conn.begin_nested():
             run_id = session.conn.execute(
                 text(
-                    "INSERT INTO rai.runs (project_id, plan_id, triggered_by, trigger_ref, "
-                    "idempotency_key, request_sha256, rai_version, pins) VALUES (:p, :plan, :u, "
-                    ":ref, :k, :h, :v, CAST(:pins AS jsonb)) RETURNING run_id"
+                    "INSERT INTO rai.runs (project_id, plan_id, triggered_by, api_key_id, "
+                    "trigger_ref, idempotency_key, request_sha256, rai_version, pins) VALUES "
+                    "(:p, :plan, :u, :key, :ref, :k, :h, :v, CAST(:pins AS jsonb)) "
+                    "RETURNING run_id"
                 ),
                 {
-                    "p": project_id, "plan": body.plan_id, "u": session.user_id,
+                    "p": project_id, "plan": pins.plan.plan_id, "u": session.user_id,
+                    "key": session.key.api_key_id if session.key else None,
                     "ref": body.trigger_ref, "k": idempotency_key, "h": digest,
                     "v": pins.rai_version, "pins": pins.model_dump_json(),
                 },
@@ -263,13 +306,13 @@ def start_run(
     except IntegrityError as error:
         if idempotency_key is None or not is_unique_violation(error):
             raise
-        replayed = _replay(session.conn, idempotency_key, digest)  # a concurrent twin won
+        replayed = _replay(session, idempotency_key, digest)  # a concurrent twin won
         assert replayed is not None  # noqa: S101 - the unique key says it exists
         response.headers["Location"] = f"/v1/assurance/runs/{replayed.run_id}"
         return replayed
     session.conn.execute(text("INSERT INTO rai.jobs (run_id) VALUES (:r)"), {"r": run_id})
     response.headers["Location"] = f"/v1/assurance/runs/{run_id}"
-    return find_run(session.conn, run_id)
+    return find_run(session, run_id)
 
 
 @router.get("")
@@ -280,7 +323,11 @@ def list_runs(
     state: Annotated[RunState | None, Query()] = None,
     since: Annotated[datetime | None, Query(description="queued at or after (ISO 8601)")] = None,
 ) -> PageOut[RunOut]:
-    """Newest first."""
+    """Newest first. An API key sees only its own project's runs."""
+    if session.key is not None:
+        if project_id not in (None, session.key.project_id):
+            return PageOut[RunOut](items=[], next_cursor=None)
+        project_id = session.key.project_id
     after = after_uuid(wanted)
     rows = session.conn.execute(
         text(
@@ -298,7 +345,7 @@ def list_runs(
 
 @router.get("/{run_id}")
 def get_run(run_id: UUID, session: Annotated[TenantSession, Depends(anyone)]) -> RunDetail:
-    run = find_run(session.conn, run_id)
+    run = find_run(session, run_id)
     pins = session.conn.execute(
         text("SELECT pins FROM rai.runs WHERE run_id = :r"), {"r": run_id}
     ).scalar_one()
@@ -331,7 +378,7 @@ def list_observations(
     wanted: Annotated[Page, Depends(page)],
     outcome: Annotated[Literal["pass", "fail", "error", "skipped"] | None, Query()] = None,
 ) -> PageOut[ObservationOut]:
-    find_run(session.conn, run_id)
+    find_run(session, run_id)
     after = after_uuid(wanted)
     rows = session.conn.execute(
         text(
@@ -376,7 +423,7 @@ class LineageOut(BaseModel):
 @router.get("/{run_id}/lineage")
 def get_lineage(run_id: UUID, session: Annotated[TenantSession, Depends(anyone)]) -> LineageOut:
     """Every hop each step recorded, with the SHA-256 of the data the worker read."""
-    find_run(session.conn, run_id)
+    find_run(session, run_id)
     edges = session.conn.execute(
         text(
             "SELECT e.step_key, e.from_asset_id, e.from_name, e.from_digest, e.from_rows, "

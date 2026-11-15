@@ -18,13 +18,14 @@ from rai.api import (
     problems,
     routes_auth,
     routes_definitions,
+    routes_keys,
     routes_members,
     routes_projects,
     routes_runs,
 )
 from rai.api.context import check_login_role
 from rai.api.problems import Problem, problem_response
-from rai.api.ratelimit import FailureLimiter
+from rai.api.ratelimit import FailureLimiter, RequestLimiter
 from rai.api.settings import Settings
 
 ADDRESS_FACTOR = 10  # an address may fail this many times more than one email
@@ -53,6 +54,7 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
     app.state.engine = db
     app.state.login_by_email = FailureLimiter(settings.login_attempts, window)
     app.state.login_by_address = FailureLimiter(settings.login_attempts * ADDRESS_FACTOR, window)
+    app.state.key_requests = RequestLimiter(settings.key_requests_per_minute, 60)
     problems.install(app)
 
     @app.middleware("http")
@@ -74,6 +76,7 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
 
     app.include_router(routes_auth.router)
     app.include_router(routes_members.router)
+    app.include_router(routes_keys.router)
     app.include_router(routes_projects.router)
     app.include_router(routes_definitions.router)
     app.include_router(routes_runs.router)

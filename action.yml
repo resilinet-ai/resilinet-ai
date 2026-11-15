@@ -1,0 +1,55 @@
+name: RAI gate
+description: >-
+  Run a Resilinet-AI test plan and fail the job when the plan's gate fails
+  (FR-06.1). Exit codes: 0 passed, 1 failed, 2 no verdict.
+author: Trevor Kauyu
+
+inputs:
+  api-url:
+    description: RAI API base URL (https; http only for localhost).
+    required: true
+  api-key:
+    description: A project API key with scope runs:start. Pass it from a secret.
+    required: true
+  plan:
+    description: Plan name (its newest version) or plan id.
+    required: true
+  trigger-ref:
+    description: What triggered the run; defaults to the commit SHA.
+    required: false
+    default: ""
+  timeout:
+    description: Seconds to wait for a verdict.
+    required: false
+    default: "1800"
+
+outputs:
+  run-id:
+    description: The run's id.
+    value: ${{ steps.gate.outputs.run-id }}
+  state:
+    description: passed, failed, refused, aborted or error.
+    value: ${{ steps.gate.outputs.state }}
+  verdict:
+    description: pass or fail (empty without a verdict).
+    value: ${{ steps.gate.outputs.verdict }}
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+    - id: gate
+      shell: bash
+      env:
+        RAI_API_URL: ${{ inputs.api-url }}
+        RAI_API_KEY: ${{ inputs.api-key }}
+        RAI_PLAN: ${{ inputs.plan }}
+        RAI_TRIGGER_REF: ${{ inputs.trigger-ref }}
+        RAI_TIMEOUT: ${{ inputs.timeout }}
+      # Installs rai from this action's own lockfile, so CI runs the reviewed versions.
+      # A re-run of the job (new run_attempt) starts a new run; a retried request does not.
+      run: >-
+        uv run --project "$GITHUB_ACTION_PATH" --locked --no-dev --inexact --quiet
+        rai run --plan "$RAI_PLAN" --timeout "$RAI_TIMEOUT"
+        --trigger-ref "${RAI_TRIGGER_REF:-$GITHUB_SHA}"
+        --idempotency-key "gh-${GITHUB_REPOSITORY}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RAI_PLAN:0:80}"
