@@ -51,6 +51,7 @@ class ProjectIn(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     owner_id: UUID | None = None  # default: the caller
     data_classification: Classification = "synthetic"
+    default_environment_id: UUID | None = None  # B-22: where its runs execute by default
 
 
 class ProjectPatch(BaseModel):
@@ -60,6 +61,7 @@ class ProjectPatch(BaseModel):
     owner_id: UUID | None = None
     data_classification: Classification | None = None
     status: Literal["active", "archived"] | None = None
+    default_environment_id: UUID | None = None
 
 
 class AssetOut(BaseModel):
@@ -116,6 +118,18 @@ def _check_owner(conn: Connection, owner_id: UUID) -> None:
         raise Problem(422, "projects.owner_not_member", "The owner must be a member of this tenant")
 
 
+def check_environment(conn: Connection, environment_id: UUID) -> None:
+    """An environment of this tenant that is active (B-22), else 422."""
+    status = conn.execute(
+        text("SELECT status::text FROM rai.environments WHERE environment_id = :e"),
+        {"e": environment_id},
+    ).scalar_one_or_none()
+    if status != "active":
+        raise Problem(
+            422, "environments.not_usable", "The environment does not exist or is retired"
+        )
+
+
 def _send_project(response: Response, project: ProjectOut) -> ProjectOut:
     response.headers["ETag"] = etag(project.revision)
     return project
@@ -146,14 +160,22 @@ def create_project(
 ) -> ProjectOut:
     owner = body.owner_id or session.user_id
     _check_owner(session.conn, owner)
+    if body.default_environment_id is not None:
+        check_environment(session.conn, body.default_environment_id)
     try:
         project_id = session.conn.execute(
             text(
                 "INSERT INTO rai.assurance_projects (name, description, owner_id, "
-                "data_classification) VALUES (:n, :d, :o, CAST(:c AS rai.data_classification)) "
-                "RETURNING project_id"
+                "data_classification, default_environment_id) VALUES (:n, :d, :o, "
+                "CAST(:c AS rai.data_classification), :e) RETURNING project_id"
             ),
-            {"n": body.name, "d": body.description, "o": owner, "c": body.data_classification},
+            {
+                "n": body.name,
+                "d": body.description,
+                "o": owner,
+                "c": body.data_classification,
+                "e": body.default_environment_id,
+            },
         ).scalar_one()
     except IntegrityError as error:
         if is_unique_violation(error):
@@ -179,14 +201,17 @@ def update_project(
     session: Annotated[TenantSession, Depends(project_writer)],
 ) -> ProjectOut:
     changes: dict[str, Any] = body.model_dump(exclude_unset=True)
-    cleared = sorted(k for k, v in changes.items() if v is None and k != "description")
+    nullable = ("description", "default_environment_id")
+    cleared = sorted(k for k, v in changes.items() if v is None and k not in nullable)
     if cleared:
         raise Problem(
-            422, "request.invalid", "Only description may be set to null",
+            422, "request.invalid", "Only description and default_environment_id may be null",
             detail=f"cannot clear: {', '.join(cleared)}",
         )  # fmt: skip
     if "owner_id" in changes:
         _check_owner(session.conn, changes["owner_id"])
+    if changes.get("default_environment_id") is not None:
+        check_environment(session.conn, changes["default_environment_id"])
     casts = {"data_classification": "rai.data_classification", "status": "rai.project_status"}
     sets = [
         f"{column} = CAST(:{column} AS {casts[column]})"

@@ -132,6 +132,21 @@ def _load_contract(conn: Connection, item: PinnedItem) -> Contract:
     return contract
 
 
+def _environment_problems(conn: Connection, pins: Pins, name: str) -> list[str]:
+    """Deny by default (B-22, NFR-SAF-1): a test runs only in a registered, active
+    SANDBOX or STAGING environment of the tenant, and only in the run's environment."""
+    status = conn.execute(
+        text("SELECT status::text FROM rai.environments WHERE name = :n"), {"n": name}
+    ).scalar_one_or_none()
+    if status is None:
+        return [f"environment {name!r} is not registered"]
+    if status != "active":
+        return [f"environment {name!r} is retired"]
+    if pins.environment is not None and pins.environment.name != name:
+        return [f"environment {name!r} is not the run's environment {pins.environment.name!r}"]
+    return []
+
+
 def _connector_problems(config: WorkerConfig, name: str, environment: str) -> list[str]:
     source = config.connectors.get(name)
     if source is None:
@@ -160,7 +175,8 @@ def preflight(
             continue
         unusable = [
             f"{where}: {problem}"
-            for problem in _connector_problems(config, definition.connector, definition.environment)
+            for problem in _environment_problems(conn, pins, definition.environment)
+            + _connector_problems(config, definition.connector, definition.environment)
         ]
         if unusable:
             problems.extend(unusable)

@@ -64,6 +64,8 @@ def _sign_in(api_url: str, email: str, password: str) -> UrllibHttp:
 def seed(api_url: str) -> str:
     password = os.environ["RAI_NEW_PASSWORD"]
     admin = _sign_in(api_url, os.environ["RAI_GATE_EMAIL"], password)
+    # Tests run only in a registered environment (B-22, deny by default).
+    _call(admin, "POST", "/v1/environments", {"name": "SANDBOX-01", "type": "SANDBOX"})
     invite = {"email": ENGINEER, "display_name": "Gate Engineer", "role": "engineer"}
     _call(admin, "POST", "/v1/members", invite)
     with create_engine(database_url()).begin() as conn:

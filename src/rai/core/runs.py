@@ -72,11 +72,21 @@ class PinnedItem(_Frozen):
     upstream: tuple[PinnedInput, ...] = ()
 
 
+class PinnedEnvironment(_Frozen):
+    """Where the run executes (B-22). Its type can only be SANDBOX or STAGING."""
+
+    environment_id: UUID
+    name: str
+    type: Literal["SANDBOX", "STAGING"]
+
+
 class Pins(_Frozen):
     format: Literal["rai-run-pins/1"] = PINS_FORMAT
     rai_version: str
     plan: PinnedPlan
     items: list[PinnedItem] = Field(min_length=1)
+    # B-22: the plan's environment, else the project's default; absent in B-18 pins.
+    environment: PinnedEnvironment | None = None
 
 
 def step_key(position: int) -> str:
