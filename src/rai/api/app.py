@@ -18,6 +18,7 @@ from rai.api import (
     problems,
     routes_auth,
     routes_definitions,
+    routes_environments,
     routes_keys,
     routes_members,
     routes_projects,
@@ -78,6 +79,7 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
     app.include_router(routes_members.router)
     app.include_router(routes_keys.router)
     app.include_router(routes_projects.router)
+    app.include_router(routes_environments.router)
     app.include_router(routes_definitions.router)
     app.include_router(routes_runs.router)
     return app

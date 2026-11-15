@@ -1,6 +1,6 @@
 # RAI API
 
-The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; B-18 runs and the worker; B-19 lineage; B-20 API keys and the CI gate; later items add evidence. Synthetic data only.
+The REST API under `/v1` (Data Model sections 7 and 8). B-16 added sign-in, tenants and members; B-17 projects and test definitions; B-18 runs and the worker; B-19 lineage; B-20 API keys and the CI gate; B-22 environments; later items add evidence. Synthetic data only.
 
 ## Run it locally
 
@@ -50,6 +50,26 @@ Send `X-RAI-Tenant: <tenant id>` if you belong to several tenants. With one tena
 - **A wrong role** is `403`.
 - **Tenants are created** with `rai admin create-tenant`, because the API's database role may not create tenants.
 - **An invited account** gets its first password from the operator (`rai admin set-password`) until self-service activation exists.
+
+## Environments and targets
+
+Where RAI may act (NFR-SAF-1). **Production cannot be registered**: the database's environment type has only SANDBOX and STAGING, `production_flag` can only be false, and names may not contain `PROD`.
+
+| Endpoint | Write roles | Notes |
+| --- | --- | --- |
+| `GET, POST /v1/environments` | admin | `{"name": "SANDBOX-01", "type": "SANDBOX", "max_fault_duration_seconds": 900}`; `?status=` |
+| `GET, PATCH /v1/environments/{id}` | admin | PATCH changes only `max_fault_duration_seconds` (at most 3,600) and `status`; needs `If-Match` |
+| `GET, POST /v1/environments/{id}/targets` | admin | The allow-list of injectable and probeable targets |
+| `DELETE /v1/environments/{id}/targets/{target_id}` | admin | Take a target off the allow-list |
+
+- **Fixed at registration:** an environment's name and type never change. To change them, register a new environment and retire the old one (`"status": "retired"`). Environments are never deleted.
+- **Retired environments** take no new targets, and no new run starts there (`409`).
+- **Targets:** `kind` is `container`, `proxy`, `db` or `http`. Containers and proxies must name the label they carry (`required_label`, e.g. `rai.target=ledger-db`), which the chaos agent checks before it acts. An optional `health_url` is where recovery probes look.
+- **Every role in the tenant can read**; every change is audited.
+
+**Where runs execute.** A project may name a `default_environment_id`, and a plan its own `environment_id`. A run pins the plan's environment, or else the project's default (`pins.environment`, `environment_id` on the run).
+
+**Deny by default.** The worker refuses a test whose `environment` is not a registered, active environment of the tenant, or is not the run's pinned environment.
 
 ## Projects and test definitions
 
@@ -138,6 +158,7 @@ uv run rai worker            # or: rai worker --once
 - **`freshness_reference`:** `newest_row` (default) matches `rai validate` without `--as-of`; `now` measures against the run's clock, for live feeds.
 - **`upstream`** (optional) maps upstream asset names to worker connectors, so their data is read and digested for lineage.
 - **Cross-batch duplicates** are checked against a key history kept per tenant in `RAI_WORKER_STATE`.
+- **`environment`** must be a registered, active environment (see [Environments and targets](#environments-and-targets)); otherwise the run is refused.
 - **Not yet supported:** recovery assertions, consistency checks, TEVV metrics and drift checks. A plan containing them is refused with a reason, never passed silently.
 
 ## Lineage

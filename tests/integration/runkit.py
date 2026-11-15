@@ -12,7 +12,7 @@ from sqlalchemy import Engine, text
 
 from rai.worker.executor import WorkerConfig
 from rai.worker.service import Worker
-from tests.integration.apikit import Tenant, new_tenant, signed_in_member
+from tests.integration.apikit import Tenant, auth, login, new_tenant, signed_in_member
 
 ROOT = Path(__file__).resolve().parents[2]
 TXN_YAML = (ROOT / "contracts" / "sandboxbank" / "transactions_raw.yaml").read_text("utf-8")
@@ -36,6 +36,10 @@ class Lab:
         self.tenant: Tenant = new_tenant(owner)
         self.engineer = signed_in_member(client, owner, self.tenant, "engineer")
         self.viewer = signed_in_member(client, owner, self.tenant, "viewer")
+        self.admin = auth(login(client, self.tenant.admin_email), self.tenant.tenant_id)
+        # B-22: tests run only in a registered environment (deny by default).
+        self.environment = self.post("/v1/environments", {"name": "SANDBOX-01", "type": "SANDBOX"},
+                                     self.admin)["environment_id"]  # fmt: skip
         self.project = self.post("/v1/projects", {"name": f"p-{uuid4().hex[:6]}"})["project_id"]
         self.tests: dict[str, str] = {}
         self.assets: dict[str, str] = {}

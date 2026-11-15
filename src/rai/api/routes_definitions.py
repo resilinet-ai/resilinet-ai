@@ -25,7 +25,12 @@ from sqlalchemy.exc import IntegrityError
 from rai.api.context import ROLES, TenantSession, require
 from rai.api.listing import Page, PageOut, after_int, after_uuid, page, paged
 from rai.api.problems import Problem
-from rai.api.routes_projects import find_asset, find_project, is_unique_violation
+from rai.api.routes_projects import (
+    check_environment,
+    find_asset,
+    find_project,
+    is_unique_violation,
+)
 from rai.validation.contract import ContractError, parse_contract
 
 router = APIRouter(prefix="/v1", tags=["definitions"])
@@ -292,6 +297,9 @@ class PlanIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=NAME)
     trigger: Literal["manual", "ci", "schedule"] = "manual"
+    environment_id: UUID | None = Field(
+        default=None, description="where its runs execute; default: the project's (B-22)"
+    )
     items: list[PlanItemIn] = Field(min_length=1, max_length=MAX_PLAN_ITEMS)
 
 
@@ -397,14 +405,23 @@ def create_plan(
     """Create the next version of the plan called ``name``, with its items in order."""
     find_project(session.conn, project_id, for_change=True)
     _check_items(session.conn, project_id, body.items)
+    if body.environment_id is not None:
+        check_environment(session.conn, body.environment_id)
     try:
         plan_id = session.conn.execute(
             text(
-                "INSERT INTO rai.test_plans (project_id, name, version, trigger, created_by) "
-                "SELECT :p, :n, COALESCE(MAX(version), 0) + 1, CAST(:t AS rai.plan_trigger), :u "
+                "INSERT INTO rai.test_plans (project_id, name, version, trigger, created_by, "
+                "environment_id) SELECT :p, :n, COALESCE(MAX(version), 0) + 1, "
+                "CAST(:t AS rai.plan_trigger), :u, :e "
                 "FROM rai.test_plans WHERE project_id = :p AND name = :n RETURNING plan_id"
             ),
-            {"p": project_id, "n": body.name, "t": body.trigger, "u": session.user_id},
+            {
+                "p": project_id,
+                "n": body.name,
+                "t": body.trigger,
+                "u": session.user_id,
+                "e": body.environment_id,
+            },
         ).scalar_one()
     except IntegrityError as error:
         if is_unique_violation(error):

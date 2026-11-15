@@ -33,6 +33,7 @@ from rai.api.routes_projects import find_project, is_unique_violation
 from rai.core.runs import (
     PinnedAsset,
     PinnedContract,
+    PinnedEnvironment,
     PinnedInput,
     PinnedItem,
     PinnedPlan,
@@ -72,6 +73,7 @@ class RunOut(BaseModel):
     run_id: UUID
     project_id: UUID
     plan_id: UUID
+    environment_id: UUID | None
     state: RunState
     verdict: Literal["pass", "fail"] | None
     reason: str | None
@@ -117,8 +119,9 @@ class ObservationOut(BaseModel):
 
 
 _RUN = (
-    "SELECT run_id, project_id, plan_id, state::text, verdict::text, reason, triggered_by, "
-    "api_key_id, trigger_ref, rai_version, queued_at, started_at, finished_at FROM rai.runs"
+    "SELECT run_id, project_id, plan_id, environment_id, state::text, verdict::text, reason, "
+    "triggered_by, api_key_id, trigger_ref, rai_version, queued_at, started_at, finished_at "
+    "FROM rai.runs"
 )
 
 
@@ -239,7 +242,33 @@ def _pins(session: TenantSession, plan_id: UUID) -> tuple[UUID, Pins]:
             )
         )
     pinned = PinnedPlan(plan_id=plan.plan_id, name=plan.name, version=plan.version)
-    return plan.project_id, Pins(rai_version=__version__, plan=pinned, items=items)
+    return plan.project_id, Pins(
+        rai_version=__version__, plan=pinned, items=items,
+        environment=_environment(conn, plan.plan_id),
+    )  # fmt: skip
+
+
+def _environment(conn: Connection, plan_id: UUID) -> PinnedEnvironment | None:
+    """The plan's environment, else its project's default (B-22). A retired one is refused:
+    nothing new runs there."""
+    row = conn.execute(
+        text(
+            "SELECT e.environment_id, e.name, e.type::text, e.status::text "
+            "FROM rai.test_plans p JOIN rai.assurance_projects pr USING (project_id) "
+            "JOIN rai.environments e "
+            "ON e.environment_id = COALESCE(p.environment_id, pr.default_environment_id) "
+            "WHERE p.plan_id = :p"
+        ),
+        {"p": plan_id},
+    ).first()
+    if row is None:
+        return None
+    if row.status != "active":
+        raise Problem(
+            409, "runs.environment_retired", "The run's environment is retired",
+            detail=f"environment {row.name}: choose an active one for the plan or project",
+        )  # fmt: skip
+    return PinnedEnvironment(environment_id=row.environment_id, name=row.name, type=row.type)
 
 
 def _request_hash(body: RunIn) -> str:
@@ -291,13 +320,14 @@ def start_run(
         with session.conn.begin_nested():
             run_id = session.conn.execute(
                 text(
-                    "INSERT INTO rai.runs (project_id, plan_id, triggered_by, api_key_id, "
-                    "trigger_ref, idempotency_key, request_sha256, rai_version, pins) VALUES "
-                    "(:p, :plan, :u, :key, :ref, :k, :h, :v, CAST(:pins AS jsonb)) "
-                    "RETURNING run_id"
+                    "INSERT INTO rai.runs (project_id, plan_id, environment_id, triggered_by, "
+                    "api_key_id, trigger_ref, idempotency_key, request_sha256, rai_version, "
+                    "pins) VALUES (:p, :plan, :env, :u, :key, :ref, :k, :h, :v, "
+                    "CAST(:pins AS jsonb)) RETURNING run_id"
                 ),
                 {
                     "p": project_id, "plan": pins.plan.plan_id, "u": session.user_id,
+                    "env": pins.environment.environment_id if pins.environment else None,
                     "key": session.key.api_key_id if session.key else None,
                     "ref": body.trigger_ref, "k": idempotency_key, "h": digest,
                     "v": pins.rai_version, "pins": pins.model_dump_json(),
