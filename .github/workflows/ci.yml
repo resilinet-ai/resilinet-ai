@@ -149,6 +149,8 @@ jobs:
     # FR-07.1 acceptance: each fault type observable on SandboxBank. Starts SandboxBank,
     # Toxiproxy, the socket proxy and the chaos agent, injects all seven fault types,
     # checks each effect and its recovery, and checks the socket proxy refuses the rest.
+    # B-24 (S-03): every request is signed with a throwaway worker key; unsigned, forged,
+    # replayed, expired and other-environment requests are refused.
     name: Chaos agent (7 fault types)
     runs-on: ubuntu-latest
     env:
@@ -157,7 +159,6 @@ jobs:
       RAI_DB_PASSWORD: ci-only-not-secret
       LEDGER_DB_PASSWORD: ci-only-not-secret
       ANALYTICS_DB_PASSWORD: ci-only-not-secret
-      RAI_AGENT_UNSIGNED_DEV: "1" # until signed requests (B-24): CI only
       ETL_INTERVAL_SECONDS: "2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -167,10 +168,13 @@ jobs:
       - name: Start SandboxBank and the chaos agent
         run: |
           DOCKER_GID="$(stat -c %g /var/run/docker.sock)"
-          export DOCKER_GID
+          RAI_AGENT_WORKER_KEYS="$(uv run rai admin chaos-keygen --out "$RUNNER_TEMP/worker.pem")"
+          export DOCKER_GID RAI_AGENT_WORKER_KEYS
           docker compose --profile sandbox --profile chaos up -d --build --wait
-      - name: Inject and observe every fault type
+      - name: Inject and observe every fault type, with signed requests only
         run: uv run python scripts/chaos_e2e.py
+        env:
+          RAI_CHAOS_E2E_KEY: ${{ runner.temp }}/worker.pem
       - name: Service logs
         if: always()
         run: docker compose --profile sandbox --profile chaos logs --tail 40 rai-chaos-agent socket-proxy payments-api etl-job

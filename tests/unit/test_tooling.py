@@ -38,3 +38,17 @@ def test_every_dependabot_update_waits_at_least_14_days() -> None:
     for update in updates:
         days = update.get("cooldown", {}).get("default-days", 0)
         assert days >= 14, f"{update['package-ecosystem']}: set cooldown default-days: 14"
+
+
+def test_the_chaos_agent_image_installs_exactly_the_locked_versions() -> None:
+    # B-24: the agent image installs requirements.txt with --require-hashes; it must pin
+    # the versions uv.lock resolved (regenerate with the uv export command in its header).
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    locked = {p["name"]: p["version"] for p in lock["package"]}
+    agent = next(p for p in lock["package"] if p["name"] == "rai-chaos-agent")
+    text = (ROOT / "chaos_agent" / "requirements.txt").read_text(encoding="utf-8")
+    pinned = dict(re.findall(r"^([a-z0-9_.-]+)==([^\s;]+)", text, flags=re.MULTILINE))
+    assert {d["name"] for d in agent["dependencies"]} <= set(pinned)
+    for name, version in pinned.items():
+        assert locked.get(name) == version, f"{name}: run the uv export in requirements.txt"
+    assert "--hash=sha256:" in text

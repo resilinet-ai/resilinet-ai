@@ -6,16 +6,20 @@
 
 HTTP:
 
-* ``POST /faults``: inject one fault; ``201`` with the fault and its onset (t0).
-  **Refused (403) unless the agent was started with ``RAI_AGENT_UNSIGNED_DEV=1``**:
-  signed requests from the worker arrive with B-24, and until then a deployed agent
-  injects nothing.
+* ``POST /faults``: inject one fault from a request **signed by the worker** (B-24,
+  :mod:`chaos_agent.signing`); ``201`` with the fault and its onset (t0). ``403`` if
+  the signature, its time window or its environment does not check out; ``409`` if
+  the run and step already had a fault (the answer carries it); ``422`` if the
+  agent's own checks refuse the request. There is no unsigned mode.
 * ``DELETE /faults/{id}``: revert one fault. ``POST /kill``: revert all. Reverting
   is always allowed: it only ever makes the sandbox healthier.
 * ``GET /faults``: open faults. ``GET /healthz``.
 
-Configuration (environment): ``RAI_AGENT_TOXIPROXY_URL``, ``RAI_AGENT_DOCKER_URL``
-(the socket proxy), ``RAI_AGENT_STATE`` (state file path).
+Configuration (environment): ``RAI_AGENT_WORKER_KEYS`` (the worker public keys it
+trusts; none = every fault request refused), ``RAI_AGENT_ENVIRONMENT`` (the one
+environment it serves), ``RAI_AGENT_MAX_FAULT_SECONDS`` (default 900),
+``RAI_AGENT_MAX_OPEN_FAULTS`` (default 3), ``RAI_AGENT_TOXIPROXY_URL``,
+``RAI_AGENT_DOCKER_URL`` (the socket proxy), ``RAI_AGENT_STATE`` (state file path).
 """
 
 from __future__ import annotations
@@ -32,11 +36,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from chaos_agent.agent import Agent
-from chaos_agent.clients import BackendError, HttpDocker, HttpToxiproxy
-from chaos_agent.faults import FaultError, FaultRequest, StateFile
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-DEV_FLAG = "RAI_AGENT_UNSIGNED_DEV"
+from chaos_agent.agent import DEFAULT_MAX_FAULT_SECONDS, DEFAULT_MAX_OPEN_FAULTS, Agent, FaultReplay
+from chaos_agent.clients import BackendError, HttpDocker, HttpToxiproxy
+from chaos_agent.faults import FaultError, FaultRequest, StateFile, now
+from chaos_agent.signing import SignatureError, parse_keys, verify
+
 MAX_BODY = 16 * 1024
 EXPIRY_INTERVAL = 1.0
 
@@ -52,10 +58,18 @@ def build(environ: dict[str, str] | None = None) -> Agent:
         HttpToxiproxy(env.get("RAI_AGENT_TOXIPROXY_URL", "http://toxiproxy:8474")),
         docker,
         project,
+        environment=env.get("RAI_AGENT_ENVIRONMENT") or None,
+        max_fault_seconds=int(env.get("RAI_AGENT_MAX_FAULT_SECONDS", DEFAULT_MAX_FAULT_SECONDS)),
+        max_open_faults=int(env.get("RAI_AGENT_MAX_OPEN_FAULTS", DEFAULT_MAX_OPEN_FAULTS)),
     )
 
 
-def handler_for(agent: Agent, *, unsigned_allowed: bool) -> type[BaseHTTPRequestHandler]:
+def trusted_keys(environ: dict[str, str] | None = None) -> dict[str, Ed25519PublicKey]:
+    env = os.environ if environ is None else environ
+    return parse_keys(env.get("RAI_AGENT_WORKER_KEYS", ""))
+
+
+def handler_for(agent: Agent, keys: dict[str, Ed25519PublicKey]) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "rai-chaos-agent"
         sys_version = ""
@@ -90,18 +104,28 @@ def handler_for(agent: Agent, *, unsigned_allowed: bool) -> type[BaseHTTPRequest
             if self.path != "/faults":
                 self._problem(404, "not found")
                 return
-            if not unsigned_allowed:
-                self._problem(HTTPStatus.FORBIDDEN, "unsigned fault requests are refused; "
-                              "signed requests from the worker arrive with B-24")  # fmt: skip
-                return
             length = int(self.headers.get("Content-Length") or 0)
             if not 0 < length <= MAX_BODY:
                 self._problem(400, "send a JSON body of at most 16 KiB")
                 return
             try:
-                request = FaultRequest.parse(json.loads(self.rfile.read(length)))
-                fault = agent.inject(request)
-            except (FaultError, ValueError) as error:
+                envelope = json.loads(self.rfile.read(length))
+            except ValueError:
+                self._problem(400, "the body is not JSON")
+                return
+            try:
+                signed = verify(envelope, keys, environment=agent.environment, now=now())
+            except SignatureError as error:
+                logging.getLogger("rai.chaos_agent").warning("refused: %s", error)
+                self._problem(HTTPStatus.FORBIDDEN, str(error))
+                return
+            try:
+                request = FaultRequest.parse(signed.request)
+                fault = agent.inject(request, signed_by=signed.key_id)
+            except FaultReplay as replay:
+                self._send(HTTPStatus.CONFLICT,
+                           {"error": str(replay), "fault": replay.fault.to_json()})  # fmt: skip
+            except FaultError as error:
                 self._problem(422, str(error))
             except BackendError as error:
                 self._problem(502, f"the fault could not be applied and was undone: {error}")
@@ -133,19 +157,19 @@ def expiry_loop(agent: Agent, stop: threading.Event) -> None:
             logging.getLogger("rai.chaos_agent").exception("expiry check failed")
 
 
-def serve(agent: Agent, host: str, port: int, *, unsigned_allowed: bool) -> None:
+def serve(agent: Agent, keys: dict[str, Ed25519PublicKey], host: str, port: int) -> None:
     left = agent.revert_all()  # faults from before a crash are undone first
     log = logging.getLogger("rai.chaos_agent")
     if left:
         log.warning("reverted %d fault(s) left open by an earlier run", len(left))
     stop = threading.Event()
     threading.Thread(target=expiry_loop, args=(agent, stop), daemon=True).start()
-    server = ThreadingHTTPServer(
-        (host, port), handler_for(agent, unsigned_allowed=unsigned_allowed)
-    )
+    server = ThreadingHTTPServer((host, port), handler_for(agent, keys))
     log.info("Compose project: %s", agent.project or "UNKNOWN (container faults refused)")
-    log.info("listening on %s:%d (unsigned fault requests %s)", host, port,
-             "ALLOWED: development only" if unsigned_allowed else "refused")  # fmt: skip
+    log.info("environment %s; %d trusted worker key(s)%s", agent.environment or "UNSET",
+             len(keys), "" if keys and agent.environment
+             else ": every fault request is refused")  # fmt: skip
+    log.info("listening on %s:%d", host, port)
     try:
         server.serve_forever()
     finally:
@@ -165,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     agent = build()
     if args.command == "serve":
         host, _, port = os.environ.get("RAI_AGENT_LISTEN", "0.0.0.0:8090").rpartition(":")
-        serve(agent, host, int(port), unsigned_allowed=os.environ.get(DEV_FLAG) == "1")
+        serve(agent, trusted_keys(), host, int(port))
         return 0
     if args.command == "status":
         sys.stdout.write(json.dumps([f.to_json() for f in agent.open_faults()], indent=2) + "\n")

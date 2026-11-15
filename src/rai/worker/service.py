@@ -9,6 +9,9 @@ Settings from the environment:
   contract-rule run is refused at preflight.
 * ``RAI_WORKER_STATE``: where the cross-batch key history lives, one folder per
   tenant (default ``.rai/worker``).
+* ``RAI_WORKER_SIGNING_KEY`` and ``RAI_WORKER_CHAOS_AGENT_URL`` (B-24): a secret
+  reference to the worker's Ed25519 key (``rai admin chaos-keygen``) and the chaos
+  agent's URL. Both or neither; without them the worker requests no faults.
 """
 
 from __future__ import annotations
@@ -29,6 +32,8 @@ from rai.connectors import ConnectorError, parse_config
 from rai.core.db import login_role_problem, sqlalchemy_url
 from rai.core.runs import TERMINAL
 from rai.worker import queue
+from rai.worker.chaos import ChaosClient, ChaosSetupError
+from rai.worker.chaos import from_env as chaos_from_env
 from rai.worker.executor import Executor, LeaseLost, WorkerConfig, move, tenant_transaction
 
 log = logging.getLogger("rai.worker")
@@ -67,6 +72,13 @@ def load_connectors(folder: Path | None) -> dict[str, dict[str, Any]]:
     return found
 
 
+def _chaos_client() -> ChaosClient | None:
+    try:
+        return chaos_from_env(dict(os.environ))
+    except ChaosSetupError as error:
+        raise WorkerSetupError(str(error)) from None
+
+
 @dataclass(frozen=True)
 class WorkerSettings:
     database_url: str
@@ -82,6 +94,7 @@ class WorkerSettings:
             name=worker_name(),
             state_dir=Path(os.environ.get(STATE_ENV, ".rai/worker")),
             connectors=load_connectors(Path(connectors_dir) if connectors_dir else None),
+            chaos=_chaos_client(),
         )
         return cls(sqlalchemy_url(url), config)
 

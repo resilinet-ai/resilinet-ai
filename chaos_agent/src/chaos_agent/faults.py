@@ -45,6 +45,7 @@ INSTANT_FAULTS = frozenset({"container_restart"})
 NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}$")
 LABEL = re.compile(r"^[a-z0-9][a-z0-9_./-]{0,99}=[A-Za-z0-9_.-]{1,100}$")
 HARD_MAX_SECONDS = 3600  # whatever the request says (environment ceilings are at most 60 min)
+MAX_BLAST_RADIUS = 20
 
 Status = Literal["injecting", "active", "reverted", "failed"]
 
@@ -72,6 +73,11 @@ class FaultRequest:
     network: str | None = None  # network_partition: the network to disconnect from
     run_id: str | None = None
     max_duration_seconds: int = HARD_MAX_SECONDS  # the environment's ceiling
+    # B-24: who asked, where, and how far the scenario may reach (signed by the worker).
+    step_key: str | None = None
+    tenant_id: str | None = None
+    environment: str | None = None
+    blast_radius: tuple[str, ...] = ()  # every target the scenario declares
 
     @classmethod
     def parse(cls, data: Any) -> FaultRequest:
@@ -81,8 +87,10 @@ class FaultRequest:
         unknown = sorted(set(data) - known)
         if unknown:
             raise FaultError(f"unknown fields: {', '.join(unknown)}")
+        if not isinstance(data.get("blast_radius", []), list | tuple):
+            raise FaultError("blast_radius must be a list of target names")
         try:
-            request = cls(**data)
+            request = cls(**(data | {"blast_radius": tuple(data.get("blast_radius", ()))}))
         except TypeError as error:
             raise FaultError(f"missing fields: {error}") from None
         request.check()
@@ -110,6 +118,20 @@ class FaultRequest:
             raise FaultError("network_partition needs the network to disconnect from")
         if self.type not in PROXY_FAULTS and self.required_label is None:
             raise FaultError("container faults need the target's required_label")
+        if not 1 <= len(self.blast_radius) <= MAX_BLAST_RADIUS or not all(
+            isinstance(name, str) and NAME.fullmatch(name) for name in self.blast_radius
+        ):
+            raise FaultError(f"blast_radius must list 1 to {MAX_BLAST_RADIUS} target names")
+        if self.target not in self.blast_radius:
+            raise FaultError(f"target {self.target!r} is outside the declared blast radius")
+        for name, value in (
+            ("run_id", self.run_id),
+            ("step_key", self.step_key),
+            ("tenant_id", self.tenant_id),
+            ("environment", self.environment),
+        ):
+            if value is not None and not (isinstance(value, str) and 0 < len(value) <= 100):
+                raise FaultError(f"{name} must be text of at most 100 characters")  # fmt: skip
 
 
 @dataclass
@@ -125,13 +147,16 @@ class Fault:
     reverted_at: str | None = None
     detail: dict[str, Any] = field(default_factory=dict)  # what the revert needs
     error: str | None = None
+    signed_by: str | None = None  # the worker key that signed the request (B-24)
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Fault:
-        return cls(**{**data, "request": FaultRequest(**data["request"])})
+        request = data["request"]
+        request = request | {"blast_radius": tuple(request.get("blast_radius", ()))}
+        return cls(**{**data, "request": FaultRequest(**request)})
 
 
 class StateFile:

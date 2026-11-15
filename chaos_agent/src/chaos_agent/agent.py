@@ -11,11 +11,22 @@ Before acting, the agent checks on its own (it never trusts the caller alone):
 * a **proxy** target exists in Toxiproxy (which is reachable only on ``chaos_net``);
 * the target has no other active fault.
 
+B-24 adds the agent's half of the second preflight (threats S-03, D-02), on top of
+the signature checked in :mod:`chaos_agent.signing`:
+
+* **replay guard:** one fault per run and step, ever; a repeat is refused with the
+  fault already recorded for it (so a worker that retries learns the onset);
+* the request is for the agent's own environment;
+* the duration is within the agent's own ceiling (``RAI_AGENT_MAX_FAULT_SECONDS``),
+  whatever the signed environment ceiling says;
+* **blast radius:** the target is in the radius the scenario declared, a run keeps
+  the radius it started with, and at most ``RAI_AGENT_MAX_OPEN_FAULTS`` faults are
+  open at once.
+
 Every fault is written to the state file **before** it acts, then marked active
 with its onset (t0), or failed. Faults past their duration are reverted by the
 expiry loop; faults found active when the agent starts (it crashed) are reverted
-first. Signed requests and the second preflight come with B-24; the watchdog and
-the kill-switch drill with B-25.
+first. The watchdog and the kill-switch drill come with B-25.
 """
 
 from __future__ import annotations
@@ -27,6 +38,7 @@ from typing import Any
 
 from chaos_agent.clients import BackendError, Docker, Toxiproxy
 from chaos_agent.faults import (
+    HARD_MAX_SECONDS,
     INSTANT_FAULTS,
     PROXY_FAULTS,
     Fault,
@@ -40,6 +52,19 @@ from chaos_agent.faults import (
 log = logging.getLogger("rai.chaos_agent")
 SANDBOX_LABEL = ("rai.sandbox", "true")
 OPEN = ("injecting", "active")
+DEFAULT_MAX_FAULT_SECONDS = 900  # the protocol's 15-minute environment default
+DEFAULT_MAX_OPEN_FAULTS = 3
+
+
+class FaultReplay(FaultError):
+    """The run and step already had a fault: a replay or a worker retry (409)."""
+
+    def __init__(self, fault: Fault) -> None:
+        super().__init__(
+            f"run {fault.request.run_id} step {fault.request.step_key} already has fault "
+            f"{fault.fault_id} ({fault.status}); a signed request is used once"
+        )
+        self.fault = fault
 
 
 def _parse(moment: str) -> datetime:
@@ -48,10 +73,21 @@ def _parse(moment: str) -> datetime:
 
 class Agent:
     def __init__(
-        self, state: StateFile, toxiproxy: Toxiproxy, docker: Docker, project: str | None
+        self,
+        state: StateFile,
+        toxiproxy: Toxiproxy,
+        docker: Docker,
+        project: str | None,
+        *,
+        environment: str | None = None,
+        max_fault_seconds: int = DEFAULT_MAX_FAULT_SECONDS,
+        max_open_faults: int = DEFAULT_MAX_OPEN_FAULTS,
     ) -> None:
         self.state, self.toxiproxy, self.docker = state, toxiproxy, docker
         self.project = project  # the agent's own Compose project: the only one it touches
+        self.environment = environment  # the one environment it serves (B-24)
+        self.max_fault_seconds = min(max_fault_seconds, HARD_MAX_SECONDS)
+        self.max_open_faults = max_open_faults
         self._lock = threading.Lock()
 
     # ---- checks ----------------------------------------------------------------------------
@@ -73,9 +109,37 @@ class Agent:
             raise FaultError(f"target {request.target!r} does not carry {request.required_label}")
         return found[0]
 
+    def _second_preflight(self, request: FaultRequest, faults: dict[str, Fault]) -> None:
+        """The agent's own limits, whatever the (signed) request says (S-03, D-02)."""
+        if request.run_id is not None and request.step_key is not None:
+            for other in faults.values():
+                if (other.request.run_id, other.request.step_key) == (
+                    request.run_id, request.step_key,
+                ):  # fmt: skip
+                    raise FaultReplay(other)
+        if self.environment is not None and request.environment != self.environment:
+            raise FaultError(f"this agent serves environment {self.environment!r} only")
+        if request.duration_seconds > self.max_fault_seconds:
+            raise FaultError(
+                f"duration_seconds exceeds this agent's ceiling of {self.max_fault_seconds} s"
+            )
+        open_ = [f for f in faults.values() if f.status in OPEN]
+        if len(open_) >= self.max_open_faults:
+            raise FaultError(f"{len(open_)} faults are open; this agent allows "
+                             f"{self.max_open_faults} at once")  # fmt: skip
+        for other in open_:
+            if (
+                request.run_id is not None
+                and other.request.run_id == request.run_id
+                and set(other.request.blast_radius) != set(request.blast_radius)
+            ):
+                raise FaultError("a run keeps the blast radius it declared with its first fault")
+
     def _check(self, request: FaultRequest) -> dict[str, Any]:
         """What the revert will need; refuses (FaultError) if anything is off."""
-        for other in self.state.load().values():
+        faults = self.state.load()
+        self._second_preflight(request, faults)
+        for other in faults.values():
             if other.status in OPEN and other.request.target == request.target:
                 raise FaultError(f"target {request.target!r} already has an active fault")
         if request.type in PROXY_FAULTS:
@@ -132,10 +196,10 @@ class Agent:
             self.docker.action(detail["container_id"], "unpause")
         # container_restart: nothing to undo
 
-    def inject(self, request: FaultRequest) -> Fault:
+    def inject(self, request: FaultRequest, *, signed_by: str | None = None) -> Fault:
         """Check, persist, act; returns the fault with its onset (t0)."""
         with self._lock:
-            fault = Fault(request=request, detail=self._check(request))
+            fault = Fault(request=request, detail=self._check(request), signed_by=signed_by)
             self.state.put(fault)  # recorded before anything changes (R-03)
             try:
                 self._apply(fault)

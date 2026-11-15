@@ -143,8 +143,10 @@ services:
     environment:
       RAI_AGENT_TOXIPROXY_URL: http://toxiproxy:8474
       RAI_AGENT_DOCKER_URL: http://socket-proxy:2375
-      # Until signed requests (B-24), fault requests are refused unless this is 1 (tests only).
-      RAI_AGENT_UNSIGNED_DEV: ${RAI_AGENT_UNSIGNED_DEV:-0}
+      # B-24: only fault requests signed by these worker public keys are applied
+      # (`rai admin chaos-keygen` prints one); with none, every fault request is refused.
+      RAI_AGENT_WORKER_KEYS: ${RAI_AGENT_WORKER_KEYS:-}
+      RAI_AGENT_ENVIRONMENT: ${RAI_AGENT_ENVIRONMENT:-SANDBOXBANK} # the one environment it serves
     volumes:
       - chaos-agent-state:/var/lib/rai-chaos-agent # active faults survive a crash (R-03)
     read_only: true
