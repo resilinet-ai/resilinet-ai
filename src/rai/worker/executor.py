@@ -14,6 +14,13 @@ the same verdict as an uninterrupted one.
 operator configured on this worker (``RAI_WORKER_CONNECTORS``), confined to a root
 folder or a read-only database session. Tenants name a connector; they never
 supply a path or a credential.
+
+**Lineage (B-19: FR-04.1).** In the same transaction as its observations, a step
+records every hop of the target's pinned upstream graph, the target into the run
+and each reference dataset into the run, with the ``rai-frame-digest/1`` SHA-256
+of each frame it read: the target, its references, and the upstream assets the
+definition maps to a connector (``upstream``). Unmapped upstream assets appear as
+hops without a digest. A step that could not read its data records no lineage.
 """
 
 from __future__ import annotations
@@ -25,13 +32,16 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
+from uuid import UUID
 
+import polars as pl
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import Connection, Engine, text
 
 from rai.connectors import ConnectorError, connector
 from rai.core.runs import TERMINAL, PinnedItem, Pins
 from rai.core.tenancy import set_context
+from rai.lineage.digest import frame_digest
 from rai.validation.contract import Contract
 from rai.validation.engine import ValidationReport, validate
 from rai.validation.history import SqliteKeyStore
@@ -57,6 +67,9 @@ class ContractRuleDefinition(BaseModel):
     # `rai validate` does without --as-of; "now" measures against the run's clock
     # (live feeds).
     freshness_reference: Literal["newest_row", "now"] = "newest_row"
+    # Upstream assets to read and digest for lineage (B-19): asset name -> connector.
+    # Unmapped upstream assets still appear as hops, without a digest.
+    upstream: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -119,6 +132,15 @@ def _load_contract(conn: Connection, item: PinnedItem) -> Contract:
     return contract
 
 
+def _connector_problems(config: WorkerConfig, name: str, environment: str) -> list[str]:
+    source = config.connectors.get(name)
+    if source is None:
+        return [f"connector {name!r} is not on this worker"]
+    if source.get("environment") != environment:
+        return [f"connector {name!r} is not in environment {environment!r}"]
+    return []
+
+
 def preflight(
     conn: Connection, pins: Pins, config: WorkerConfig
 ) -> tuple[dict[str, Prepared], list[str]]:
@@ -136,18 +158,35 @@ def preflight(
             fields = ", ".join(".".join(str(p) for p in e["loc"]) for e in error.errors())
             problems.append(f"{where}: the definition needs connector and environment ({fields})")
             continue
-        source = config.connectors.get(definition.connector)
-        if source is None:
-            problems.append(f"{where}: connector {definition.connector!r} is not on this worker")
-            continue
-        if source.get("environment") != definition.environment:
-            problems.append(
-                f"{where}: connector {definition.connector!r} is not in environment "
-                f"{definition.environment!r}"
-            )
+        unusable = [
+            f"{where}: {problem}"
+            for problem in _connector_problems(config, definition.connector, definition.environment)
+        ]
+        if unusable:
+            problems.extend(unusable)
             continue
         if item.asset is None or not item.asset.locator:
             problems.append(f"{where}: the target asset has no locator")
+            continue
+        upstream = {hop.source.name: hop.source for hop in item.upstream}
+        lineage_problems = []
+        for name, connector_name in sorted(definition.upstream.items()):
+            if name not in upstream:
+                lineage_problems.append(
+                    f"{where}: {name!r} is not upstream of {item.asset.name!r} in the pinned "
+                    "lineage; declare it as an input first"
+                )
+            elif not upstream[name].locator:
+                lineage_problems.append(f"{where}: upstream asset {name!r} has no locator")
+            else:
+                lineage_problems.extend(
+                    f"{where}: upstream {name!r}: {problem}"
+                    for problem in _connector_problems(
+                        config, connector_name, definition.environment
+                    )
+                )
+        if lineage_problems:
+            problems.extend(lineage_problems)
             continue
         try:
             contract = _load_contract(conn, item)
@@ -184,6 +223,49 @@ def _observations(report: ValidationReport, step: Prepared, fail_on: str) -> lis
             }
         )
     return rows
+
+
+@dataclass(frozen=True)
+class Digested:
+    sha256: str
+    rows: int
+
+
+def _digested(frame: pl.DataFrame) -> Digested:
+    return Digested(frame_digest(frame), frame.height)
+
+
+def _edges(
+    step: Prepared, read: dict[UUID, Digested], references: dict[str, Digested]
+) -> list[dict[str, Any]]:
+    """Every pinned hop upstream of the target, the target into the run, and each
+    reference dataset into the run; digests where this step read the data."""
+    target = step.item.asset
+    assert target is not None  # noqa: S101 - checked in preflight
+
+    def edge(
+        from_asset: UUID | None, from_name: str, seen: Digested | None,
+        to_asset: UUID | None, transform: str | None,
+    ) -> dict[str, Any]:  # fmt: skip
+        to_seen = read.get(to_asset) if to_asset is not None else None
+        return {
+            "from_asset": from_asset, "from_name": from_name,
+            "from_digest": seen.sha256 if seen else None, "from_rows": seen.rows if seen else None,
+            "to_asset": to_asset, "to_digest": to_seen.sha256 if to_seen else None,
+            "transform": transform,
+        }  # fmt: skip
+
+    edges = [
+        edge(hop.source.asset_id, hop.source.name, read.get(hop.source.asset_id), hop.into,
+             hop.transform_ref)
+        for hop in step.item.upstream
+    ]  # fmt: skip
+    edges.append(edge(target.asset_id, target.name, read[target.asset_id], None, None))
+    edges.extend(
+        edge(None, f"reference:{name}", seen, None, None)
+        for name, seen in sorted(references.items())
+    )
+    return edges
 
 
 class Executor:
@@ -247,6 +329,7 @@ class Executor:
         assert step.item.asset.locator  # noqa: S101 - checked in preflight
         locator = step.item.asset.locator
         observations: list[dict[str, Any]]
+        edges: list[dict[str, Any]] = []
         verdict: str | None
         error_text: str | None
         try:
@@ -255,6 +338,7 @@ class Executor:
                 ref: source.read(where, environment=definition.environment)
                 for ref, where in definition.references.items()
             }
+            upstream = self._read_upstream(step)
         except ConnectorError as error:
             state, verdict, error_text = "error", None, f"could not read the data: {error}"
             observations = [
@@ -269,6 +353,9 @@ class Executor:
                 }
             ]
         else:
+            # Digests of exactly the frames validated below (FR-04.1).
+            read = {step.item.asset.asset_id: _digested(frame)} | upstream
+            edges = _edges(step, read, {ref: _digested(f) for ref, f in references.items()})
             history_dir = self.config.state_dir / str(job.tenant_id)
             history_dir.mkdir(parents=True, exist_ok=True)
             with SqliteKeyStore(history_dir / "history.sqlite") as history:
@@ -312,8 +399,32 @@ class Executor:
                     "s": state, "v": verdict, "t": started, "e": error_text, "a": job.attempt,
                 },
             )  # fmt: skip
+            if edges:  # after the step row, which they reference
+                conn.execute(
+                    text(
+                        "INSERT INTO rai.lineage_edges (run_id, step_key, from_asset_id, "
+                        "from_name, to_asset_id, from_digest, to_digest, from_rows, transform_ref) "
+                        "VALUES (:run, :step, :from_asset, :from_name, :to_asset, :from_digest, "
+                        ":to_digest, :from_rows, :transform)"
+                    ),
+                    [e | {"run": job.run_id, "step": step.item.step_key} for e in edges],
+                )
             if self.before_commit is not None:
                 self.before_commit(step.item.step_key)
+
+    def _read_upstream(self, step: Prepared) -> dict[UUID, Digested]:
+        """Read and digest the upstream assets the definition maps to a connector."""
+        environment = step.definition.environment
+        sources = {hop.source.name: hop.source for hop in step.item.upstream}
+        digested: dict[UUID, Digested] = {}
+        for name, connector_name in sorted(step.definition.upstream.items()):
+            asset = sources[name]  # checked in preflight
+            assert asset.locator  # noqa: S101 - checked in preflight
+            reader = connector(self.config.connectors[connector_name])
+            digested[asset.asset_id] = _digested(
+                reader.read(asset.locator, environment=environment)
+            )
+        return digested
 
     def _decide(self, job: Job, pins: Pins) -> None:
         """passed only if every planned step is recorded, done, and passed."""

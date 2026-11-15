@@ -27,6 +27,7 @@ from rai.api.routes_projects import find_project, is_unique_violation
 from rai.core.runs import (
     PinnedAsset,
     PinnedContract,
+    PinnedInput,
     PinnedItem,
     PinnedPlan,
     PinnedTest,
@@ -34,11 +35,13 @@ from rai.core.runs import (
     RunState,
     step_key,
 )
+from rai.lineage.digest import DIGEST_FORMAT
 
 router = APIRouter(prefix="/v1/assurance/runs", tags=["runs"])
 
 anyone = require(*ROLES)
 starter = require("engineer")
+MAX_UPSTREAM = 100  # declared hops pinned per plan item
 
 
 class RunIn(BaseModel):
@@ -100,6 +103,38 @@ _RUN = (
 )
 
 
+def _upstream(conn: Connection, asset_id: UUID, position: int) -> tuple[PinnedInput, ...]:
+    """Every declared hop upstream of an asset (the graph is acyclic: a trigger keeps it so)."""
+    rows = conn.execute(
+        text(
+            "WITH RECURSIVE hops AS ("
+            " SELECT asset_id, input_asset_id, transform_ref FROM rai.asset_inputs"
+            " WHERE asset_id = :a"
+            " UNION"
+            " SELECT i.asset_id, i.input_asset_id, i.transform_ref FROM rai.asset_inputs i"
+            " JOIN hops h ON i.asset_id = h.input_asset_id)"
+            " SELECT h.asset_id AS into_id, h.transform_ref, p.asset_id, p.name, p.locator,"
+            " p.kind::text AS kind FROM hops h"
+            " JOIN rai.pipeline_assets p ON p.asset_id = h.input_asset_id"
+            " ORDER BY h.asset_id, p.name LIMIT :n"
+        ),
+        {"a": asset_id, "n": MAX_UPSTREAM + 1},
+    ).all()
+    if len(rows) > MAX_UPSTREAM:
+        raise Problem(
+            422, "runs.lineage_too_large", "The target asset's upstream graph is too large",
+            detail=f"plan item {position}: more than {MAX_UPSTREAM} declared inputs upstream",
+        )  # fmt: skip
+    return tuple(
+        PinnedInput(
+            source=PinnedAsset(asset_id=r.asset_id, name=r.name, locator=r.locator, kind=r.kind),
+            into=r.into_id,
+            transform_ref=r.transform_ref,
+        )
+        for r in rows
+    )
+
+
 def _pins(conn: Connection, plan_id: UUID) -> tuple[UUID, Pins]:
     plan = conn.execute(
         text("SELECT plan_id, project_id, name, version FROM rai.test_plans WHERE plan_id = :p"),
@@ -120,12 +155,17 @@ def _pins(conn: Connection, plan_id: UUID) -> tuple[UUID, Pins]:
     items = []
     for row in rows:
         asset = contract = None
+        upstream: tuple[PinnedInput, ...] = ()
         if row.target_asset_id is not None:
             found = conn.execute(
-                text("SELECT asset_id, name, locator FROM rai.pipeline_assets WHERE asset_id = :a"),
+                text(
+                    "SELECT asset_id, name, locator, kind::text FROM rai.pipeline_assets "
+                    "WHERE asset_id = :a"
+                ),
                 {"a": row.target_asset_id},
             ).one()
-            asset = PinnedAsset(asset_id=found.asset_id, name=found.name, locator=found.locator)
+            asset = PinnedAsset.model_validate(found._asdict())
+            upstream = _upstream(conn, row.target_asset_id, row.position)
         if row.contract_id is not None or row.type == "contract_rule":
             chosen = conn.execute(
                 text(
@@ -155,6 +195,7 @@ def _pins(conn: Connection, plan_id: UUID) -> tuple[UUID, Pins]:
                 test=test,
                 asset=asset,
                 contract=contract,
+                upstream=upstream,
             )
         )
     pinned = PinnedPlan(plan_id=plan.plan_id, name=plan.name, version=plan.version)
@@ -305,3 +346,58 @@ def list_observations(
     ).all()
     items = [ObservationOut.model_validate(r._asdict()) for r in rows]
     return paged(items, wanted, lambda o: str(o.observation_id))
+
+
+class LineageAsset(BaseModel):
+    asset_id: UUID
+    name: str
+    kind: str
+
+
+class LineageEdgeOut(BaseModel):
+    step_key: str
+    from_asset_id: UUID | None = Field(description="null: a reference dataset of the step")
+    from_name: str
+    from_digest: str | None = Field(description="null: this run did not read it")
+    from_rows: int | None
+    to_asset_id: UUID | None = Field(description="null: the run itself")
+    to_digest: str | None
+    transform_ref: str | None
+    recorded_at: datetime
+
+
+class LineageOut(BaseModel):
+    run_id: UUID
+    digest_format: str
+    assets: list[LineageAsset]
+    edges: list[LineageEdgeOut]
+
+
+@router.get("/{run_id}/lineage")
+def get_lineage(run_id: UUID, session: Annotated[TenantSession, Depends(anyone)]) -> LineageOut:
+    """Every hop each step recorded, with the SHA-256 of the data the worker read."""
+    find_run(session.conn, run_id)
+    edges = session.conn.execute(
+        text(
+            "SELECT e.step_key, e.from_asset_id, e.from_name, e.from_digest, e.from_rows, "
+            "e.to_asset_id, e.to_digest, e.transform_ref, e.recorded_at "
+            "FROM rai.lineage_edges e JOIN rai.run_steps s USING (run_id, step_key) "
+            "WHERE e.run_id = :r ORDER BY s.plan_position, e.edge_id"
+        ),
+        {"r": run_id},
+    ).all()
+    assets = session.conn.execute(
+        text(
+            "SELECT asset_id, name, kind::text FROM rai.pipeline_assets WHERE asset_id IN ("
+            " SELECT from_asset_id FROM rai.lineage_edges WHERE run_id = :r"
+            " UNION SELECT to_asset_id FROM rai.lineage_edges WHERE run_id = :r"
+            ") ORDER BY name"
+        ),
+        {"r": run_id},
+    ).all()
+    return LineageOut(
+        run_id=run_id,
+        digest_format=DIGEST_FORMAT,
+        assets=[LineageAsset.model_validate(a._asdict()) for a in assets],
+        edges=[LineageEdgeOut.model_validate(e._asdict()) for e in edges],
+    )
