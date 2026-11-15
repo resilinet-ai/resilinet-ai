@@ -7,6 +7,7 @@ never from a command-line argument, which would end up in shell history.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -131,6 +132,33 @@ def set_api_password_command() -> None:
 def set_worker_password_command() -> None:
     """Set the password of the rai_worker login role (RAI_WORKER_DB_PASSWORD or a prompt)."""
     _set_role_password("rai_worker", WORKER_DB_PASSWORD_ENV, "RAI_WORKER_DATABASE_URL")
+
+
+@admin_app.command("chaos-keygen")
+def chaos_keygen_command(
+    out: Annotated[
+        Path, typer.Option(help="Where to write the worker's private key (PEM); must not exist")
+    ],
+) -> None:
+    """Make the worker's Ed25519 key for signing fault requests (B-24).
+
+    Writes the private key to OUT (owner-only permissions) for RAI_WORKER_SIGNING_KEY
+    (file:OUT), and prints the public key alone on stdout for the chaos agent's
+    RAI_AGENT_WORKER_KEYS.
+    """
+    from rai.worker.chaos import Signer
+
+    if out.exists():
+        errors.print(f"error: {out} exists; a key is never overwritten")
+        raise typer.Exit(2)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    signer = Signer.generate()
+    descriptor = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(signer.pem())
+    errors.print(f"private key written to {out} (key id {signer.key_id}); "
+                 f"set RAI_WORKER_SIGNING_KEY=file:{out.resolve().as_posix()}")  # fmt: skip
+    print(signer.public_key)  # stdout carries only the public key, for scripts
 
 
 def worker_command(

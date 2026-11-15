@@ -46,6 +46,7 @@ from rai.validation.contract import Contract
 from rai.validation.engine import ValidationReport, validate
 from rai.validation.history import SqliteKeyStore
 from rai.validation.verdict import decide
+from rai.worker.chaos import ChaosClient
 from rai.worker.queue import Job
 
 SUPPORTED_TYPES = ("contract_rule",)
@@ -78,6 +79,7 @@ class WorkerConfig:
     state_dir: Path
     connectors: dict[str, dict[str, Any]] = field(default_factory=dict)  # name -> config
     lease: timedelta = timedelta(minutes=5)
+    chaos: ChaosClient | None = None  # B-24: signed fault requests; None = no faults here
 
 
 @dataclass(frozen=True)

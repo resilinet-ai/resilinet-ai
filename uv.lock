@@ -2177,6 +2177,12 @@ provides-extras = ["b1", "b2"]
 name = "rai-chaos-agent"
 version = "0.0.1"
 source = { editable = "chaos_agent" }
+dependencies = [
+    { name = "cryptography" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cryptography", specifier = ">=44" }]
 
 [[package]]
 name = "rai-sandboxbank"
@@ -2235,6 +2241,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "argon2-cffi" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "polars" },
     { name = "psycopg", extra = ["binary"] },
@@ -2265,6 +2272,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
     { name = "argon2-cffi", specifier = ">=23.1" },
+    { name = "cryptography", specifier = ">=44" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "polars", specifier = ">=2.1,<3" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },

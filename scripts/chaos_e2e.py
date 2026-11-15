@@ -1,15 +1,17 @@
 """Each fault type, observable on SandboxBank (B-23: FR-07.1 acceptance). Synthetic only.
 
-Run against the Compose stack with the chaos profile and unsigned development
-requests allowed (the CI job "Chaos agent" does exactly this):
+Every fault request is signed with a worker key the agent trusts (B-24, threat S-03),
+exactly as the worker signs it (``rai.worker.chaos.Signer``). The CI job "Chaos
+agent" (and ``make chaos-e2e``) runs it like this:
 
-    RAI_AGENT_UNSIGNED_DEV=1 ETL_INTERVAL_SECONDS=2 \\
-      docker compose --profile sandbox --profile chaos up -d --build --wait
-    uv run python scripts/chaos_e2e.py
+    RAI_AGENT_WORKER_KEYS="$(uv run rai admin chaos-keygen --out /tmp/k/worker.pem)" \\
+      ETL_INTERVAL_SECONDS=2 docker compose --profile sandbox --profile chaos up -d --build --wait
+    RAI_CHAOS_E2E_KEY=/tmp/k/worker.pem uv run python scripts/chaos_e2e.py
 
 For each of the seven fault types it injects one fault through the agent's HTTP
-interface, shows its effect on SandboxBank, reverts it, and shows the recovery.
-Exit code 0 only if every fault had its effect and every effect went away.
+interface, shows its effect on SandboxBank, reverts it, and shows the recovery. It
+also checks that the agent refuses unsigned, forged, replayed, expired and
+other-environment requests. Exit code 0 only if every check passed.
 """
 
 from __future__ import annotations
@@ -22,12 +24,33 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from functools import cache
+from pathlib import Path
 from typing import Any
+
+from rai.worker.chaos import Signer
 
 AGENT = os.environ.get("RAI_AGENT_URL", "http://127.0.0.1:18090")
 PAYMENTS = os.environ.get("SANDBOXBANK_URL", "http://127.0.0.1:18080")
+ENVIRONMENT = os.environ.get("RAI_AGENT_ENVIRONMENT", "SANDBOXBANK")
 LATENCY_MS = 500
+RUN = f"e2e-{uuid.uuid4()}"  # one run per session; every fault gets its own step
+_steps = iter(range(1, 1000))
+
+
+@cache
+def signer() -> Signer:
+    return Signer.from_pem(Path(os.environ["RAI_CHAOS_E2E_KEY"]).read_bytes())
+
+
+def fault_request(body: dict[str, Any]) -> dict[str, Any]:
+    """What the worker would sign: the fault, its run and step, the environment."""
+    return {"duration_seconds": 120, "blast_radius": [body["target"]], "run_id": RUN,
+            "step_key": f"step-{next(_steps)}", "environment": ENVIRONMENT,
+            "tenant_id": "e2e"} | body  # fmt: skip
 
 
 def http(url: str, method: str = "GET", body: Any = None, timeout: float = 5) -> tuple[int, Any]:
@@ -103,7 +126,7 @@ def utc_now() -> str:
 
 
 def inject(body: dict[str, Any]) -> str:
-    status, fault = http(f"{AGENT}/faults", "POST", {"duration_seconds": 120} | body)
+    status, fault = http(f"{AGENT}/faults", "POST", signer().sign(fault_request(body)))
     if status != 201:
         raise AssertionError(f"injecting {body['type']} failed: {status} {fault}")
     print(f"  injected {body['type']} on {body['target']} at {fault['onset']}")
@@ -176,11 +199,41 @@ def stale() -> None:
 
 def refused() -> None:
     """The agent's own checks: an unlabelled or non-sandbox target is refused."""
-    status, answer = http(f"{AGENT}/faults", "POST", {
+    status, answer = http(f"{AGENT}/faults", "POST", signer().sign(fault_request({
         "type": "container_stop", "target": "rai-chaos-agent", "duration_seconds": 5,
-        "required_label": "rai.target=rai-chaos-agent"})  # fmt: skip
+        "required_label": "rai.target=rai-chaos-agent"})))  # fmt: skip
     expect(status == 422, f"not refused: {status} {answer}")
     print(f"  refused: {answer['error']}")
+
+
+def signatures() -> None:
+    """Threat S-03 on the real agent: only a trusted, fresh, unused signed request for
+    this environment is applied. Nothing below may leave a fault behind."""
+    drop = {"type": "connection_drop", "target": "ledger-db-proxy", "duration_seconds": 5}
+    used = signer().sign(fault_request(drop))
+    expect(http(f"{AGENT}/faults", "POST", used)[0] == 201, "a valid signed request failed")
+    http(f"{AGENT}/kill", "POST", {})
+    last = used["signature"][-4:]
+    forged = used | {"signature": used["signature"][:-4] + ("AAAA" if last != "AAAA" else "BBBB")}
+    stale = datetime.now(UTC) - timedelta(minutes=3)
+    elsewhere = fault_request(drop) | {"environment": "STAGING-01"}
+    too_long = fault_request(drop | {"duration_seconds": 3600, "max_duration_seconds": 3600})
+    cases = {
+        "unsigned": (fault_request(drop), 403),
+        "another key": (Signer.generate().sign(fault_request(drop)), 403),
+        "forged signature": (forged, 403),
+        "replayed": (used, 409),
+        "expired": (signer().sign(fault_request(drop), now=stale), 403),
+        "other environment": (signer().sign(elsewhere), 403),
+        "over the agent's ceiling": (signer().sign(too_long), 422),
+    }
+    for name, (envelope, wanted) in cases.items():
+        status, answer = http(f"{AGENT}/faults", "POST", envelope)
+        error = answer.get("error") if isinstance(answer, dict) else answer
+        print(f"  {name}: {status} {error}")
+        expect(status == wanted, f"{name}: expected {wanted}, got {status}")
+    expect(http(f"{AGENT}/faults")[1]["faults"] == [], "a refused request left a fault open")
+    eventually(ready, "payments-api is ready again after the dropped connection")
 
 
 PROBE = """
@@ -216,6 +269,7 @@ def socket_proxy() -> None:
 
 CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("socket_proxy", socket_proxy),
+    ("signatures", signatures),
     ("latency", latency),
     ("timeout", lambda: proxy_outage("timeout")),
     ("connection_drop", lambda: proxy_outage("connection_drop")),

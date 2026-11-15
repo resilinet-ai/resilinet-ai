@@ -11,6 +11,7 @@ import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
+from dataclasses import asdict
 from datetime import timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -22,6 +23,8 @@ from chaos_agent.agent import Agent
 from chaos_agent.clients import BackendError
 from chaos_agent.faults import FaultError, FaultRequest, StateFile, now, stamp
 from chaos_agent.server import handler_for, main
+from chaos_agent.signing import parse_keys
+from rai.worker.chaos import Signer
 
 LABEL = "rai.target=payments-api"
 PROXY = "ledger-db-proxy"
@@ -103,6 +106,7 @@ def request(kind: str, target: str = "payments-api", **extra: Any) -> FaultReque
         defaults["latency_ms"] = 200
     if kind == "network_partition":
         defaults["network"] = "sandbox_net"
+    defaults["blast_radius"] = [target]
     return FaultRequest.parse({"type": kind, "target": target} | defaults | extra)
 
 
@@ -167,6 +171,13 @@ def test_a_restart_is_instant(parts: Any) -> None:
         ({"type": "latency", "target": "x", "latency_ms": 5, "duration_seconds": 5, "cmd": "rm"},
          "unknown fields: cmd"),
         ([], "JSON object"),
+        ({"type": "connection_drop", "target": "x", "duration_seconds": 5}, "blast_radius must"),
+        ({"type": "connection_drop", "target": "x", "duration_seconds": 5,
+          "blast_radius": ["y"]}, "outside the declared blast radius"),
+        ({"type": "connection_drop", "target": "x", "duration_seconds": 5,
+          "blast_radius": "x"}, "must be a list"),
+        ({"type": "connection_drop", "target": "x", "duration_seconds": 5,
+          "blast_radius": ["x"], "run_id": ""}, "run_id must be text"),
     ],
 )  # fmt: skip
 def test_requests_are_checked(body: Any, message: str) -> None:
@@ -184,7 +195,8 @@ def test_targets_are_checked_against_the_sandbox(parts: Any) -> None:
         agent.inject(request("container_stop", "nobody"))
     with pytest.raises(FaultError, match="does not exist in Toxiproxy"):
         agent.inject(FaultRequest.parse({"type": "connection_drop", "target": "nope",
-                                         "duration_seconds": 5}))  # fmt: skip
+                                         "duration_seconds": 5,
+                                         "blast_radius": ["nope"]}))  # fmt: skip
     with pytest.raises(FaultError, match="not on network 'other_net'"):
         agent.inject(request("network_partition", network="other_net"))
     assert docker.calls == []
@@ -282,18 +294,24 @@ def test_faults_left_by_a_crash_are_reverted_from_the_state_file(
 # ---- the HTTP interface ----------------------------------------------------------------------
 
 
+ENV = "SANDBOXBANK"
+
+
 @pytest.fixture
-def served(parts: Any) -> Iterator[tuple[str, str, Agent]]:
+def signer() -> Signer:
+    return Signer.generate()
+
+
+@pytest.fixture
+def served(parts: Any, signer: Signer) -> Iterator[tuple[str, Agent]]:
+    """The agent's HTTP interface, trusting ``signer``'s public key, serving ENV."""
     agent = parts[0]
-    servers = []
-    for allowed in (False, True):
-        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(agent, unsigned_allowed=allowed))
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        servers.append(server)
-    locked, open_ = (f"http://127.0.0.1:{s.server_address[1]}" for s in servers)
-    yield locked, open_, agent
-    for server in servers:
-        server.shutdown()
+    agent.environment = ENV
+    handler = handler_for(agent, parse_keys(signer.public_key))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}", agent
+    server.shutdown()
 
 
 def call(url: str, method: str = "GET", body: Any = None) -> tuple[int, Any]:
@@ -307,26 +325,87 @@ def call(url: str, method: str = "GET", body: Any = None) -> tuple[int, Any]:
         return error.code, json.loads(error.read())
 
 
-def test_unsigned_requests_are_refused_unless_in_development(served: Any) -> None:
-    locked, open_, _ = served
-    body = {"type": "container_stop", "target": "payments-api", "duration_seconds": 30,
-            "required_label": LABEL}  # fmt: skip
-    status, answer = call(f"{locked}/faults", "POST", body)
-    assert status == 403
-    assert "B-24" in answer["error"]
+def signed_body(
+    kind: str, step: str = "item-1", run: str = "run-1", **extra: Any
+) -> dict[str, Any]:
+    """A request as the worker signs it: with its run, step, environment and tenant."""
+    body = asdict(request(kind, **extra))
+    return body | {"run_id": run, "step_key": step, "environment": ENV, "tenant_id": "t-1",
+                   "blast_radius": list(body["blast_radius"])}  # fmt: skip
 
-    status, fault = call(f"{open_}/faults", "POST", body)
+
+def test_only_requests_signed_by_a_trusted_worker_are_applied(served: Any, signer: Signer) -> None:
+    url, agent = served
+    plain = {"type": "container_stop", "target": "payments-api", "duration_seconds": 30,
+             "required_label": LABEL, "blast_radius": ["payments-api"]}  # fmt: skip
+    status, answer = call(f"{url}/faults", "POST", plain)
+    assert status == 403
+    assert "send a signed request" in answer["error"]
+    stranger = Signer.generate().sign(signed_body("container_stop"))
+    status, answer = call(f"{url}/faults", "POST", stranger)
+    assert status == 403
+    assert answer["error"] == "the request is signed with a key the agent does not trust"
+    assert agent.open_faults() == []
+
+    status, fault = call(f"{url}/faults", "POST", signer.sign(signed_body("container_stop")))
     assert status == 201
     assert fault["onset"] is not None
-    assert call(f"{locked}/faults")[1]["faults"][0]["fault_id"] == fault["fault_id"]
-    assert call(f"{open_}/faults", "POST", body)[0] == 422  # one fault per target
-    assert call(f"{locked}/faults/{fault['fault_id']}", "DELETE")[1]["status"] == "reverted"
-    assert call(f"{locked}/faults/nope", "DELETE")[0] == 404
+    assert fault["signed_by"] == signer.key_id
+    assert fault["request"]["run_id"] == "run-1"
+    assert call(f"{url}/faults")[1]["faults"][0]["fault_id"] == fault["fault_id"]
+    assert call(f"{url}/faults/{fault['fault_id']}", "DELETE")[1]["status"] == "reverted"
+    assert call(f"{url}/faults/nope", "DELETE")[0] == 404
 
-    call(f"{open_}/faults", "POST", body)
-    assert len(call(f"{locked}/kill", "POST", {})[1]["reverted"]) == 1  # kill always works
-    assert call(f"{locked}/healthz") == (200, {"status": "ok"})
-    assert call(f"{locked}/nope")[0] == 404
+    call(f"{url}/faults", "POST", signer.sign(signed_body("container_stop", step="item-2")))
+    assert len(call(f"{url}/kill", "POST", {})[1]["reverted"]) == 1  # kill is never signed
+    assert call(f"{url}/healthz") == (200, {"status": "ok"})
+    assert call(f"{url}/nope")[0] == 404
+
+
+def test_a_signed_request_is_used_once(served: Any, signer: Signer) -> None:
+    """Threat S-03: a replayed request, or a second fault for the same run and step,
+    is refused with the fault already recorded (so a retrying worker learns the onset)."""
+    url, agent = served
+    envelope = signer.sign(signed_body("connection_drop"))
+    first = call(f"{url}/faults", "POST", envelope)
+    assert first[0] == 201
+    status, answer = call(f"{url}/faults", "POST", envelope)
+    assert status == 409
+    assert answer["fault"]["fault_id"] == first[1]["fault_id"]
+    agent.revert_all()  # even once reverted, the run and step stay used
+    again = signer.sign(signed_body("connection_drop"))
+    assert call(f"{url}/faults", "POST", again)[0] == 409
+    other_run = signer.sign(signed_body("connection_drop", run="run-2"))
+    assert call(f"{url}/faults", "POST", other_run)[0] == 201
+
+
+def test_the_http_interface_reports_problems(served: Any, signer: Signer) -> None:
+    url, agent = served
+    toxiproxy = agent.toxiproxy
+    bad = signed_body("latency") | {"type": "nope"}
+    assert call(f"{url}/faults", "POST", signer.sign(bad))[0] == 422
+    assert call(f"{url}/elsewhere", "POST", {})[0] == 404
+    assert call(f"{url}/elsewhere", "DELETE")[0] == 404
+    for raw in (b"", b"not json"):
+        empty = urllib.request.Request(f"{url}/faults", data=raw, method="POST")  # noqa: S310
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(empty, timeout=5)  # noqa: S310 - local test server
+        assert refused.value.code == 400
+
+    toxiproxy.fail_next = True
+    status, answer = call(f"{url}/faults", "POST", signer.sign(signed_body("latency")))
+    assert status == 502
+    assert "undone" in answer["error"]
+
+    fault = agent.inject(request("connection_drop", environment=ENV))
+    original = toxiproxy.set_enabled
+
+    def broken(proxy: str, enabled: bool) -> None:
+        raise BackendError("toxiproxy down")
+
+    toxiproxy.set_enabled = broken
+    assert call(f"{url}/faults/{fault.fault_id}", "DELETE")[0] == 502
+    toxiproxy.set_enabled = original
 
 
 # ---- the real HTTP clients, against a recording server ---------------------------------------
@@ -431,34 +510,6 @@ def test_build_reads_its_configuration(tmp_path: Path) -> None:
     assert agent.state.path == tmp_path / "s.json"
     assert build({"RAI_AGENT_STATE": str(tmp_path / "t.json"),
                   "RAI_AGENT_DOCKER_URL": "http://127.0.0.1:9"}).project is None  # fmt: skip
-
-
-def test_the_http_interface_reports_problems(served: Any, parts: Any) -> None:
-    _, open_, agent = served
-    toxiproxy = agent.toxiproxy
-    assert call(f"{open_}/faults", "POST", {"type": "nope"})[0] == 422
-    assert call(f"{open_}/elsewhere", "POST", {})[0] == 404
-    assert call(f"{open_}/elsewhere", "DELETE")[0] == 404
-    empty = urllib.request.Request(f"{open_}/faults", data=b"", method="POST")  # noqa: S310
-    with pytest.raises(urllib.error.HTTPError) as refused:
-        urllib.request.urlopen(empty, timeout=5)  # noqa: S310 - local test server
-    assert refused.value.code == 400
-
-    toxiproxy.fail_next = True
-    body = {"type": "latency", "target": "ledger-db-proxy", "latency_ms": 5, "duration_seconds": 5}
-    status, answer = call(f"{open_}/faults", "POST", body)
-    assert status == 502
-    assert "undone" in answer["error"]
-
-    fault = agent.inject(request("connection_drop"))
-    original = toxiproxy.set_enabled
-
-    def broken(proxy: str, enabled: bool) -> None:
-        raise BackendError("toxiproxy down")
-
-    toxiproxy.set_enabled = broken
-    assert call(f"{open_}/faults/{fault.fault_id}", "DELETE")[0] == 502
-    toxiproxy.set_enabled = original
 
 
 def test_status_lists_open_faults(

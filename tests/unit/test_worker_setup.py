@@ -42,7 +42,13 @@ def test_bad_connector_configs_stop_the_worker(tmp_path: Path, body: str, messag
 
 
 def test_settings_from_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    for name in ("RAI_WORKER_DATABASE_URL", "RAI_WORKER_CONNECTORS", "RAI_WORKER_STATE"):
+    for name in (
+        "RAI_WORKER_DATABASE_URL",
+        "RAI_WORKER_CONNECTORS",
+        "RAI_WORKER_STATE",
+        "RAI_WORKER_SIGNING_KEY",
+        "RAI_WORKER_CHAOS_AGENT_URL",
+    ):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(WorkerSetupError, match="RAI_WORKER_DATABASE_URL"):
         WorkerSettings.from_env()
@@ -53,7 +59,26 @@ def test_settings_from_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     monkeypatch.setenv("RAI_WORKER_CONNECTORS", str(tmp_path))
     monkeypatch.setenv("RAI_WORKER_STATE", str(tmp_path / "state"))
     assert WorkerSettings.from_env().config.state_dir == tmp_path / "state"
+    assert WorkerSettings.from_env().config.chaos is None  # no faults without a key (B-24)
     assert worker_name() != worker_name()
+
+
+def test_a_half_configured_chaos_client_stops_the_worker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from rai.worker.chaos import Signer
+
+    monkeypatch.setenv("RAI_WORKER_DATABASE_URL", "postgresql://rai_worker@localhost/rai")
+    monkeypatch.setenv("RAI_WORKER_CHAOS_AGENT_URL", "http://rai-chaos-agent:8090")
+    monkeypatch.delenv("RAI_WORKER_SIGNING_KEY", raising=False)
+    with pytest.raises(WorkerSetupError, match="RAI_WORKER_SIGNING_KEY"):
+        WorkerSettings.from_env()
+    key = tmp_path / "worker.pem"
+    key.write_bytes(Signer.generate().pem())
+    monkeypatch.setenv("RAI_WORKER_SIGNING_KEY", f"file:{key.as_posix()}")
+    chaos = WorkerSettings.from_env().config.chaos
+    assert chaos is not None
+    assert chaos.agent.url == "http://rai-chaos-agent:8090"
 
 
 def test_only_service_roles_get_passwords_this_way() -> None:

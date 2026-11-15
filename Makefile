@@ -41,7 +41,9 @@ demo:
 benchmark:
 	uv run rai-bench dry-run
 
-# FR-07.1: each fault type on SandboxBank (unsigned dev requests: local and CI only).
+# FR-07.1: each fault type on SandboxBank, through requests signed with a throwaway worker
+# key in a fresh temporary folder (B-24); the agent trusts only that key.
 chaos-e2e:
-	RAI_AGENT_UNSIGNED_DEV=1 ETL_INTERVAL_SECONDS=2 COMPOSE_PROJECT_NAME=rai-chaos-e2e docker compose --profile sandbox --profile chaos up -d --build --wait
-	COMPOSE_PROJECT_NAME=rai-chaos-e2e uv run python scripts/chaos_e2e.py; status=$$?; COMPOSE_PROJECT_NAME=rai-chaos-e2e docker compose --profile sandbox --profile chaos down -v; exit $$status
+	key="$$(mktemp -d)/worker.pem"; export RAI_CHAOS_E2E_KEY="$$key" COMPOSE_PROJECT_NAME=rai-chaos-e2e; \
+	RAI_AGENT_WORKER_KEYS="$$(uv run rai admin chaos-keygen --out "$$key")" ETL_INTERVAL_SECONDS=2 docker compose --profile sandbox --profile chaos up -d --build --wait \
+	&& uv run python scripts/chaos_e2e.py; status=$$?; docker compose --profile sandbox --profile chaos down -v; exit $$status
