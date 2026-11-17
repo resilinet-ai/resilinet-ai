@@ -24,7 +24,7 @@ from rai.api.context import ROLES, TenantSession, require
 from rai.api.listing import Page, PageOut, after_uuid, page, paged
 from rai.api.problems import Problem
 from rai.api.routes_projects import find_project, is_unique_violation
-from rai.core.scenarios import ScenarioDefinition, ScenarioFault, latest_decision
+from rai.core.scenarios import RecoveryPlan, ScenarioDefinition, ScenarioFault, latest_decision
 
 router = APIRouter(prefix="/v1", tags=["scenarios"])
 
@@ -45,6 +45,9 @@ class ScenarioIn(BaseModel):
         min_length=1, max_length=20, description="every target the scenario may touch"
     )
     faults: list[ScenarioFault] = Field(min_length=1, max_length=20, description="run in order")
+    recovery: RecoveryPlan | None = Field(
+        default=None, description="probes, ledger and RTO/RPO objectives (B-26b)"
+    )
 
 
 class ScenarioOut(BaseModel):
@@ -55,6 +58,7 @@ class ScenarioOut(BaseModel):
     description: str | None
     blast_radius: list[str]
     faults: list[ScenarioFault]
+    recovery: RecoveryPlan | None
     status: Status  # from the latest review decision
     created_by: UUID
     created_at: datetime
@@ -81,7 +85,7 @@ class ScenarioDetail(ScenarioOut):
 
 _SCENARIO = (
     "SELECT s.scenario_id, s.project_id, s.name, s.version, s.description, s.blast_radius, "
-    "s.faults, s.created_by, s.created_at, COALESCE(("
+    "s.faults, s.recovery, s.created_by, s.created_at, COALESCE(("
     "  SELECT CASE a.decision WHEN 'approve' THEN 'approved' ELSE 'rejected' END "
     "  FROM rai.scenario_approvals a WHERE a.scenario_id = s.scenario_id "
     "  ORDER BY a.created_at DESC, a.approval_id DESC LIMIT 1), 'pending') AS status "
@@ -133,8 +137,9 @@ def add_scenario(
     find_project(session.conn, project_id, for_change=True)
     try:
         definition = ScenarioDefinition(
-            blast_radius=tuple(body.blast_radius), faults=tuple(body.faults)
-        )
+            blast_radius=tuple(body.blast_radius), faults=tuple(body.faults),
+            recovery=body.recovery,
+        )  # fmt: skip
     except ValidationError as error:
         raise Problem(
             422, "scenarios.invalid", "The scenario is not consistent",
@@ -144,8 +149,9 @@ def add_scenario(
         scenario_id = session.conn.execute(
             text(
                 "INSERT INTO rai.chaos_scenarios (project_id, name, version, description, "
-                "blast_radius, faults, created_by) "
-                "SELECT :p, :n, COALESCE(MAX(version), 0) + 1, :d, :r, CAST(:f AS jsonb), :u "
+                "blast_radius, faults, recovery, created_by) "
+                "SELECT :p, :n, COALESCE(MAX(version), 0) + 1, :d, :r, CAST(:f AS jsonb), "
+                "CAST(:rec AS jsonb), :u "
                 "FROM rai.chaos_scenarios WHERE project_id = :p AND name = :n "
                 "RETURNING scenario_id"
             ),
@@ -153,6 +159,7 @@ def add_scenario(
                 "p": project_id, "n": body.name, "d": body.description,
                 "r": list(definition.blast_radius), "u": session.user_id,
                 "f": "[" + ",".join(f.model_dump_json() for f in definition.faults) + "]",
+                "rec": definition.recovery.model_dump_json() if definition.recovery else None,
             },
         ).scalar_one()  # fmt: skip
     except IntegrityError as error:

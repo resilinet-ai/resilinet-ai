@@ -32,6 +32,16 @@ recorded). A refused or failed fault ends the step in ``error``; later faults ar
 attempted. A worker that dies mid-scenario leaves the fault to the agent's expiry and
 the watchdog (B-25); the retry finds each fault the agent already injected (409 with
 its onset), waits out what remains, and records nothing twice.
+
+**Recovery (B-26b: FR-08.1, FR-08.2).** If the scenario has a recovery plan, the
+worker reads the ledger head before the first fault (kept as the observation
+``recovery.ledger_before``, so a retry measures from the same point), then after
+the last revert probes every probe target until all of them answer
+``stable_checks`` times in a row, or the window closes. RTO runs from the first
+fault's onset to that validated restoration; RPO comes from the ledger head before
+and after (:mod:`rai.recovery.measure`). Both are observations (``recovery.rto``,
+``recovery.rpo``); a missed objective, no restoration, or lost ledger rows make the
+step's verdict ``fail``.
 """
 
 from __future__ import annotations
@@ -52,13 +62,15 @@ from sqlalchemy import Connection, Engine, text
 
 from rai.connectors import ConnectorError, connector
 from rai.core.runs import TERMINAL, PinnedItem, Pins
-from rai.core.scenarios import FaultSpec, ScenarioDefinition, latest_decision
+from rai.core.scenarios import FaultSpec, RecoveryPlan, ScenarioDefinition, latest_decision
 from rai.core.tenancy import set_context
 from rai.lineage.digest import frame_digest
+from rai.recovery.measure import Head, Sample, rpo, rto
 from rai.validation.contract import Contract
 from rai.validation.engine import ValidationReport, validate
 from rai.validation.history import SqliteKeyStore
 from rai.validation.verdict import decide
+from rai.worker import probes
 from rai.worker.chaos import ChaosClient, FaultOutcome, fault_preflight, record_revert
 from rai.worker.queue import Job
 
@@ -110,6 +122,9 @@ class PreparedScenario:
 
     item: PinnedItem
     specs: tuple[FaultSpec, ...]
+    recovery: RecoveryPlan | None = None
+    probe_urls: tuple[str, ...] = ()  # from the allow-list, for the plan's probes
+    ledger_url: str | None = None
 
 
 @contextmanager
@@ -199,7 +214,32 @@ def _scenario_problems(
             step_key=fault_key(item, n),
         )  # fmt: skip
         problems.extend(f"fault {n} ({spec.type} on {spec.target}): {p}" for p in found)
-    return (None, problems) if problems else (PreparedScenario(item, specs), [])
+    plan = scenario.recovery
+    if plan is None:
+        return (None, problems) if problems else (PreparedScenario(item, specs), [])
+    urls = _health_urls(conn, pins, [*plan.probes, *([plan.ledger] if plan.ledger else [])])
+    for name in sorted({*plan.probes, *([plan.ledger] if plan.ledger else [])} - set(urls)):
+        problems.append(f"recovery: {name!r} is not on the allow-list with a health_url")
+    if problems:
+        return None, problems
+    return PreparedScenario(
+        item, specs, plan, tuple(urls[name] for name in plan.probes),
+        urls[plan.ledger] if plan.ledger else None,
+    ), []  # fmt: skip
+
+
+def _health_urls(conn: Connection, pins: Pins, names: list[str]) -> dict[str, str]:
+    """Allow-listed targets of the run's environment that have a health_url."""
+    if pins.environment is None:
+        return {}
+    rows = conn.execute(
+        text(
+            "SELECT name, health_url FROM rai.environment_targets "
+            "WHERE environment_id = :e AND name = ANY(:n) AND health_url IS NOT NULL"
+        ),
+        {"e": pins.environment.environment_id, "n": names},
+    ).all()
+    return {row.name: row.health_url for row in rows}
 
 
 def fault_key(item: PinnedItem, n: int) -> str:
@@ -351,10 +391,12 @@ class Executor:
         renew: Callable[[Job], bool],
         before_commit: Callable[[str], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        probe_interval: float = 1.0,
     ) -> None:
         self.engine, self.config, self.renew = engine, config, renew
         self.before_commit = before_commit  # test hook: called inside a step's transaction
         self.sleep = sleep  # test hook: holding a fault for its duration
+        self.probe_interval = probe_interval  # seconds between recovery probe rounds
 
     def execute(self, job: Job) -> None:
         name = self.config.name
@@ -409,7 +451,17 @@ class Executor:
         chaos = self.config.chaos
         assert chaos is not None  # noqa: S101 - checked in preflight
         failure: str | None = None
+        before: Head | None = None
+        if step.ledger_url is not None:
+            try:
+                before = self._ledger_before(job, step)
+            except ValueError as error:
+                failure = f"recovery: could not read the ledger head before the faults: {error}"
+        onset: datetime | None = None
+        reverted: datetime | None = None
         for n, spec in enumerate(step.specs, start=1):
+            if failure:
+                break
             if not self.renew(job):
                 raise LeaseLost(job.job_id)
             key = fault_key(step.item, n)
@@ -422,6 +474,7 @@ class Executor:
                 failure = (f"fault {n} ({spec.type} on {spec.target}) {outcome.status} "
                            f"by the {outcome.by}: {reasons}")  # fmt: skip
                 break
+            onset = onset or _moment(outcome.fault.get("onset"))
             self._hold(job, outcome)
             status, body = chaos.agent.revert(str(outcome.fault["fault_id"]))
             with tenant_transaction(self.engine, job, self.config.name) as conn:
@@ -429,14 +482,131 @@ class Executor:
             if not (status == 200 and isinstance(body, dict) and body.get("status") == "reverted"):
                 failure = f"fault {n} ({spec.type} on {spec.target}) was not reverted: {body}"
                 break
+            reverted = _moment(body.get("reverted_at")) or datetime.now(UTC)
+        missed: list[str] = []
+        if failure is None and step.recovery is not None and onset and reverted:
+            missed = self._measure(job, step, onset, reverted, before)
         with tenant_transaction(self.engine, job, self.config.name) as conn:
             self._record_step(
                 conn, job, step.item, started,
-                state="error" if failure else "done", verdict=None if failure else "pass",
-                error=failure,
+                state="error" if failure else "done",
+                verdict=None if failure else ("fail" if missed else "pass"),
+                error=failure or ("; ".join(missed) if missed else None),
             )  # fmt: skip
             if self.before_commit is not None:
                 self.before_commit(step.item.step_key)
+
+    def _ledger_before(self, job: Job, step: PreparedScenario) -> Head:
+        """The ledger head before the first fault, read once: a retry reads it back from
+        the observation, so RPO is measured from the same point."""
+        key = step.item.step_key
+        with tenant_transaction(self.engine, job, self.config.name) as conn:
+            kept = conn.execute(
+                text("SELECT observed_value FROM rai.observations WHERE run_id = :r "
+                     "AND step_key = :k AND rule = 'recovery.ledger_before'"),
+                {"r": job.run_id, "k": key},
+            ).scalar_one_or_none()  # fmt: skip
+        if kept is not None:
+            return Head.parse(kept)
+        assert step.ledger_url is not None  # noqa: S101 - the caller checks
+        status, body = probes.get(step.ledger_url)
+        if status != 200:
+            raise ValueError(f"HTTP {status or 'no answer'} from the ledger head")
+        head = Head.parse(body)
+        with tenant_transaction(self.engine, job, self.config.name) as conn:
+            self._observe(conn, job, key, "recovery.ledger_before", "pass", _head_dict(head), {})
+        return head
+
+    def _measure(
+        self, job: Job, step: PreparedScenario, onset: datetime, reverted: datetime,
+        before: Head | None,
+    ) -> list[str]:  # fmt: skip
+        """Probe until restored (or the window closes), then RTO and RPO as observations.
+        Returns the objectives missed."""
+        plan = step.recovery
+        assert plan is not None  # noqa: S101 - the caller checks
+        samples: list[Sample] = []
+        closes = datetime.now(UTC) + timedelta(seconds=plan.window_seconds)
+        measured = rto(onset, reverted, samples, plan.stable_checks)
+        while measured.restored_at is None and datetime.now(UTC) < closes:
+            if not self.renew(job):
+                raise LeaseLost(job.job_id)
+            at = datetime.now(UTC)
+            samples.append(Sample(at, all(probes.healthy(url) for url in step.probe_urls)))
+            measured = rto(onset, reverted, samples, plan.stable_checks)
+            if measured.restored_at is None:
+                self.sleep(self.probe_interval)
+        seconds = measured.seconds
+        rto_missed: list[str] = []
+        if seconds is None:
+            rto_missed.append(f"not restored within {plan.window_seconds} s of the last revert")
+        elif plan.rto_seconds is not None and seconds > plan.rto_seconds:
+            rto_missed.append(f"RTO {seconds} s exceeds the objective of {plan.rto_seconds} s")
+        rto_observed = {
+            "seconds": seconds, "onset": _stamp(onset), "reverted_at": _stamp(reverted),
+            "restored_at": _stamp(measured.restored_at), "samples": len(samples),
+            "probes": list(plan.probes),
+        }  # fmt: skip
+        rto_expected = {"rto_seconds": plan.rto_seconds, "stable_checks": plan.stable_checks,
+                        "window_seconds": plan.window_seconds}  # fmt: skip
+        rpo_missed: list[str] = []
+        rpo_observed: dict[str, Any] | None = None
+        if before is not None and step.ledger_url is not None:
+            rpo_observed, rpo_missed = self._rpo(step.ledger_url, onset, before, plan)
+        key = step.item.step_key
+        with tenant_transaction(self.engine, job, self.config.name) as conn:
+            self._observe(conn, job, key, "recovery.rto", "fail" if rto_missed else "pass",
+                          rto_observed, rto_expected)  # fmt: skip
+            if rpo_observed is not None:
+                self._observe(conn, job, key, "recovery.rpo", "fail" if rpo_missed else "pass",
+                              rpo_observed, {"rpo_seconds": plan.rpo_seconds})  # fmt: skip
+        return rto_missed + rpo_missed
+
+    @staticmethod
+    def _rpo(
+        url: str, onset: datetime, before: Head, plan: RecoveryPlan
+    ) -> tuple[dict[str, Any], list[str]]:
+        """What the ledger head shows after recovery, and the RPO objectives missed."""
+        status, body = probes.get(url)
+        try:
+            if status != 200:
+                raise ValueError(f"HTTP {status or 'no answer'} from the ledger head")
+            after = Head.parse(body)
+        except ValueError as error:
+            unread = {"seconds": None, "error": str(error), "before": _head_dict(before)}
+            return unread, [f"RPO: could not read the ledger head after recovery: {error}"]
+        result = rpo(onset, before, after)
+        missed = []
+        if result.seconds is None:
+            missed.append(f"RPO unknown: {result.lost_rows} ledger rows lost")
+        else:
+            if result.lost_rows:
+                missed.append(f"{result.lost_rows} committed ledger rows were lost")
+            if plan.rpo_seconds is not None and result.seconds > plan.rpo_seconds:
+                missed.append(
+                    f"RPO {result.seconds} s exceeds the objective of {plan.rpo_seconds} s"
+                )
+        observed: dict[str, Any] = {
+            "seconds": result.seconds, "lost_rows": result.lost_rows,
+            "before": _head_json(before), "after": _head_json(after),
+            "recovery_point": _head_json(result.recovery_point),
+        }  # fmt: skip
+        return observed, missed
+
+    def _observe(
+        self, conn: Connection, job: Job, step_key: str, rule: str, outcome: str,
+        observed: dict[str, Any], expected: dict[str, Any],
+    ) -> None:  # fmt: skip
+        conn.execute(
+            text(
+                "INSERT INTO rai.observations (run_id, step_key, kind, rule, observed_value, "
+                "expected, outcome) VALUES (:r, :k, 'metric', :rule, CAST(:o AS jsonb), "
+                "CAST(:e AS jsonb), CAST(:out AS rai.observation_outcome)) "
+                "ON CONFLICT (run_id, step_key, rule) DO NOTHING"
+            ),
+            {"r": job.run_id, "k": step_key, "rule": rule, "o": json.dumps(observed),
+             "e": json.dumps(expected), "out": outcome},
+        )  # fmt: skip
 
     def _hold(self, job: Job, outcome: FaultOutcome) -> None:
         """Wait until the fault's declared end, renewing the lease; returns at once for a
@@ -591,3 +761,21 @@ class Executor:
         passed = complete and all(s.state == "done" and s.verdict == "pass" for s in steps)
         move(self.engine, job, self.config.name, "passed" if passed else "failed",
              verdict="pass" if passed else "fail")  # fmt: skip
+
+
+def _moment(value: Any) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def _stamp(moment: datetime | None) -> str | None:
+    return None if moment is None else moment.astimezone(UTC).isoformat()
+
+
+def _head_dict(head: Head) -> dict[str, Any]:
+    return {"seq": head.seq, "rows": head.rows, "committed_at": _stamp(head.committed_at)}
+
+
+def _head_json(head: Head | None) -> dict[str, Any] | None:
+    return None if head is None else _head_dict(head)

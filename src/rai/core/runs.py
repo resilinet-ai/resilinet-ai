@@ -15,7 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rai.core.scenarios import ScenarioFault
+from rai.core.scenarios import RecoveryPlan, ScenarioFault
 
 RunState = Literal[
     "queued", "preflight", "running", "evaluating", "passed", "failed", "refused", "aborted",
@@ -74,6 +74,7 @@ class PinnedScenario(_Frozen):
     blast_radius: tuple[str, ...]
     faults: tuple[ScenarioFault, ...]
     approval_id: UUID  # the decision that made it runnable when the run was queued
+    recovery: RecoveryPlan | None = None  # B-26b: how recovery is measured
 
 
 class PinnedItem(_Frozen):

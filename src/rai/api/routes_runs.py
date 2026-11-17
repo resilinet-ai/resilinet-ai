@@ -263,7 +263,7 @@ def _scenario_item(conn: Connection, position: int, scenario_id: UUID) -> Pinned
     decision counts: an unreviewed or rejected version does not start."""
     row = conn.execute(
         text(
-            "SELECT scenario_id, name, version, blast_radius, faults "
+            "SELECT scenario_id, name, version, blast_radius, faults, recovery "
             "FROM rai.chaos_scenarios WHERE scenario_id = :s"
         ),
         {"s": scenario_id},
@@ -277,6 +277,7 @@ def _scenario_item(conn: Connection, position: int, scenario_id: UUID) -> Pinned
     scenario = PinnedScenario(
         scenario_id=row.scenario_id, name=row.name, version=row.version,
         blast_radius=tuple(row.blast_radius), faults=tuple(row.faults), approval_id=approval_id,
+        recovery=row.recovery,
     )  # fmt: skip
     return PinnedItem(position=position, step_key=step_key(position), scenario=scenario)
 

@@ -99,4 +99,6 @@ The envelope is `{"format": "rai-signed-fault/1", "key_id": ..., "payload": ...,
 
 **Scenarios (B-26).** Runs reach the agent through approved chaos scenarios: the worker signs one request per fault, holds it for its duration and then asks the agent to revert it (see [Chaos scenarios](api.md#chaos-scenarios)).
 
-**Coming next:** measuring recovery (RTO and RPO, FR-08.1 and FR-08.2) from each fault's onset and revert, and the scenario-level blast radius (B-27).
+**Recovery (B-26b).** A scenario's recovery plan measures RTO from the first fault's onset and RPO from the ledger head (see [Chaos scenarios](api.md#chaos-scenarios)).
+
+**Coming next:** post-recovery consistency checks (FR-08.3) and the scenario-level blast radius (B-27).
