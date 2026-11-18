@@ -182,6 +182,51 @@ def test_a_run_keeps_the_blast_radius_it_declared(agent: Agent) -> None:
     assert agent.inject(proxy("analytics-db-proxy", step_key="b", blast_radius=radius[::-1]))
 
 
+SCENARIO = "0190aaaa-0000-7000-8000-000000000001@1"
+WIDE = ["analytics-db-proxy", "ledger-db-proxy"]
+
+
+def step(n: int, item: int = 1) -> str:
+    return f"item-{item}.fault-{n}"
+
+
+def scenario_fault(target: str, n: int, radius: list[str], **extra: Any) -> FaultRequest:
+    return proxy(target, step_key=step(n), blast_radius=radius, scenario=SCENARIO,
+                 **extra)  # fmt: skip
+
+
+def test_a_scenario_keeps_its_radius_after_its_first_fault_is_reverted(agent: Agent) -> None:
+    """B-27 (D-02): the radius is the scenario's, not just the open faults'. Without
+    this, fault 2 could widen the reach once fault 1 had been reverted."""
+    agent.toxiproxy.proxies["analytics-db-proxy"] = {"enabled": True, "toxics": {}}
+    first = agent.inject(scenario_fault("ledger-db-proxy", 1, ["ledger-db-proxy"]))
+    agent.revert(first.fault_id)
+    with pytest.raises(FaultError, match="keeps the blast radius it declared with its first"):
+        agent.inject(scenario_fault("analytics-db-proxy", 2, WIDE))
+    with pytest.raises(FaultError, match="already ran scenario"):
+        agent.inject(proxy(step_key=step(2), blast_radius=["ledger-db-proxy"],
+                           scenario=SCENARIO.replace("1@1", "2@1")))  # fmt: skip
+    assert agent.inject(scenario_fault("ledger-db-proxy", 2, ["ledger-db-proxy"]))
+
+
+def test_each_scenario_step_of_a_run_has_its_own_radius(agent: Agent) -> None:
+    agent.toxiproxy.proxies["analytics-db-proxy"] = {"enabled": True, "toxics": {}}
+    first = agent.inject(scenario_fault("ledger-db-proxy", 1, ["ledger-db-proxy"]))
+    agent.revert(first.fault_id)
+    other = proxy("analytics-db-proxy", step_key=step(1, item=2), blast_radius=WIDE,
+                  scenario=SCENARIO.replace("1@1", "2@1"))  # fmt: skip
+    assert agent.inject(other).request.scenario_step == ("r1", "item-2")
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"step_key": "item-1"}, {"step_key": None}, {"run_id": None}, {"step_key": "a.fault-0"}],
+)
+def test_a_scenario_fault_names_its_run_and_step(extra: dict[str, Any]) -> None:
+    with pytest.raises(FaultError, match=r"needs run_id and a step_key like item-1.fault-2"):
+        proxy(scenario=SCENARIO, **({"step_key": step(1)} | extra))
+
+
 def test_the_replay_guard_survives_a_restart(agent: Agent) -> None:
     first = agent.inject(proxy())
     restarted = Agent(StateFile(agent.state.path), agent.toxiproxy, agent.docker, "sandboxbank",
@@ -232,6 +277,22 @@ def test_fault_specs_are_checked(extra: dict[str, Any], message: str) -> None:
 
 def prepared() -> PreparedFault:
     return PreparedFault(spec(), uuid4(), uuid4(), "item-1", ENV, 900, "rai.target=toxiproxy")
+
+
+def test_the_signed_request_names_the_scenario_version() -> None:
+    from rai.core.scenarios import ScenarioDefinition, scenario_ref
+
+    sid = uuid4()
+    definition = ScenarioDefinition.model_validate({
+        "blast_radius": ["ledger-db-proxy"],
+        "faults": [{"type": "connection_drop", "target": "ledger-db-proxy",
+                    "duration_seconds": 5}],
+    })  # fmt: skip
+    (only,) = definition.specs(scenario_ref(sid, 3))
+    fault = PreparedFault(only, uuid4(), uuid4(), "item-1.fault-1", ENV, 900, "rai.target=x")
+    request = FaultRequest.parse(fault.request())
+    assert (request.scenario, request.scenario_step) == (f"{sid}@3", (str(fault.run_id), "item-1"))
+    assert prepared().request()["scenario"] is None  # a fault outside a scenario
 
 
 def test_the_agents_answers_become_outcomes() -> None:

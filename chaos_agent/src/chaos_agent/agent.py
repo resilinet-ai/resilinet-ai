@@ -23,6 +23,12 @@ the signature checked in :mod:`chaos_agent.signing`:
   the radius it started with, and at most ``RAI_AGENT_MAX_OPEN_FAULTS`` faults are
   open at once.
 
+B-27 makes the radius **scenario-level** (threat D-02): a request naming a scenario
+version is held to every fault already recorded for the same run and scenario step,
+open *or reverted*. They must name the same scenario version and declare the same
+radius, so a scenario cannot widen its reach between faults, after the first one was
+reverted.
+
 Every fault is written to the state file **before** it acts, then marked active
 with its onset (t0), or failed. Faults past their duration are reverted by the
 expiry loop; faults found active when the agent starts (it crashed) are reverted
@@ -126,6 +132,17 @@ class Agent:
         if len(open_) >= self.max_open_faults:
             raise FaultError(f"{len(open_)} faults are open; this agent allows "
                              f"{self.max_open_faults} at once")  # fmt: skip
+        step = request.scenario_step
+        if step is not None:  # B-27: every fault of the scenario step, open or not
+            for other in faults.values():
+                if other.request.step_scope != step:
+                    continue
+                if other.request.scenario != request.scenario:
+                    raise FaultError(f"step {step[1]!r} of this run already ran scenario "
+                                     f"{other.request.scenario!r}")  # fmt: skip
+                if set(other.request.blast_radius) != set(request.blast_radius):
+                    raise FaultError("a scenario keeps the blast radius it declared with its "
+                                     "first fault, open or reverted")  # fmt: skip
         for other in open_:
             if (
                 request.run_id is not None

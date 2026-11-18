@@ -41,6 +41,7 @@ The agent does not trust whoever asks, even a signed request. Before acting, it 
 
 - **The request:** a known fault type, and a duration of 1 s up to the smaller of the environment's ceiling and the agent's own (`RAI_AGENT_MAX_FAULT_SECONDS`, default 900 s; never more than 60 minutes).
 - **The blast radius:** the target is in the radius the scenario declared, a run keeps the radius of its first fault, and at most `RAI_AGENT_MAX_OPEN_FAULTS` faults (default 3) are open at once.
+- **The scenario's radius (B-27):** a request from a scenario names its version (`scenario`, `"<scenario_id>@<version>"`) and a step key like `item-1.fault-2`. Every fault already recorded for that run and step, open *or reverted*, must name the same scenario version and the same radius. A scenario cannot widen its reach between faults.
 - **A container target:** exactly one container of that Compose service, in the agent's own Compose project. It must carry `rai.sandbox=true` and the label it was registered with (`required_label`, B-22). The agent reads its own project from its container's labels; if it cannot, it refuses all container faults.
 - **A proxy target:** the proxy exists in Toxiproxy.
 - **One fault per target.**
@@ -95,10 +96,12 @@ On Linux, set `DOCKER_GID` to the group that owns `/var/run/docker.sock` (`stat 
 | `POST /kill` | Reverts every open fault; always allowed |
 | `GET /healthz` | `{"status": "ok"}` |
 
-The envelope is `{"format": "rai-signed-fault/1", "key_id": ..., "payload": ..., "signature": ...}`. Its payload is `{"format": "rai-fault-request/1", "issued_at": ..., "expires_at": ..., "request": {...}}`, and the request inside looks like this: `{"type": "container_stop", "target": "payments-api", "duration_seconds": 60, "required_label": "rai.target=payments-api", "run_id": ..., "step_key": "item-1", "tenant_id": ..., "environment": "SANDBOXBANK", "max_duration_seconds": 900, "blast_radius": ["payments-api"]}`. See `chaos_agent/signing.py`.
+The envelope is `{"format": "rai-signed-fault/1", "key_id": ..., "payload": ..., "signature": ...}`. Its payload is `{"format": "rai-fault-request/1", "issued_at": ..., "expires_at": ..., "request": {...}}`, and the request inside looks like this: `{"type": "container_stop", "target": "payments-api", "duration_seconds": 60, "required_label": "rai.target=payments-api", "run_id": ..., "step_key": "item-1", "tenant_id": ..., "environment": "SANDBOXBANK", "max_duration_seconds": 900, "blast_radius": ["payments-api"], "scenario": "<scenario_id>@<version>"}`. See `chaos_agent/signing.py`.
 
 **Scenarios (B-26).** Runs reach the agent through approved chaos scenarios: the worker signs one request per fault, holds it for its duration and then asks the agent to revert it (see [Chaos scenarios](api.md#chaos-scenarios)).
 
 **Recovery (B-26b).** A scenario's recovery plan measures RTO from the first fault's onset and RPO from the ledger head (see [Chaos scenarios](api.md#chaos-scenarios)).
 
-**Coming next:** post-recovery consistency checks (FR-08.3) and the scenario-level blast radius (B-27).
+**Refusals (B-27).** Every refusal, the layer that makes it and the test that proves it are listed in [refusals.md](refusals.md).
+
+**Coming next:** post-recovery consistency checks (FR-08.3).

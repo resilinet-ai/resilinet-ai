@@ -50,6 +50,7 @@ NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}$")
 LABEL = re.compile(r"^[a-z0-9][a-z0-9_./-]{0,99}=[A-Za-z0-9_.-]{1,100}$")
 HARD_MAX_SECONDS = 3600  # whatever the request says (environment ceilings are at most 60 min)
 MAX_BLAST_RADIUS = 20
+SCENARIO_STEP = re.compile(r"^[A-Za-z0-9_-]{1,80}\.fault-[1-9][0-9]{0,2}$")
 
 Status = Literal["injecting", "active", "reverted", "failed"]
 
@@ -82,6 +83,8 @@ class FaultRequest:
     tenant_id: str | None = None
     environment: str | None = None
     blast_radius: tuple[str, ...] = ()  # every target the scenario declares
+    # B-27: the scenario version ("<scenario_id>@<version>"); its faults share one radius.
+    scenario: str | None = None
 
     @classmethod
     def parse(cls, data: Any) -> FaultRequest:
@@ -133,9 +136,28 @@ class FaultRequest:
             ("step_key", self.step_key),
             ("tenant_id", self.tenant_id),
             ("environment", self.environment),
+            ("scenario", self.scenario),
         ):
             if value is not None and not (isinstance(value, str) and 0 < len(value) <= 100):
                 raise FaultError(f"{name} must be text of at most 100 characters")  # fmt: skip
+        if self.scenario is not None and (
+            self.run_id is None or self.step_key is None or not SCENARIO_STEP.fullmatch(
+                self.step_key
+            )
+        ):  # fmt: skip
+            raise FaultError("a scenario fault needs run_id and a step_key like item-1.fault-2")
+
+    @property
+    def step_scope(self) -> tuple[str, str] | None:
+        """(run, step) without the fault number: ``item-1.fault-2`` is step ``item-1``."""
+        if self.run_id is None or self.step_key is None:
+            return None
+        return self.run_id, self.step_key.rsplit(".fault-", 1)[0]
+
+    @property
+    def scenario_step(self) -> tuple[str, str] | None:
+        """The step scope of a scenario fault; every fault of it keeps one radius."""
+        return None if self.scenario is None else self.step_scope
 
 
 @dataclass
