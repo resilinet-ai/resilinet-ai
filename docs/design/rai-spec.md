@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Version** | v0.2 (reconstructed draft), 2026-11-17 |
+| **Version** | v0.2 (reconstructed draft), 2026-11-17; aligned with `docs/traceability.csv` 2026-11-18 |
 | **Status** | Draft. **Pending review and approval by the author of record**, Trevor Kauyu (ADR-007) |
 | **Supersedes** | Nothing. The v0.1 original (2026-11-13) was written outside this repository and has not been found; if it is, it takes precedence over this draft |
 
@@ -35,7 +35,7 @@ These rules are part of the requirements. A change that breaks one is a defect, 
 
 ## 3. Functional requirements
 
-Priorities: **M** must (MVP), **S** should, **L** later. The status column is kept in `docs/traceability.csv`, which is the live record.
+Priorities: **M** must (MVP), **S** should, **L** later. Each row's ID, priority and wording are identical to `docs/traceability.csv`; status, backlog items, pull requests, tests and evidence are kept only there, because the matrix is the live record.
 
 | ID | Module | Pri. | Requirement |
 | --- | --- | --- | --- |
@@ -77,8 +77,8 @@ Priorities: **M** must (MVP), **S** should, **L** later. The status column is ke
 | ID | Area | Pri. | Requirement |
 | --- | --- | --- | --- |
 | NFR-SAF-1 | Safety | M | Deny-by-default fault injection; production fails closed |
-| NFR-SAF-2 | Safety | M | Maximum duration, blast radius, rollback; kill-switch that works without the API |
-| NFR-SEC-1 | Security | M | Tenant isolation in the API and PostgreSQL row-level security |
+| NFR-SAF-2 | Safety | M | Max duration, blast radius, rollback; kill-switch without API |
+| NFR-SEC-1 | Security | M | Tenant isolation in API and PostgreSQL RLS |
 | NFR-SEC-2 | Security | M | TLS; secrets never persisted |
 | NFR-SEC-3 | Security | M | SSDF practices: dependency scanning, SBOM, signed images |
 | NFR-SEC-4 | Security | M | Versioned STRIDE threat model |
@@ -88,7 +88,7 @@ Priorities: **M** must (MVP), **S** should, **L** later. The status column is ke
 | NFR-AUD-2 | Auditability | M | Honest tamper-evidence statements |
 | NFR-PERF-1 | Performance | M | 100k-row, 30-rule validation under 10 s |
 | NFR-PERF-2 | Performance | M | RAI overhead measured and reported |
-| NFR-USE-1 | Usability | M | Every metric shows its definition, n and window |
+| NFR-USE-1 | Usability | M | Every metric shows definition, n and window |
 | NFR-USE-2 | Accessibility | M | WCAG 2.2 AA |
 | NFR-OPS-1 | Operability | M | Structured logs, traces, health endpoints |
 | NFR-LIC-1 | Licensing | M | Apache-2.0 with DCO sign-off |
