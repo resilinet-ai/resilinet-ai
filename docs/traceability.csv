@@ -17,8 +17,8 @@ FR-06.2,M06,S,"Idempotent, resumable runs",B-18,,#23,tests/integration/test_work
 FR-07.1,M07,M,Fault types (first five families in MVP),B-23;B-24;B-26,,#28,tests/unit/test_chaos_agent.py;tests/unit/test_chaos_signing.py;tests/integration/test_chaos_worker.py;tests/integration/test_scenarios.py;scripts/chaos_e2e.py,docs/chaos-agent.md,in progress
 FR-07.2,M07,M,"Preflight: allow-list, not production, approved, blast radius",B-22;B-24;B-26,,#27,tests/integration/test_environments.py;tests/integration/test_chaos_worker.py;tests/unit/test_chaos_signing.py;tests/integration/test_scenarios.py,docs/api.md;docs/chaos-agent.md,in progress
 FR-07.3,M07,M,Automatic fault removal and kill-switch,B-23;B-25,,,tests/unit/test_chaos_watchdog.py;tests/unit/test_chaos_agent.py;scripts/chaos_e2e.py,docs/chaos-agent.md,in progress
-FR-08.1,M08,M,RTO from onset to validated restoration,,,,,,planned
-FR-08.2,M08,M,RPO from last committed ledger record,,,,,,planned
+FR-08.1,M08,M,RTO from onset to validated restoration,B-26b,,,tests/unit/test_recovery_measure.py;tests/integration/test_scenario_recovery.py,docs/api.md,in progress
+FR-08.2,M08,M,RPO from last committed ledger record,B-26b,,,tests/unit/test_recovery_measure.py;tests/integration/test_scenario_recovery.py,docs/api.md,in progress
 FR-08.3,M08,M,Post-recovery consistency checks,,,,,,planned
 FR-09.1,M09,S,Model evaluation with sample sizes,,,,,,planned
 FR-09.2,M09,S,Drift detection (PSI/KS),,,,,,planned

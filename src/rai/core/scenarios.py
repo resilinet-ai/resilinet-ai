@@ -57,12 +57,45 @@ class FaultSpec(ScenarioFault):
         return self
 
 
+class RecoveryPlan(BaseModel):
+    """How a scenario measures recovery (FR-08.1 RTO, FR-08.2 RPO).
+
+    * ``probes``: allow-listed targets whose ``health_url`` must answer 2xx. The system
+      counts as restored when every probe has answered ``stable_checks`` times in a
+      row after the last fault was reverted; RTO runs from the first fault's onset.
+    * ``ledger``: an allow-listed target whose ``health_url`` returns the ledger head
+      (``seq``, ``committed_at``, ``rows``; SandboxBank's ``/v1/ledger/head``), read
+      before the first fault and after restoration, for RPO.
+    * ``rto_seconds`` and ``rpo_seconds``: objectives; missing one fails the step.
+    * ``window_seconds``: how long after the last revert to wait for restoration.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    probes: tuple[str, ...] = Field(min_length=1, max_length=MAX_BLAST_RADIUS)
+    ledger: str | None = Field(default=None, pattern=TARGET_NAME)
+    rto_seconds: int | None = Field(default=None, ge=0, le=86_400)
+    rpo_seconds: int | None = Field(default=None, ge=0, le=86_400)
+    window_seconds: int = Field(default=300, ge=1, le=3600)
+    stable_checks: int = Field(default=3, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def _names(self) -> RecoveryPlan:
+        for name in self.probes:
+            if not _is_name(name):
+                raise ValueError(f"recovery.probes: {name!r} is not a target name")
+        if self.rpo_seconds is not None and self.ledger is None:
+            raise ValueError("recovery.rpo_seconds needs recovery.ledger to measure from")
+        return self
+
+
 class ScenarioDefinition(BaseModel):
-    """What a scenario version holds: its blast radius and its faults, in order."""
+    """What a scenario version holds: its blast radius, its faults in order, and how
+    recovery is measured (B-26b; optional)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     blast_radius: tuple[str, ...] = Field(min_length=1, max_length=MAX_BLAST_RADIUS)
     faults: tuple[ScenarioFault, ...] = Field(min_length=1, max_length=MAX_FAULTS)
+    recovery: RecoveryPlan | None = None
 
     @model_validator(mode="after")
     def _within_radius(self) -> ScenarioDefinition:

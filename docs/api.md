@@ -188,6 +188,18 @@ uv run rai worker            # or: rai worker --once
 - **A fault the agent refuses, or that fails,** ends the step in `error` with the reason. Later faults are not tried, and the run fails.
 - **A worker that dies mid-scenario** leaves the open fault to the agent's expiry and the watchdog. The retry gets the agent's record of each fault it already injected, waits out what remains, and records nothing twice.
 
+**Measuring recovery (FR-08.1, FR-08.2).** A scenario can add a `recovery` plan:
+
+```json
+"recovery": {"probes": ["payments-health"], "ledger": "payments-ledger",
+             "rto_seconds": 120, "rpo_seconds": 0, "window_seconds": 300, "stable_checks": 3}
+```
+
+- **Probes and the ledger are allow-listed targets.** The worker uses each target's registered `health_url`; a scenario names targets, never addresses. A target that isn't allow-listed with a `health_url` refuses the run.
+- **RTO** runs from the first fault's onset to *validated restoration*. After the last fault is reverted, every probe has to answer 2xx `stable_checks` times in a row, and the time of the first of those checks is the restoration time. A recovery that flaps counts only once it holds. If nothing is restored within `window_seconds`, the step fails.
+- **RPO** comes from the ledger head (`seq`, `committed_at`, `rows`), read before the first fault and again after restoration. The "before" head is kept as an observation, so a retry measures from the same point. If no committed row was lost, RPO is 0 s. If the ledger went back, RPO is the time from the last surviving record to the onset. Lost rows always fail the step.
+- **Observations:** `recovery.rto`, `recovery.rpo` and `recovery.ledger_before`, on the scenario's step. A missed objective makes the step's verdict `fail` with the reason; the step itself is still `done`, because the measurement worked.
+
 ## Lineage
 
 Lineage records **which data a run actually read**, as SHA-256 digests (FR-04.1).
