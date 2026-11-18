@@ -42,6 +42,14 @@ fault's onset to that validated restoration; RPO comes from the ledger head befo
 and after (:mod:`rai.recovery.measure`). Both are observations (``recovery.rto``,
 ``recovery.rpo``); a missed objective, no restoration, or lost ledger rows make the
 step's verdict ``fail``.
+
+**Consistency (FR-08.3).** A ``consistency_check`` step reconciles its target asset
+against a declared upstream source, both read through worker connectors
+(:mod:`rai.recovery.consistency`). It snapshots the source, then reads the target
+and the source again every ``interval_seconds`` (renewing the lease) until nothing
+is missing, doubled, unexpected or mismatched, or ``within_seconds`` has passed. The
+four findings are observations; lineage records the hop with both frames' digests.
+Placed after a scenario in a plan, it checks that the system recovered correctly.
 """
 
 from __future__ import annotations
@@ -61,7 +69,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import Connection, Engine, text
 
 from rai.connectors import ConnectorError, connector
-from rai.core.runs import TERMINAL, PinnedItem, Pins
+from rai.core.runs import TERMINAL, PinnedAsset, PinnedItem, Pins
 from rai.core.scenarios import (
     FaultSpec,
     RecoveryPlan,
@@ -71,6 +79,13 @@ from rai.core.scenarios import (
 )
 from rai.core.tenancy import set_context
 from rai.lineage.digest import frame_digest
+from rai.recovery.consistency import (
+    ConsistencyDefinition,
+    Reconciliation,
+    prepare_source,
+    prepare_target,
+    reconcile,
+)
 from rai.recovery.measure import Head, Sample, rpo, rto
 from rai.validation.contract import Contract
 from rai.validation.engine import ValidationReport, validate
@@ -80,7 +95,7 @@ from rai.worker import probes
 from rai.worker.chaos import ChaosClient, FaultOutcome, fault_preflight, record_revert
 from rai.worker.queue import Job
 
-SUPPORTED_TYPES = ("contract_rule",)
+SUPPORTED_TYPES = ("contract_rule", "consistency_check")
 
 
 class LeaseLost(Exception):
@@ -120,6 +135,15 @@ class Prepared:
     item: PinnedItem
     definition: ContractRuleDefinition
     contract: Contract
+
+
+@dataclass(frozen=True)
+class PreparedConsistency:
+    """A consistency-check step, checked in preflight (FR-08.3)."""
+
+    item: PinnedItem
+    definition: ConsistencyDefinition
+    source: PinnedAsset  # the upstream asset, from the pinned lineage
 
 
 @dataclass(frozen=True)
@@ -234,6 +258,38 @@ def _scenario_problems(
     ), []  # fmt: skip
 
 
+def _consistency_problems(
+    conn: Connection, pins: Pins, config: WorkerConfig, item: PinnedItem
+) -> tuple[PreparedConsistency | None, list[str]]:
+    """The worker's preflight for a consistency check (FR-08.3), with a contract rule's
+    rules: a registered environment, connectors on this worker, and a source declared
+    upstream of the target (tenants name assets, never locations)."""
+    assert item.test is not None  # noqa: S101 - the caller dispatches on it
+    try:
+        definition = ConsistencyDefinition.model_validate(item.test.definition)
+    except ValidationError as error:
+        fields = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc']) or 'definition'}: {e['msg']}"
+            for e in error.errors()
+        )
+        return None, [f"the consistency check's definition is not valid ({fields})"]
+    problems = _environment_problems(conn, pins, definition.environment)
+    for name in dict.fromkeys((definition.connector, definition.source.connector)):
+        problems += _connector_problems(config, name, definition.environment)
+    if item.asset is None or not item.asset.locator:
+        problems.append("the target asset has no locator")
+    sources = [hop.source for hop in item.upstream if hop.source.name == definition.source.asset]
+    target = item.asset.name if item.asset else "the target"
+    if not sources:
+        problems.append(f"{definition.source.asset!r} is not upstream of {target!r} in the "
+                        "pinned lineage; declare it as an input first")  # fmt: skip
+    elif not sources[0].locator:
+        problems.append(f"upstream asset {definition.source.asset!r} has no locator")
+    if problems:
+        return None, problems
+    return PreparedConsistency(item, definition, sources[0]), []
+
+
 def _health_urls(conn: Connection, pins: Pins, names: list[str]) -> dict[str, str]:
     """Allow-listed targets of the run's environment that have a health_url."""
     if pins.environment is None:
@@ -255,9 +311,9 @@ def fault_key(item: PinnedItem, n: int) -> str:
 
 def preflight(
     conn: Connection, pins: Pins, config: WorkerConfig, job: Job
-) -> tuple[dict[str, Prepared | PreparedScenario], list[str]]:
+) -> tuple[dict[str, Step], list[str]]:
     """Check every item can run here; returns the prepared steps and the problems."""
-    prepared: dict[str, Prepared | PreparedScenario] = {}
+    prepared: dict[str, Step] = {}
     problems: list[str] = []
     for item in pins.items:
         where = f"item {item.position} ({item.label})"
@@ -270,6 +326,12 @@ def preflight(
         assert item.test is not None  # noqa: S101 - one of test and scenario
         if item.test.type not in SUPPORTED_TYPES:
             problems.append(f"{where}: test type {item.test.type} is not supported yet")
+            continue
+        if item.test.type == "consistency_check":
+            check, found = _consistency_problems(conn, pins, config, item)
+            problems.extend(f"{where}: {problem}" for problem in found)
+            if check is not None:
+                prepared[item.step_key] = check
             continue
         try:
             definition = ContractRuleDefinition.model_validate(item.test.definition)
@@ -356,11 +418,11 @@ def _digested(frame: pl.DataFrame) -> Digested:
 
 
 def _edges(
-    step: Prepared, read: dict[UUID, Digested], references: dict[str, Digested]
+    item: PinnedItem, read: dict[UUID, Digested], references: dict[str, Digested]
 ) -> list[dict[str, Any]]:
     """Every pinned hop upstream of the target, the target into the run, and each
     reference dataset into the run; digests where this step read the data."""
-    target = step.item.asset
+    target = item.asset
     assert target is not None  # noqa: S101 - checked in preflight
 
     def edge(
@@ -378,7 +440,7 @@ def _edges(
     edges = [
         edge(hop.source.asset_id, hop.source.name, read.get(hop.source.asset_id), hop.into,
              hop.transform_ref)
-        for hop in step.item.upstream
+        for hop in item.upstream
     ]  # fmt: skip
     edges.append(edge(target.asset_id, target.name, read[target.asset_id], None, None))
     edges.extend(
@@ -427,9 +489,7 @@ class Executor:
             move(self.engine, job, name, "evaluating")
         self._decide(job, pins)
 
-    def _steps(
-        self, job: Job, pins: Pins, prepared: dict[str, Prepared | PreparedScenario]
-    ) -> None:
+    def _steps(self, job: Job, pins: Pins, prepared: dict[str, Step]) -> None:
         with tenant_transaction(self.engine, job, self.config.name) as conn:
             done = {
                 r.step_key
@@ -447,6 +507,8 @@ class Executor:
                 raise RuntimeError(f"{item.step_key} can no longer run on this worker")
             if isinstance(step, PreparedScenario):
                 self._scenario(job, pins, step)
+            elif isinstance(step, PreparedConsistency):
+                self._consistency(job, step)
             else:
                 self._step(job, step)
 
@@ -685,7 +747,7 @@ class Executor:
         else:
             # Digests of exactly the frames validated below (FR-04.1).
             read = {step.item.asset.asset_id: _digested(frame)} | upstream
-            edges = _edges(step, read, {ref: _digested(f) for ref, f in references.items()})
+            edges = _edges(step.item, read, {ref: _digested(f) for ref, f in references.items()})
             history_dir = self.config.state_dir / str(job.tenant_id)
             history_dir.mkdir(parents=True, exist_ok=True)
             with SqliteKeyStore(history_dir / "history.sqlite") as history:
@@ -697,6 +759,15 @@ class Executor:
             outcome = decide(report, fail_on=definition.fail_on, subject=step.item.step_key)
             state, verdict, error_text = "done", ("pass" if outcome.passed else "fail"), None
             observations = _observations(report, step, definition.fail_on)
+        self._commit_step(job, step.item, started, observations, edges,
+                          state=state, verdict=verdict, error=error_text)  # fmt: skip
+
+    def _commit_step(
+        self, job: Job, item: PinnedItem, started: datetime, observations: list[dict[str, Any]],
+        edges: list[dict[str, Any]], *, state: str, verdict: str | None, error: str | None,
+    ) -> None:  # fmt: skip
+        """A test step's observations, its step row and its lineage, in one transaction."""
+        assert item.asset is not None  # noqa: S101 - checked in preflight
         with tenant_transaction(self.engine, job, self.config.name) as conn:
             if observations:
                 conn.execute(
@@ -711,9 +782,9 @@ class Executor:
                         o
                         | {
                             "run": job.run_id,
-                            "step": step.item.step_key,
-                            "test": step.item.test.test_id if step.item.test else None,
-                            "asset": step.item.asset.asset_id,
+                            "step": item.step_key,
+                            "test": item.test.test_id if item.test else None,
+                            "asset": item.asset.asset_id,
                         }
                         for o in observations
                     ],
@@ -725,8 +796,9 @@ class Executor:
                     "CAST(:v AS rai.run_verdict), :t, :e, :a)"
                 ),
                 {
-                    "r": job.run_id, "k": step.item.step_key, "p": step.item.position,
-                    "s": state, "v": verdict, "t": started, "e": error_text, "a": job.attempt,
+                    "r": job.run_id, "k": item.step_key, "p": item.position, "s": state,
+                    "v": verdict, "t": started, "e": error[:2000] if error else None,
+                    "a": job.attempt,
                 },
             )  # fmt: skip
             if edges:  # after the step row, which they reference
@@ -737,10 +809,62 @@ class Executor:
                         "VALUES (:run, :step, :from_asset, :from_name, :to_asset, :from_digest, "
                         ":to_digest, :from_rows, :transform)"
                     ),
-                    [e | {"run": job.run_id, "step": step.item.step_key} for e in edges],
+                    [e | {"run": job.run_id, "step": item.step_key} for e in edges],
                 )
             if self.before_commit is not None:
-                self.before_commit(step.item.step_key)
+                self.before_commit(item.step_key)
+
+    # ---- consistency checks (FR-08.3) ---------------------------------------------------------
+
+    def _consistency(self, job: Job, step: PreparedConsistency) -> None:
+        started = datetime.now(UTC)
+        definition = step.definition
+        environment = definition.environment
+        assert step.item.asset is not None  # noqa: S101 - checked in preflight
+        assert step.item.asset.locator  # noqa: S101 - checked in preflight
+        assert step.source.locator  # noqa: S101 - checked in preflight
+        target_reader = connector(self.config.connectors[definition.connector])
+        source_reader = connector(self.config.connectors[definition.source.connector])
+        target_at, source_at = step.item.asset.locator, step.source.locator
+        rounds = 0
+        try:
+            snapshot = prepare_source(source_reader.read(source_at, environment=environment),
+                                      definition)  # fmt: skip
+            while True:
+                rounds += 1
+                target_raw = target_reader.read(target_at, environment=environment)
+                source_raw = source_reader.read(source_at, environment=environment)
+                result = reconcile(
+                    snapshot, prepare_source(source_raw, definition),
+                    prepare_target(target_raw, definition),
+                    key=definition.key, compare=definition.compare,
+                )  # fmt: skip
+                elapsed = (datetime.now(UTC) - started).total_seconds()
+                if result.passed or elapsed + definition.interval_seconds > (
+                    definition.within_seconds
+                ):
+                    break
+                if not self.renew(job):
+                    raise LeaseLost(job.job_id)
+                self.sleep(definition.interval_seconds)
+        except (ConnectorError, ValueError) as error:
+            message = f"could not reconcile: {error}"
+            note = {"kind": "note", "rule": "read", "outcome": "error", "rows": None,
+                    "failing": None, "observed": json.dumps({"message": message}),
+                    "expected": "{}"}  # fmt: skip
+            self._commit_step(job, step.item, started, [note], [],
+                              state="error", verdict=None, error=message)  # fmt: skip
+            return
+        seconds = round((datetime.now(UTC) - started).total_seconds(), 3)
+        observations = _consistency_observations(result, definition, rounds, seconds)
+        read = {step.source.asset_id: _digested(source_raw),
+                step.item.asset.asset_id: _digested(target_raw)}  # fmt: skip
+        problem = None if result.passed else (
+            f"not consistent after {rounds} round(s) in {seconds} s: {result.summary()}"
+        )  # fmt: skip
+        self._commit_step(job, step.item, started, observations, _edges(step.item, read, {}),
+                          state="done", verdict="pass" if result.passed else "fail",
+                          error=problem)  # fmt: skip
 
     def _read_upstream(self, step: Prepared) -> dict[UUID, Digested]:
         """Read and digest the upstream assets the definition maps to a connector."""
@@ -767,6 +891,31 @@ class Executor:
         passed = complete and all(s.state == "done" and s.verdict == "pass" for s in steps)
         move(self.engine, job, self.config.name, "passed" if passed else "failed",
              verdict="pass" if passed else "fail")  # fmt: skip
+
+
+Step = Prepared | PreparedScenario | PreparedConsistency
+
+
+def _consistency_observations(
+    result: Reconciliation, definition: ConsistencyDefinition, rounds: int, seconds: float
+) -> list[dict[str, Any]]:
+    expected = json.dumps({"count": 0, "key": list(definition.key),
+                           "compare": list(definition.compare),
+                           "within_seconds": definition.within_seconds})  # fmt: skip
+    return [
+        {
+            "kind": "rule_result", "rule": f"consistency.{finding.rule}",
+            "outcome": "pass" if finding.passed else "fail", "rows": result.target_rows,
+            "failing": finding.count,
+            "observed": json.dumps({
+                "count": finding.count, "sample": list(finding.sample), "rounds": rounds,
+                "seconds": seconds, "snapshot_rows": result.snapshot_rows,
+                "source_rows": result.source_rows, "target_rows": result.target_rows,
+            }, default=str),
+            "expected": expected,
+        }
+        for finding in result.findings
+    ]  # fmt: skip
 
 
 def _moment(value: Any) -> datetime | None:
