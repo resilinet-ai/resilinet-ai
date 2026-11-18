@@ -39,7 +39,7 @@ The wireframe set is one self-contained page, [`wireframes/rai-wireframes.html`]
 | W02 | Runs: run detail | M06, M04 | FR-06.1, FR-06.2, FR-04.1, NFR-REP-1 | `GET /v1/assurance/runs/{id}`, `/observations`, `/lineage` |
 | W03 | Chaos scenarios: definition and review | M07, M12 | FR-07.1, FR-07.2, NFR-SAF-1, NFR-AUD-1 | `GET /v1/scenarios/{id}`, `POST /v1/scenarios/{id}/approvals` |
 | W04 | Contracts & data | M02, M03, M05 | FR-02.1, FR-02.3, FR-03.1–03.4, FR-05.1 | assets and contracts; connectors from operator configuration |
-| W05 | Approvals & gates | M10, M12 | FR-10.1, FR-12.1, FR-12.2 | *planned* (B-33) |
+| W05 | Approvals & gates | M10, M12 | FR-10.1, FR-12.1, FR-12.2 | findings: `/v1/projects/{id}/findings`, `/v1/findings/{id}/retest`; waivers *planned* (B-33) |
 | W06 | Evidence | M13 | FR-13.1, FR-13.2, NFR-AUD-2 | *planned* (B-34, B-35) |
 | W07 | Environments (admin) | M01, M07 | FR-07.2, NFR-SAF-1 | `/v1/environments`, `/v1/environments/{id}/targets` |
 | W08 | Recovery | M08 | FR-08.1, FR-08.2, FR-08.3 | `GET /v1/assurance/recovery`; consistency from observations |

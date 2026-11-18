@@ -74,7 +74,7 @@
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
-Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3 (built, number not recorded), FR-09.1–09.3, FR-10.1, FR-11.1, FR-12.1, FR-14.1, NFR-SAF-2, NFR-USE-1, NFR-USE-2, NFR-OPS-1 and NFR-LIC-1. FR-12.2, FR-13.1, FR-13.2 and NFR-SEC-2 have planned items above (B-33 to B-36) that the matrix does not record yet.
+Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3 and FR-10.1 (built, number not recorded), FR-09.1–09.3, FR-11.1, FR-12.1, FR-14.1, NFR-SAF-2, NFR-USE-1, NFR-USE-2, NFR-OPS-1 and NFR-LIC-1. FR-12.2, FR-13.1, FR-13.2 and NFR-SEC-2 have planned items above (B-33 to B-36) that the matrix does not record yet.
 
 ## 5. First runnable slice: acceptance
 
