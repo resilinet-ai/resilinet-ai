@@ -68,7 +68,7 @@
 | B-34 | Evidence bundle with SHA-256 manifest and audit-chain head (FR-13.1) | FR-13.1 | Done |
 | B-35 | Signed manifest and `rai verify` (FR-13.2) | FR-13.2 | Done |
 | B-36 | TLS through Caddy (NFR-SEC-2) | NFR-SEC-2 | Done |
-| B-37 | Persistent synthetic-data banner in the UI (FR-11.2) | FR-11.2 | Planned |
+| B-37 | Persistent synthetic-data banner in the UI (FR-11.2), with the UI's first slice: sign-in, the shell and Runs | FR-11.2, FR-01.1 | Done |
 | B-38, B-39 | Not recoverable | — | — |
 | B-40 | Image hardening (SSDF: SBOM, signed images; NFR-SEC-3) | NFR-SEC-3 | Planned |
 

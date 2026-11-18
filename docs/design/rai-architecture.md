@@ -21,7 +21,7 @@ RAI tests a system it does not own: here SandboxBank, a synthetic payments syste
 | `rai-api` | control | FastAPI. Authentication, tenancy, definitions, runs, approvals. Never touches the system under test |
 | `rai-worker` | control (+ read-only probes into the sandbox) | Claims queued runs, executes them from their pins, records observations and lineage |
 | `rai-chaos-agent` | bridge | The only component that can inject a fault. Deliberately minimal: the standard library plus `cryptography` |
-| `rai-web` | control | React/TypeScript UI (ADR-004). *Planned* |
+| `rai-web` | control | React/TypeScript UI (ADR-004), built into the Caddy image and served from the API's origin. Sign-in and Runs are built; the other screens are marked planned (`web/README.md`) |
 
 Added during the build: `rai-chaos-watchdog` (B-25), an independent process that reverts overdue faults when the agent is dead or hung.
 
@@ -84,7 +84,7 @@ Workers read data only through connectors the operator configures (`RAI_WORKER_C
 - **Tenancy:** row-level security on every tenant table, keyed on a transaction-local `app.tenant_id`. The API connects as a login role that only has `rai_app` (no BYPASSRLS) and refuses to start as the schema owner.
 - **CI:** project API keys `rai_<prefix>_<secret>`, only the SHA-256 stored, with scopes, expiry and per-key rate limits.
 - **Transport:** HTTPS only at the edge: Caddy terminates TLS (its local CA, or ACME on a public name) and is the only published port; the API sits on an internal network shared only with Caddy and trusts forwarded addresses only from it (B-36, `docs/deployment.md`). Inside the host, private Docker networks; mTLS is the upgrade path.
-- The full STRIDE register (35 threats) is `docs/threat-model.md`.
+- The full STRIDE register (36 threats) is `docs/threat-model.md`.
 
 ## 8. Evidence and audit
 

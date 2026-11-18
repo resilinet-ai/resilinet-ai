@@ -4,6 +4,7 @@ The `core` compose profile runs the RAI database, the API and Caddy (B-36: NFR-S
 
 ```
 client --HTTPS--> caddy (:8443 on the host, :443 inside) --edge_net--> rai-api:8000 --control_net--> rai-db
+                   └─ /: the web UI, built into the Caddy image
 ```
 
 ## First start
@@ -24,6 +25,7 @@ curl --cacert <(docker compose cp caddy:/data/caddy/pki/authorities/local/root.c
 
 - **HTTPS only.** Caddy listens on 443 and nothing else. There is no plain-HTTP listener and so no redirect: a plain HTTP request to the TLS port is refused.
 - **The API has no host port.** `rai-api` is on `edge_net`, an internal network shared only with Caddy, and on `control_net` for the database. It never joins `sandbox_net`.
+- **One origin for the UI and the API.** `/v1` and `/healthz` go to the API; everything else is the web UI (`web/`), built into the Caddy image after its checks pass. The UI gets a Content-Security-Policy that allows only this origin (`default-src 'self'`, `script-src 'self'`, `frame-ancestors 'none'`).
 - **Headers.** HSTS (one year), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; no `Server` header. Request bodies are limited to 2 MB at the edge (the API's own limit is 1 MiB).
 - **Real client addresses.** Caddy replaces any `X-Forwarded-For` a client sends with the address it sees. `rai serve --forwarded-allow-ips` trusts that header only from Caddy's fixed address on `edge_net` (`172.31.236.2`), so the per-address login limit counts clients, not the proxy. `rai serve` refuses `*`.
 - **Locked-down containers.** Both are read-only, drop every capability (Caddy keeps only `NET_BIND_SERVICE`), and cannot gain privileges. The API image installs exactly the versions in `uv.lock`, with hashes, and runs as a non-root user.
@@ -46,5 +48,5 @@ SSL_CERT_FILE=./rai-root.crt RAI_API_URL=https://localhost:8443 uv run rai run -
 ## Not covered yet
 
 - Traffic inside the host (Caddy to the API, the API to the database) is not encrypted: one host, private Docker networks (threat model, assumptions). Mutual TLS is the upgrade path.
-- The worker and the web UI are not compose services yet (B-18, B-37).
+- The worker is not a compose service yet (B-18).
 - Base images are pinned by tag, not digest (B-40).

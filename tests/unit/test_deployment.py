@@ -65,7 +65,9 @@ def test_the_edge_containers_are_locked_down() -> None:
         assert service["cap_drop"] == ["ALL"], name
         assert "no-new-privileges:true" in service["security_opt"], name
     assert SERVICES["caddy"]["cap_add"] == ["NET_BIND_SERVICE"]
-    assert re.fullmatch(r"caddy:\d+\.\d+\.\d+", SERVICES["caddy"]["image"])  # a pinned tag
+    caddy_image = (ROOT / "deploy" / "caddy" / "Dockerfile").read_text(encoding="utf-8")
+    assert re.search(r"^FROM caddy:\d+\.\d+\.\d+$", caddy_image, flags=re.MULTILINE)  # pinned
+    assert "npm ci --ignore-scripts" in caddy_image  # the UI from its lockfile, no scripts
 
 
 def test_caddy_serves_https_only_with_security_headers() -> None:
@@ -78,6 +80,17 @@ def test_caddy_serves_https_only_with_security_headers() -> None:
         assert header in CADDYFILE
     assert "trusted_proxies" not in CADDYFILE  # clients cannot supply X-Forwarded-For
     assert "reverse_proxy rai-api:8000" in CADDYFILE
+    assert "handle /v1/*" in CADDYFILE  # one origin: the API and the UI
+
+
+def test_the_ui_is_served_with_a_strict_content_security_policy() -> None:
+    [policy] = re.findall(r'Content-Security-Policy "([^"]+)"', CADDYFILE)
+    directives = dict(d.strip().split(" ", 1) for d in policy.split(";"))
+    assert directives["default-src"] == "'self'"
+    assert directives["script-src"] == "'self'"  # no inline or remote scripts
+    assert directives["frame-ancestors"] == "'none'"
+    assert "unsafe" not in policy
+    assert "try_files {path} /index.html" in CADDYFILE
 
 
 def test_the_api_image_installs_exactly_the_locked_versions() -> None:

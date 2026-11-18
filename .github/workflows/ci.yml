@@ -185,6 +185,24 @@ jobs:
         if: always()
         run: docker compose --profile sandbox --profile chaos down -v
 
+  web:
+    # B-37 (FR-11.2): the web UI from its lockfile, without install scripts: type-check,
+    # tests and a production build. The Caddy image runs the same `npm run check`.
+    name: Web UI
+    runs-on: ubuntu-latest
+    container: node:24-bookworm-slim # TODO B-40: pin by digest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install
+        run: npm ci --ignore-scripts --no-fund --no-audit
+      - name: Type-check, test and build
+        run: npm run check
+      - name: Known vulnerabilities in runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
   tls:
     # B-36 (NFR-SEC-2, threat I-06): the core profile behind Caddy. HTTPS with Caddy's
     # local CA, security headers, no plain HTTP, no host port to rai-api, and the RAI

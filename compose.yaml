@@ -53,13 +53,15 @@ services:
         ipv4_address: 172.31.236.3 # fixed too, so it never takes Caddy's .2 first
   caddy:
     # B-36 (NFR-SEC-2, threat I-06): the only way in. HTTPS only; see deploy/caddy/Caddyfile.
+    # The image is caddy:2.10.2 with the web UI built in (deploy/caddy/Dockerfile).
     profiles: ["core"]
-    image: caddy:2.10.2
+    build:
+      context: .
+      dockerfile: deploy/caddy/Dockerfile
     environment:
       RAI_SITE_ADDRESS: ${RAI_SITE_ADDRESS:-localhost}
       RAI_TLS: ${RAI_TLS:-internal} # or an email address for ACME on a public name
     volumes:
-      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data # certificates and the local CA's key
       - caddy-config:/config
     read_only: true
@@ -77,7 +79,7 @@ services:
     ports:
       # Host-only by default; set RAI_HTTPS_BIND=0.0.0.0 and RAI_HTTPS_PORT=443 to serve a network.
       - "${RAI_HTTPS_BIND:-127.0.0.1}:${RAI_HTTPS_PORT:-8443}:443"
-  # TODO B-18: rai-worker as a service (it runs on the host for now, `rai worker`); B-37: rai-web
+  # TODO B-18: rai-worker as a service (it runs on the host for now, `rai worker`)
 
   # ---- sandbox profile: SandboxBank (synthetic data only) ----
   ledger-db:
