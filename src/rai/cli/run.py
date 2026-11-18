@@ -2,8 +2,9 @@
 
 Exit codes match ``rai validate``:
 
-* 0: the run passed (or, with ``--no-wait``, it was queued);
-* 1: the run failed (a blocking rule failed): the gate;
+* 0: the run passed and the release gate passed (or, with ``--no-wait``, it was queued);
+* 1: the run failed (a blocking rule failed), or the project's release gate is
+  blocked by an open critical finding without a waiver in force (B-33: FR-12.2);
 * 2: the run could not give a verdict (refused, error, aborted, timed out) or
   the API could not be used (unreachable, bad key, unknown plan).
 
@@ -110,6 +111,7 @@ class Outcome:
     code: int
     run: dict[str, Any] | None = None
     failing: list[dict[str, Any]] = field(default_factory=list)
+    release: dict[str, Any] | None = None  # the project's release gate, once there is a verdict
 
 
 @dataclass
@@ -167,9 +169,16 @@ class Gate:
                 found.extend(reply.body.get("items", []))
         return found
 
+    def release_gate(self, project_id: str) -> dict[str, Any]:
+        reply = self.http.request("GET", f"/v1/projects/{project_id}/gate")
+        if reply.status != 200 or not isinstance(reply.body, dict):
+            raise _explain(reply, "could not read the release gate")
+        verdict: dict[str, Any] = reply.body
+        return verdict
+
     def run(self, plan: str, *, project: str | None = None, trigger_ref: str | None = None,
             idempotency_key: str | None = None, wait: bool = True, timeout: float = 1800,
-            interval: float = 3) -> Outcome:  # fmt: skip
+            interval: float = 3, release_gate: bool = True) -> Outcome:  # fmt: skip
         try:
             run = self.start(plan, project, trigger_ref, idempotency_key)
             plan_text = f"plan {plan}" + (f" @ {trigger_ref[:12]}" if trigger_ref else "")
@@ -183,7 +192,29 @@ class Gate:
         failing = self.failing(run["run_id"]) if run["state"] in ("failed", "error") else []
         self._report(run, failing)
         code = {"passed": 0, "failed": 1}.get(run["state"], 2)
-        return Outcome(code, run, failing)
+        if not release_gate or code == 2:
+            return Outcome(code, run, failing)
+        try:
+            release = self.release_gate(run["project_id"])
+        except RunProblem as problem:
+            self.say(f"ERROR {problem}")
+            return Outcome(2, run, failing)
+        self._report_gate(release)
+        if release["verdict"] != "pass":
+            code = 1
+        return Outcome(code, run, failing, release)
+
+    def _report_gate(self, release: dict[str, Any]) -> None:
+        if release["verdict"] == "pass":
+            waived = release["waived_count"]
+            self.say("GATE pass" + (f" ({waived} critical finding(s) waived)" if waived else ""))
+            for f in release["waived"]:
+                self.say(f"  WAIVED {f['finding_id']} {f['title']} until {f['waiver_expires_at']}")
+            return
+        count = release["blocking_count"]
+        self.say(f"GATE blocked: {count} open critical finding(s) without a waiver in force")
+        for f in release["blocking"]:
+            self.say(f"  BLOCKS {f['finding_id']} {f['title']}")
 
     def _report(self, run: dict[str, Any], failing: list[dict[str, Any]]) -> None:
         steps = ", ".join(f"{s['step_key']} {s['verdict'] or s['state']}" for s in run["steps"])
@@ -209,6 +240,7 @@ def _github_outputs(outcome: Outcome, api_url: str) -> None:
             handle.write(f"run-id={run.get('run_id', '')}\n")
             handle.write(f"state={run.get('state', '')}\n")
             handle.write(f"verdict={run.get('verdict') or ''}\n")
+            handle.write(f"gate={(outcome.release or {}).get('verdict', '')}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary and run:
         icon = {0: "PASSED", 1: "FAILED"}.get(outcome.code, "NO VERDICT")
@@ -224,6 +256,13 @@ def _github_outputs(outcome: Outcome, api_url: str) -> None:
                 f"| {o['step_key']} | `{o['rule']}` | {o['outcome']} | {o['failing_count'] or ''} |"
                 for o in outcome.failing
             ]
+        if outcome.release:
+            release = outcome.release
+            counts = f"{release['blocking_count']} blocking, {release['waived_count']} waived"
+            lines += ["", f"Release gate: **{release['verdict']}** ({counts})."]
+            if release["blocking"]:
+                lines += ["", "| Blocking finding | Title |", "| --- | --- |"]
+                lines += [f"| `{f['finding_id']}` | {f['title']} |" for f in release["blocking"]]
         with Path(summary).open("a", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
 
@@ -244,10 +283,14 @@ def run_command(
         str | None, typer.Option(help="Retrying with the same key returns the same run.")
     ] = None,
     wait: Annotated[bool, typer.Option(help="Wait for the verdict and gate on it.")] = True,
+    release_gate: Annotated[
+        bool, typer.Option(help="Also gate on the project's open critical findings (FR-12.2).")
+    ] = True,
     timeout: Annotated[float, typer.Option(min=1, help="Seconds to wait for a verdict.")] = 1800,
     interval: Annotated[float, typer.Option(min=0.1, help="Seconds between polls.")] = 3,
 ) -> None:
-    """Start a test plan and exit 0 if it passed, 1 if it failed, 2 if there is no verdict."""
+    """Start a test plan and exit 0 if it and the release gate passed, 1 if either failed,
+    2 if there is no verdict."""
     key = os.environ.get(API_KEY_ENV, "").strip()
     if not key:
         typer.echo(f"ERROR set {API_KEY_ENV} to a project API key", err=True)
@@ -259,7 +302,7 @@ def run_command(
         raise typer.Exit(2) from None
     outcome = Gate(http, typer.echo).run(
         plan, project=project, trigger_ref=trigger_ref, idempotency_key=idempotency_key,
-        wait=wait, timeout=timeout, interval=interval,
+        wait=wait, timeout=timeout, interval=interval, release_gate=release_gate,
     )  # fmt: skip
     _github_outputs(outcome, http.base_url)
     raise typer.Exit(outcome.code)
