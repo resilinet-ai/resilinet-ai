@@ -234,7 +234,8 @@ def test_test_cases_get_the_next_version_per_name(world: World) -> None:
         world, pid, name="txn.contract", definition={"fail_on": "critical"}, **target
     )
     second = _test_case(world, pid, name="txn.contract", severity="warn", **target)
-    other = _test_case(world, pid, name="ledger.consistency", type="consistency_check")
+    other = _test_case(world, pid, name="ledger.consistency", type="consistency_check",
+                       target_asset_id=asset["asset_id"])  # fmt: skip
     assert (first["version"], second["version"], other["version"]) == (1, 2, 1)
     assert first["definition"] == {"fail_on": "critical"}
     listed = world.client.get(
@@ -246,6 +247,11 @@ def test_test_cases_get_the_next_version_per_name(world: World) -> None:
         headers=world.engineer,
     )  # fmt: skip
     assert no_asset.json()["code"] == "test_cases.asset_required"
+    no_target = world.client.post(
+        f"/v1/projects/{pid}/test-cases", json={"name": "y", "type": "consistency_check"},
+        headers=world.engineer,
+    )  # fmt: skip
+    assert no_target.json()["code"] == "test_cases.asset_required"
     elsewhere = world.asset(world.project()["project_id"])
     foreign = world.client.post(
         f"/v1/projects/{pid}/test-cases",
@@ -271,7 +277,9 @@ def test_plans_pin_test_cases_and_contracts(world: World) -> None:
     ).json()
     test = _test_case(world, pid, name="txn.contract", type="contract_rule",
                       target_asset_id=asset["asset_id"])  # fmt: skip
-    check = _test_case(world, pid, name="ledger.consistency", type="consistency_check")
+    warehouse = world.asset(pid, "fact_transaction")  # the contract above is not for it
+    check = _test_case(world, pid, name="ledger.consistency", type="consistency_check",
+                       target_asset_id=warehouse["asset_id"])  # fmt: skip
     items = [
         {"test_id": test["test_id"], "contract_id": contract["contract_id"]},
         {"test_id": check["test_id"]},

@@ -104,4 +104,4 @@ The envelope is `{"format": "rai-signed-fault/1", "key_id": ..., "payload": ...,
 
 **Refusals (B-27).** Every refusal, the layer that makes it and the test that proves it are listed in [refusals.md](refusals.md).
 
-**Coming next:** post-recovery consistency checks (FR-08.3).
+**Consistency (FR-08.3).** A `consistency_check` placed after a scenario reconciles the warehouse against the ledger once the system is back (see [Consistency after recovery](api.md#chaos-scenarios)).

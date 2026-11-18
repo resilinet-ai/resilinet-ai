@@ -19,7 +19,7 @@ FR-07.2,M07,M,"Preflight: allow-list, not production, approved, blast radius",B-
 FR-07.3,M07,M,Automatic fault removal and kill-switch,B-23;B-25,,,tests/unit/test_chaos_watchdog.py;tests/unit/test_chaos_agent.py;scripts/chaos_e2e.py,docs/chaos-agent.md,in progress
 FR-08.1,M08,M,RTO from onset to validated restoration,B-26b,,,tests/unit/test_recovery_measure.py;tests/integration/test_scenario_recovery.py,docs/api.md,in progress
 FR-08.2,M08,M,RPO from last committed ledger record,B-26b,,,tests/unit/test_recovery_measure.py;tests/integration/test_scenario_recovery.py,docs/api.md,in progress
-FR-08.3,M08,M,Post-recovery consistency checks,,,,,,planned
+FR-08.3,M08,M,Post-recovery consistency checks,,,,tests/unit/test_recovery_consistency.py;tests/integration/test_consistency.py,docs/api.md,in progress
 FR-09.1,M09,S,Model evaluation with sample sizes,,,,,,planned
 FR-09.2,M09,S,Drift detection (PSI/KS),,,,,,planned
 FR-09.3,M09,L,Robustness tests,,,,,,planned

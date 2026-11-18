@@ -179,7 +179,7 @@ uv run rai worker            # or: rai worker --once
 - **`upstream`** (optional) maps upstream asset names to worker connectors, so their data is read and digested for lineage.
 - **Cross-batch duplicates** are checked against a key history kept per tenant in `RAI_WORKER_STATE`.
 - **`environment`** must be a registered, active environment (see [Environments and targets](#environments-and-targets)); otherwise the run is refused.
-- **Not yet supported:** recovery assertions, consistency checks, TEVV metrics and drift checks. A plan containing them is refused with a reason, never passed silently.
+- **Not yet supported:** recovery assertions, TEVV metrics and drift checks. A plan containing them is refused with a reason, never passed silently.
 
 **A chaos scenario item** needs a worker set up for faults: `RAI_WORKER_SIGNING_KEY` and `RAI_WORKER_CHAOS_AGENT_URL` (see the [chaos agent](chaos-agent.md)). Otherwise the run is refused.
 
@@ -199,6 +199,27 @@ uv run rai worker            # or: rai worker --once
 - **RTO** runs from the first fault's onset to *validated restoration*. After the last fault is reverted, every probe has to answer 2xx `stable_checks` times in a row, and the time of the first of those checks is the restoration time. A recovery that flaps counts only once it holds. If nothing is restored within `window_seconds`, the step fails.
 - **RPO** comes from the ledger head (`seq`, `committed_at`, `rows`), read before the first fault and again after restoration. The "before" head is kept as an observation, so a retry measures from the same point. If no committed row was lost, RPO is 0 s. If the ledger went back, RPO is the time from the last surviving record to the onset. Lost rows always fail the step.
 - **Observations:** `recovery.rto`, `recovery.rpo` and `recovery.ledger_before`, on the scenario's step. A missed objective makes the step's verdict `fail` with the reason; the step itself is still `done`, because the measurement worked.
+
+**Consistency after recovery (FR-08.3).** Healthy is not the same as correct. A `consistency_check` test case reconciles its target asset against a source it is fed from, so a plan of *scenario, then check* shows whether the system came back with nothing lost or doubled:
+
+```json
+{"name": "ledger.consistency", "type": "consistency_check", "target_asset_id": "<fact_transaction>",
+ "definition": {"connector": "warehouse", "environment": "SANDBOX-01",
+                "source": {"asset": "ledger_transactions", "connector": "ledger",
+                           "where": {"status": "posted"}, "rename": {"seq": "ledger_seq"}},
+                "key": ["txn_id"], "compare": ["amount", "ledger_seq"],
+                "within_seconds": 300, "interval_seconds": 10}}
+```
+
+- **The source must be declared upstream of the target** (see [Lineage](#lineage)), and both are read through connectors configured on the worker. A definition names assets and connectors, never locations. Otherwise the run is refused.
+- **`where` and `rename`** shape the source the way the target holds it. Here the warehouse holds only posted rows, and calls `seq` `ledger_seq`. A `where` at the top level filters the target.
+- **The source keeps growing while the target catches up.** So the worker snapshots the source when the check starts, then reads the target and the source again every `interval_seconds` until all four findings are empty, or `within_seconds` has passed:
+  - `consistency.missing`: snapshot keys that are not in the target (lost);
+  - `consistency.duplicated`: keys the target holds more than once (doubled);
+  - `consistency.unexpected`: target keys the source does not have;
+  - `consistency.mismatched`: keys whose `compare` columns differ. Rows written after the snapshot don't have to have arrived yet, but they must match once they have.
+- **Each finding is an observation** with its count, up to 10 sample keys, the rounds and the seconds taken. Any finding left at the end makes the step's verdict `fail`. Lineage records the hop with both frames' digests.
+- **Values are compared as the connectors return them (text),** so both sides must render a column the same way (a `numeric(14,2)` on each side does).
 
 ## Lineage
 

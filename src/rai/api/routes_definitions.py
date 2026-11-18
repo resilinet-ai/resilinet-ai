@@ -252,10 +252,8 @@ def add_test_case(
 ) -> TestCaseOut:
     """Add the next version of the test case called ``name`` (version 1 if new)."""
     find_project(session.conn, project_id, for_change=True)
-    if body.type == "contract_rule" and body.target_asset_id is None:
-        raise Problem(
-            422, "test_cases.asset_required", "A contract_rule test needs target_asset_id"
-        )
+    if body.type in ("contract_rule", "consistency_check") and body.target_asset_id is None:
+        raise Problem(422, "test_cases.asset_required", f"A {body.type} test needs target_asset_id")
     if body.target_asset_id is not None:
         _check_asset_in_project(session.conn, body.target_asset_id, project_id)
     try:
