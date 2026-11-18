@@ -11,20 +11,24 @@ The design set has six documents (Exhibits 15–17).
 | Product & System Requirements Specification | v0.1 | `2026-11-13-rai-spec-v0.1.pdf` |
 | Architecture & Design | v0.1 | `2026-11-13-rai-architecture-v0.1.pdf` |
 | Data Model & API Contract | v0.1 | `2026-11-13-rai-data-model-api-v0.1.pdf` |
-| MVP Wireframes | v0.1 | `2026-11-13-rai-wireframes-v0.1.pdf` |
+| MVP Wireframes | v0.1 | `2026-11-13-rai-wireframes-v0.1.pdf` (screen 01 recovered as HTML, see below) |
 | Validation & Benchmark Protocol | v0.1 | `2026-11-13-rai-protocol-v0.1.pdf` |
 | Build Plan | v0.1 | `2026-11-13-rai-build-plan-v0.1.pdf` |
 
 **v0.2 reconstructed drafts, 2026-11-17.** An AI assistant (Claude Code) reconstructed each document from the repository's own records: the ADRs, the decision log, the threat model, the traceability matrix, the build journal, the code and the tests. Each one says so at the top, keeps the section numbers the code cites, and lists what could not be recovered rather than inventing it. **They are drafts pending review and approval by the author of record (ADR-007)**, and they are not the v0.1 originals.
 
+**Revised 2026-11-18.** The drafts were checked against `docs/traceability.csv`: every requirement ID they cite is in the matrix, the Specification's requirement tables repeat the matrix's IDs, priorities and wording exactly, and the Build Plan's backlog lists the requirements each item serves, read from the matrix. The PDFs were re-exported; file names carry the export date.
+
+**One v0.1 original recovered, 2026-11-18.** The v0.1 wireframe *01 Executive dashboard (FR-11)*, made on 2026-11-13 in a visual design tool, was found and is kept unchanged in [`wireframes/v0.1/`](wireframes/v0.1/). The Wireframes document now draws ten screens in its design language: a self-contained HTML set, [`wireframes/rai-wireframes.html`](wireframes/rai-wireframes.html), with the four themes switchable. Its PNGs are rendered by `scripts/render_wireframes.py`.
+
 | Document | Source (edit this) | Export |
 | --- | --- | --- |
-| Product & System Requirements Specification | [`rai-spec.md`](rai-spec.md) | `2026-11-17-rai-spec-v0.2-draft.pdf` |
-| Architecture & Design | [`rai-architecture.md`](rai-architecture.md) | `2026-11-17-rai-architecture-v0.2-draft.pdf` |
-| Data Model & API Contract | [`rai-data-model-api.md`](rai-data-model-api.md) | `2026-11-17-rai-data-model-api-v0.2-draft.pdf` |
-| MVP Wireframes | [`rai-wireframes.md`](rai-wireframes.md) | `2026-11-17-rai-wireframes-v0.2-draft.pdf` |
-| Validation & Benchmark Protocol | [`rai-protocol.md`](rai-protocol.md) | `2026-11-17-rai-protocol-v0.2-draft.pdf` |
-| Build Plan | [`rai-build-plan.md`](rai-build-plan.md) | `2026-11-17-rai-build-plan-v0.2-draft.pdf` |
+| Product & System Requirements Specification | [`rai-spec.md`](rai-spec.md) | `2026-11-18-rai-spec-v0.2-draft.pdf` |
+| Architecture & Design | [`rai-architecture.md`](rai-architecture.md) | `2026-11-18-rai-architecture-v0.2-draft.pdf` |
+| Data Model & API Contract | [`rai-data-model-api.md`](rai-data-model-api.md) | `2026-11-18-rai-data-model-api-v0.2-draft.pdf` |
+| MVP Wireframes | [`rai-wireframes.md`](rai-wireframes.md) | `2026-11-18-rai-wireframes-v0.2-draft.pdf` |
+| Validation & Benchmark Protocol | [`rai-protocol.md`](rai-protocol.md) | `2026-11-18-rai-protocol-v0.2-draft.pdf` |
+| Build Plan | [`rai-build-plan.md`](rai-build-plan.md) | `2026-11-18-rai-build-plan-v0.2-draft.pdf` |
 
 ## Updating
 
