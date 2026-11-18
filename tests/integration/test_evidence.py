@@ -1,4 +1,4 @@
-"""Evidence export of a finished run (B-34: FR-13.1; threats T-02, T-04, I-04)."""
+"""Evidence export of a finished run (B-34: FR-13.1; B-35: FR-13.2; threats T-02, T-04, I-04)."""
 
 from __future__ import annotations
 
@@ -10,10 +10,14 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, make_url, text
+from typer.testing import CliRunner
 
+from rai.api.app import create_app
+from rai.api.settings import Settings
+from rai.cli.main import app as cli
 from rai.core import evidence
 from rai.worker.service import Worker
-from tests.integration.apikit import DSN, needs_db
+from tests.integration.apikit import DSN, SECRET, needs_db
 from tests.integration.runkit import Lab, config, drain
 from tests.integration.test_api_keys import bearer, new_key
 from tests.integration.test_scenario_recovery import System, run, setup
@@ -129,3 +133,38 @@ def test_a_chaos_run_carries_its_approval_and_recovery_measurement(
     assert (approval["approval_id"], approval["decision"]) == (pinned["approval_id"], "approve")
     [measurement] = files["recovery.json"]
     assert (measurement["step_key"], measurement["rto_met"]) == ("item-1", True)
+
+
+def test_a_signing_server_signs_bundles_that_rai_verify_trusts(
+    api_url: str, owner: Engine, worker_engine: Engine, feed: Path, tmp_path: Path
+) -> None:
+    """FR-13.2: a signed manifest, checked offline against a pinned public key."""
+    signer = evidence.EvidenceSigner.generate()
+    settings = Settings(database_url=api_url, jwt_secret=SECRET, evidence_signer=signer)
+    with TestClient(create_app(settings)) as signing:
+        lab = Lab(signing, owner)
+        run_id = finished(lab, worker_engine, feed, tmp_path, lab.tests["batch_0"])
+        first, second = export(signing, run_id, lab.viewer), export(signing, run_id, lab.viewer)
+        published = signing.get("/v1/evidence/public-key", headers=lab.viewer).json()
+    assert first.content == second.content  # still deterministic
+    assert first.headers["x-rai-signature-key-id"] == signer.key_id
+    assert published == {"algorithm": "ed25519", "key_id": signer.key_id,
+                         "public_key": signer.public_key}  # fmt: skip
+    note = contents(first.content)["bundle.json"]["signature"]
+    assert note == {"algorithm": "ed25519", "key_id": signer.key_id, "member": "signature.json"}
+
+    path = tmp_path / "bundle.zip"
+    path.write_bytes(first.content)
+    result = CliRunner().invoke(cli, ["verify", str(path), "--key", signer.public_key])
+    assert result.exit_code == 0, result.output
+    with owner.connect() as conn:
+        payload = conn.execute(
+            text("SELECT payload FROM rai.audit_chain WHERE action = 'evidence.export' "
+                 "AND subject_id = :r ORDER BY seq LIMIT 1"), {"r": run_id},
+        ).scalar_one()  # fmt: skip
+    assert payload["key_id"] == signer.key_id
+
+
+def test_a_server_without_a_key_exports_unsigned_bundles(lab: Lab, client: TestClient) -> None:
+    missing = client.get("/v1/evidence/public-key", headers=lab.viewer)
+    assert (missing.status_code, missing.json()["code"]) == (404, "evidence.unsigned")

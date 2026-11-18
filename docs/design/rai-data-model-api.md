@@ -105,7 +105,7 @@ A contract version's identity is the **SHA-256 of its canonical JSON** form. Run
 | Recovery | `GET /v1/assurance/recovery` (measurements and attainment for a project and window) |
 | Findings | `GET, POST /v1/projects/{id}/findings`; `GET, PATCH /v1/findings/{id}`; `POST /v1/findings/{id}/retest`; `POST /v1/findings/{id}/dismiss` |
 | Waivers and gate | `POST, GET /v1/findings/{id}/waivers`; `GET /v1/waivers/{id}`; `POST /v1/waivers/{id}/decisions`; `GET /v1/projects/{id}/gate` |
-| Evidence | `GET /v1/assurance/runs/{id}/evidence`: a run's bundle, built on demand from insert-only rows (FR-13.1); v0.1's `GET /v1/evidence/{id}/export` is not used, because nothing needs storing |
+| Evidence | `GET /v1/assurance/runs/{id}/evidence`: a run's bundle, built on demand from insert-only rows and signed when the server has a key (FR-13.1, FR-13.2); `GET /v1/evidence/public-key`; v0.1's `GET /v1/evidence/{id}/export` is not used, because nothing needs storing |
 
 Sign-in uses Argon2id; the access token is a 15-minute JWT naming only the user; the tenant is chosen per request and checked against memberships. CI uses project API keys (`Authorization: Bearer rai_<prefix>_<secret>`, scopes `runs:start`, `runs:read`).
 

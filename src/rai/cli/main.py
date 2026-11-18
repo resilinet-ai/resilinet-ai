@@ -1,7 +1,8 @@
 """Entry point for the ``rai`` command.
 
 Commands are added backlog item by backlog item: ``validate`` (B-14), ``contract`` (B-08),
-``db`` and ``audit`` (B-05), ``admin`` and ``serve`` (B-16), ``worker`` (B-18).
+``db`` and ``audit`` (B-05), ``admin`` and ``serve`` (B-16), ``worker`` (B-18),
+``run`` (B-20), ``verify`` (B-35).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from rai.cli.admin import (
 )
 from rai.cli.run import run_command
 from rai.cli.validate import validate_command
+from rai.cli.verify import verify_command
 
 app = typer.Typer(
     name="rai",
@@ -37,6 +39,7 @@ audit_app = typer.Typer(help="Audit hash chain (needs RAI_DATABASE_URL).", no_ar
 contract_app = typer.Typer(help="Data contracts (FR-03.1).", no_args_is_help=True)
 app.command("validate")(validate_command)
 app.command("run")(run_command)
+app.command("verify")(verify_command)
 app.add_typer(db_app, name="db")
 app.add_typer(contract_app, name="contract")
 app.add_typer(audit_app, name="audit")

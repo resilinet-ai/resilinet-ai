@@ -426,14 +426,40 @@ curl -s -OJ "$API/v1/assurance/runs/$RUN/evidence" -H "$AUTH"
 | `recovery.json` | Recovery measurements (B-29), for chaos runs |
 | `approvals.json` | The scenario approvals the run was pinned to: who approved, when |
 | `audit.json` | The run's own audit-chain entries, with `prev_hash` and `record_hash` |
-| `manifest.json` | The SHA-256 and size of every other member |
+| `manifest.json` | The SHA-256 and size of every member above |
+| `signature.json` | An Ed25519 signature over `manifest.json`, with the key id and public key, when the server has a signing key (B-35). The only member the manifest does not list |
 
 - **Deterministic.** Members are canonical JSON (sorted keys, no spaces, UTF-8, times in UTC with microseconds), stored uncompressed in a fixed order with a fixed date and permissions. Two exports of the same run are byte-identical, on any platform and at any time.
 - **Only a finished run** (`passed`, `failed`, `refused`, `aborted` or `error`) has a bundle; earlier it is `409 evidence.run_unfinished`. A finished run's results never change.
 - **Anchor.** `bundle.json` records the `seq` and `record_hash` of the run's last audit entry. If the audit chain is later rewritten at or before that entry, the live hash no longer matches the anchor (threat T-02). The anchor is the run's own entry, not the chain's head, because the head moves with every change and would make each export different.
 - **Not included:** synthetic data (only its digests) and secret values (pins hold secret references only).
 - **Each export is audited** (`evidence.export`), with who took it and the manifest's SHA-256, which is also the `X-RAI-Manifest-SHA256` header.
-- **Tamper-evident, not tamper-proof** (NFR-AUD-2). The manifest shows whether a member changed after export; it does not show that the recorded facts were true. The manifest is not signed yet: B-35 adds an Ed25519 signature and `rai verify` (FR-13.2). Until then, compare the manifest's SHA-256 with the one recorded in the audit chain.
+- **Tamper-evident, not tamper-proof** (NFR-AUD-2). The manifest and its signature show whether a member changed after export; they do not show that the recorded facts were true.
+
+**Signing and `rai verify`** (FR-13.2). The operator makes a key once and gives the API a secret reference to it:
+
+```bash
+uv run rai admin evidence-keygen --out /run/secrets/rai_evidence_signing_key
+# stderr: private key written ... (key id 1f3a...); set RAI_EVIDENCE_SIGNING_KEY=file:...
+# stdout: the public key, e.g. Zb3k...=   publish it where verifiers can trust it
+```
+
+With `RAI_EVIDENCE_SIGNING_KEY` set, every bundle carries `signature.json`, the export names the key in `X-RAI-Signature-Key-Id` and in its audit entry, and `GET /v1/evidence/public-key` returns `{"algorithm": "ed25519", "key_id", "public_key"}` (`404 evidence.unsigned` without a key). The signature is over a fixed domain string followed by `manifest.json`'s bytes, and Ed25519 is deterministic, so a signed bundle is still byte-identical on every export.
+
+Anyone can check a bundle offline, without RAI:
+
+```bash
+uv run rai verify rai-evidence-0193....zip --key Zb3k...=      # or --key @evidence.pub
+# OK      manifest: every member matches (sha256 3e7a...)
+# OK      signature: signed by trusted key 1f3a...
+# INFO    anchor: audit entry seq 1204, record_hash 8d2c...; compare with the live chain
+# VERIFIED rai-evidence-0193....zip
+```
+
+- **Exit codes:** `0` verified; `1` a member changed, was added or is missing, or the signature is missing, invalid or by a key you did not pass; `2` the bundle or a key could not be read.
+- **Pin the key.** A valid signature by a key you did not pass with `--key` fails: anyone who edits a bundle can re-sign it with their own key. Take the public key from a source you trust (your release notes, a config repository), not from the bundle, and not only from the server whose bundles you check.
+- **Unsigned bundles** fail unless you pass `--allow-unsigned`; the manifest is still checked.
+- **The anchor** is printed, not checked: `rai verify` works offline. Compare it with the live chain (`rai audit verify`, or the entry at that `seq`).
 
 ## Errors
 

@@ -7,6 +7,12 @@ a finished run has one: its results never change after that, so two exports are
 byte-identical. Each export is itself an audit entry (``evidence.export``), naming
 who took it and the manifest's SHA-256, which is also the ``X-RAI-Manifest-SHA256``
 header.
+
+**Signed (B-35: FR-13.2).** With ``RAI_EVIDENCE_SIGNING_KEY`` set, the API adds
+``signature.json``, an Ed25519 signature over the manifest, and names the key in the
+``X-RAI-Signature-Key-Id`` header and the audit entry. ``GET /v1/evidence/public-key``
+returns the public key; pin it from a source you trust and check bundles with
+``rai verify --key``.
 """
 
 from __future__ import annotations
@@ -14,17 +20,19 @@ from __future__ import annotations
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel
 from sqlalchemy import Connection, text
 
-from rai.api.context import ROLES, TenantSession, require
+from rai.api.context import ROLES, TenantSession, require, settings_of
 from rai.api.problems import Problem
 from rai.api.routes_runs import find_run
 from rai.core import audit, evidence
 
-router = APIRouter(prefix="/v1/assurance/runs", tags=["evidence"])
+router = APIRouter(prefix="/v1", tags=["evidence"])
 
 reader = require(*ROLES, key_scope="runs:read")
+anyone = require(*ROLES)
 FINISHED = ("passed", "failed", "refused", "aborted", "error")
 
 
@@ -32,7 +40,9 @@ def _rows(conn: Connection, sql: str, run_id: UUID) -> list[dict[str, Any]]:
     return [r._asdict() for r in conn.execute(text(sql), {"r": run_id}).all()]
 
 
-def collect(conn: Connection, run_id: UUID) -> dict[str, Any]:
+def collect(
+    conn: Connection, run_id: UUID, signer: evidence.EvidenceSigner | None = None
+) -> dict[str, Any]:
     """Every bundle member except the manifest, in a stable order."""
     run = conn.execute(
         text("SELECT run_id, tenant_id, project_id, plan_id, environment_id, state::text, "
@@ -83,7 +93,7 @@ def collect(conn: Connection, run_id: UUID) -> dict[str, Any]:
         "excluded": ["synthetic data (its SHA-256 digests are in lineage.json)",
                      "secret values (pins hold secret references only)"],
         "statement": evidence.STATEMENT,
-        "signature": None,  # B-35 (FR-13.2) signs the manifest
+        "signature": evidence.signature_note(signer),
     }  # fmt: skip
     return {
         "bundle.json": bundle,
@@ -98,17 +108,20 @@ def collect(conn: Connection, run_id: UUID) -> dict[str, Any]:
 
 
 @router.get(
-    "/{run_id}/evidence",
+    "/assurance/runs/{run_id}/evidence",
     response_class=Response,
     responses={200: {"content": {"application/zip": {}}, "description": "the evidence bundle"}},
 )
-def export_evidence(run_id: UUID, session: Annotated[TenantSession, Depends(reader)]) -> Response:
+def export_evidence(
+    run_id: UUID, request: Request, session: Annotated[TenantSession, Depends(reader)]
+) -> Response:
     """The run's evidence bundle (ZIP). Only for a finished run; byte-identical each time."""
     run = find_run(session, run_id)
     if run.state not in FINISHED:
         raise Problem(409, "evidence.run_unfinished", f"The run is {run.state}",
                       detail="its evidence is exported once it finishes")  # fmt: skip
-    bundle = evidence.build(run_id, collect(session.conn, run_id))
+    signer = settings_of(request).evidence_signer
+    bundle = evidence.build(run_id, collect(session.conn, run_id, signer), signer)
     if session.key is not None:
         actor_type, actor_id = "api_key", str(session.key.api_key_id)
     else:
@@ -116,7 +129,8 @@ def export_evidence(run_id: UUID, session: Annotated[TenantSession, Depends(read
     audit.append(
         session.conn, tenant_id=session.tenant_id, actor_type=actor_type, actor_id=actor_id,
         action="evidence.export", subject_type="evidence_bundle", subject_id=str(run_id),
-        payload={"manifest_sha256": bundle.manifest_sha256, "files": bundle.files},
+        payload={"manifest_sha256": bundle.manifest_sha256, "files": bundle.files,
+                 "key_id": bundle.key_id},
     )  # fmt: skip
     return Response(
         bundle.data,
@@ -125,5 +139,25 @@ def export_evidence(run_id: UUID, session: Annotated[TenantSession, Depends(read
             "Content-Disposition": f'attachment; filename="{bundle.name}.zip"',
             "X-RAI-Manifest-SHA256": bundle.manifest_sha256,
             "Cache-Control": "no-store",
-        },
+        }
+        | ({"X-RAI-Signature-Key-Id": bundle.key_id} if bundle.key_id else {}),
     )
+
+
+class PublicKeyOut(BaseModel):
+    algorithm: str
+    key_id: str
+    public_key: str  # raw 32-byte Ed25519 key, standard base64
+
+
+@router.get("/evidence/public-key")
+def evidence_public_key(
+    request: Request, session: Annotated[TenantSession, Depends(anyone)]
+) -> PublicKeyOut:
+    """The key that signs evidence bundles. Pin it from a source you trust: a key read from
+    the server whose bundles you check proves only that the server signed them."""
+    signer = settings_of(request).evidence_signer
+    if signer is None:
+        raise Problem(404, "evidence.unsigned", "This server does not sign evidence bundles",
+                      detail="its operator sets RAI_EVIDENCE_SIGNING_KEY")  # fmt: skip
+    return PublicKeyOut(algorithm="ed25519", key_id=signer.key_id, public_key=signer.public_key)
