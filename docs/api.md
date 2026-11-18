@@ -17,6 +17,8 @@ uv run rai worker                            # in a second terminal: executes qu
 
 `rai serve` needs `RAI_API_DATABASE_URL` (logging in as `rai_api`) and `RAI_JWT_SECRET` (at least 32 bytes) or `RAI_JWT_SECRET_FILE`; see `.env.example`. Passwords are read from `RAI_NEW_PASSWORD` / `RAI_API_DB_PASSWORD` or a hidden prompt, never from command-line arguments.
 
+**Behind TLS.** The compose `core` profile runs the API behind Caddy, which serves HTTPS only (B-36); see [deployment.md](deployment.md). Behind any proxy, start the API with `rai serve --forwarded-allow-ips <proxy address>` (or `RAI_FORWARDED_ALLOW_IPS`) so the per-address login limit sees each client; without it, forwarded headers are ignored.
+
 **The API refuses to start** if it logs in as a superuser, the schema owner, or a role that bypasses row-level security. As `rai_api`, a query without a tenant context sees no rows at all.
 
 ## Sign in

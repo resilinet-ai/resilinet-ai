@@ -23,7 +23,61 @@ services:
       test: ["CMD-SHELL", "pg_isready -U rai -d rai"]
       interval: 5s
       retries: 10
-  # TODO B-16: rai-api, B-18: rai-worker, B-36: rai-web, caddy
+  rai-api:
+    # B-36: plain HTTP on edge_net only, behind Caddy; no host port. Needs `rai db upgrade`
+    # and `rai db set-api-password` once (from the host, through rai-db's 55431).
+    profiles: ["core"]
+    build:
+      context: .
+      dockerfile: deploy/rai/Dockerfile
+    # Trust X-Forwarded-For only from Caddy's fixed address on edge_net.
+    command: ["rai", "serve", "--host", "0.0.0.0", "--port", "8000",
+              "--forwarded-allow-ips", "172.31.236.2"]
+    environment:
+      # Not ${VAR:?}: compose checks those for every profile, and the sandbox profiles
+      # do not need them. rai serve refuses to start without them instead.
+      RAI_API_DATABASE_URL: postgresql://rai_api:${RAI_API_DB_PASSWORD:-}@rai-db:5432/rai
+      RAI_JWT_SECRET: ${RAI_JWT_SECRET:-}
+      RAI_EVIDENCE_SIGNING_KEY: ${RAI_EVIDENCE_SIGNING_KEY:-} # B-35; empty = unsigned bundles
+    depends_on:
+      rai-db:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    networks:
+      control_net: {}
+      edge_net:
+        ipv4_address: 172.31.236.3 # fixed too, so it never takes Caddy's .2 first
+  caddy:
+    # B-36 (NFR-SEC-2, threat I-06): the only way in. HTTPS only; see deploy/caddy/Caddyfile.
+    profiles: ["core"]
+    image: caddy:2.10.2
+    environment:
+      RAI_SITE_ADDRESS: ${RAI_SITE_ADDRESS:-localhost}
+      RAI_TLS: ${RAI_TLS:-internal} # or an email address for ACME on a public name
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # certificates and the local CA's key
+      - caddy-config:/config
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    depends_on:
+      rai-api:
+        condition: service_healthy
+    networks:
+      edge_net:
+        ipv4_address: 172.31.236.2
+      public_net: {}
+    ports:
+      # Host-only by default; set RAI_HTTPS_BIND=0.0.0.0 and RAI_HTTPS_PORT=443 to serve a network.
+      - "${RAI_HTTPS_BIND:-127.0.0.1}:${RAI_HTTPS_PORT:-8443}:443"
+  # TODO B-18: rai-worker as a service (it runs on the host for now, `rai worker`); B-37: rai-web
 
   # ---- sandbox profile: SandboxBank (synthetic data only) ----
   ledger-db:
@@ -183,6 +237,14 @@ services:
 
 networks:
   control_net: {}
+  edge_net:
+    # B-36: Caddy and rai-api only; no route out. The fixed subnet gives Caddy a fixed
+    # address for rai-api's --forwarded-allow-ips.
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.236.0/28
+  public_net: {} # Caddy's published port and ACME
   sandbox_net: {}
   bridge_net: {}
   chaos_net:
@@ -190,6 +252,8 @@ networks:
 
 volumes:
   rai-db-data: {}
+  caddy-data: {}
+  caddy-config: {}
   ledger-db-data: {}
   analytics-db-data: {}
   chaos-agent-state: {}

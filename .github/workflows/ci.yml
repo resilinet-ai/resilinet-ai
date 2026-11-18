@@ -185,6 +185,45 @@ jobs:
         if: always()
         run: docker compose --profile sandbox --profile chaos down -v
 
+  tls:
+    # B-36 (NFR-SEC-2, threat I-06): the core profile behind Caddy. HTTPS with Caddy's
+    # local CA, security headers, no plain HTTP, no host port to rai-api, and the RAI
+    # CLI's client through TLS (scripts/tls_e2e.py).
+    name: TLS edge (Caddy)
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: rai-tls-ci
+      LEDGER_DB_PASSWORD: ci-only-not-secret # interpolated though unused here
+      ANALYTICS_DB_PASSWORD: ci-only-not-secret
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install
+        run: uv sync --locked
+      - name: Generated credentials (masked)
+        run: |
+          for name in RAI_DB_PASSWORD RAI_API_DB_PASSWORD RAI_JWT_SECRET; do
+            value="$(uv run python -c 'import secrets; print(secrets.token_urlsafe(36))')"
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+      - name: Database, migrations and the API's login role
+        run: |
+          docker compose --profile core up -d --wait rai-db
+          export RAI_DATABASE_URL="postgresql://rai:${RAI_DB_PASSWORD}@127.0.0.1:55431/rai"
+          uv run rai db upgrade
+          uv run rai db set-api-password
+      - name: Start rai-api behind Caddy
+        run: docker compose --profile core up -d --build --wait
+      - name: Check the TLS edge
+        run: uv run python scripts/tls_e2e.py
+      - name: Service logs
+        if: always()
+        run: docker compose --profile core logs --tail 40 rai-api caddy
+      - name: Stop
+        if: always()
+        run: docker compose --profile core down -v
+
   secrets:
     name: Secret scan and hygiene
     runs-on: ubuntu-latest
