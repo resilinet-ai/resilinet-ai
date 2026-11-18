@@ -42,11 +42,11 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
     load_pem_private_key,
 )
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import Connection, text
 
 from rai.connectors.secrets import SecretRef
 from rai.core.runs import Pins
+from rai.core.scenarios import PROXY_FAULTS, FaultSpec
 
 SIGNING_KEY_ENV = "RAI_WORKER_SIGNING_KEY"
 AGENT_URL_ENV = "RAI_WORKER_CHAOS_AGENT_URL"
@@ -55,40 +55,9 @@ PAYLOAD_FORMAT = "rai-fault-request/1"
 DOMAIN = (ENVELOPE_FORMAT + "\n").encode("ascii")
 LIFETIME = timedelta(seconds=60)  # the agent accepts at most 120 s
 
-FaultType = Literal[
-    "latency", "timeout", "connection_drop", "network_partition", "container_stop",
-    "container_restart", "stale_upstream",
-]  # fmt: skip
-PROXY_FAULTS = frozenset({"latency", "timeout", "connection_drop"})
-TARGET_NAME = r"^[a-z0-9][a-z0-9_.-]{0,62}$"
-
 
 class ChaosSetupError(RuntimeError):
     """The worker cannot request faults with this configuration."""
-
-
-class FaultSpec(BaseModel):
-    """One fault, as a scenario step declares it."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    type: FaultType
-    target: str = Field(pattern=TARGET_NAME)
-    duration_seconds: int = Field(ge=1, le=3600)
-    latency_ms: int | None = Field(default=None, ge=1, le=60_000)
-    jitter_ms: int = Field(default=0, ge=0, le=60_000)
-    network: str | None = Field(default=None, pattern=TARGET_NAME)
-    # Every target the scenario may touch; the target must be one of them.
-    blast_radius: tuple[str, ...] = Field(min_length=1, max_length=20)
-
-    @model_validator(mode="after")
-    def _consistent(self) -> FaultSpec:
-        if self.target not in self.blast_radius:
-            raise ValueError(f"target {self.target!r} is outside the declared blast radius")
-        if self.type == "latency" and self.latency_ms is None:
-            raise ValueError("latency needs latency_ms")
-        if self.type == "network_partition" and self.network is None:
-            raise ValueError("network_partition needs the network to disconnect from")
-        return self
 
 
 @dataclass(frozen=True)
@@ -230,10 +199,26 @@ class AgentClient:
 
     def post_fault(self, envelope: dict[str, str]) -> tuple[int, Any]:
         """The agent's status and JSON answer; status 0 if it could not be reached."""
-        request = urllib.request.Request(  # noqa: S310 - an http(s) URL from configuration
-            f"{self.url}/faults", data=json.dumps(envelope).encode("utf-8"), method="POST",
-            headers={"Content-Type": "application/json", "User-Agent": "rai-worker"},
-        )  # fmt: skip
+        return self._send(
+            urllib.request.Request(  # noqa: S310 - an http(s) URL from configuration
+                f"{self.url}/faults",
+                data=json.dumps(envelope).encode("utf-8"),
+                method="POST",
+                headers={"Content-Type": "application/json", "User-Agent": "rai-worker"},
+            )
+        )
+
+    def revert(self, fault_id: str) -> tuple[int, Any]:
+        """Ask the agent to revert one fault (never signed: reverting is always allowed)."""
+        return self._send(
+            urllib.request.Request(  # noqa: S310 - an http(s) URL from configuration
+                f"{self.url}/faults/{fault_id}",
+                method="DELETE",
+                headers={"User-Agent": "rai-worker"},
+            )
+        )
+
+    def _send(self, request: urllib.request.Request) -> tuple[int, Any]:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
                 return response.status, json.loads(response.read() or b"null")
@@ -244,9 +229,8 @@ class AgentClient:
             except ValueError:
                 return error.code, {"error": raw.decode("utf-8", "replace")[:300]}
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            return 0, {
-                "error": f"the chaos agent is unreachable: {getattr(error, 'reason', error)}"
-            }
+            reason = getattr(error, "reason", error)
+            return 0, {"error": f"the chaos agent is unreachable: {reason}"}
 
 
 @dataclass(frozen=True)
@@ -315,6 +299,34 @@ def record(
             "run": run_id, "step": step_key, "test": test_id, "kind": kind, "rule": rule,
             "observed": json.dumps(observed), "expected": spec.model_dump_json(),
             "outcome": result,
+        },
+    )  # fmt: skip
+
+
+def record_revert(
+    conn: Connection, run_id: UUID, step_key: str, spec: FaultSpec, status: int, body: Any
+) -> None:
+    """The agent's answer to the worker's revert, as an observation (B-26). With the
+    onset, it bounds the fault in time; recovery is measured from these (FR-08.1)."""
+    fault = body if isinstance(body, dict) else {}
+    done = status == 200 and fault.get("status") == "reverted"
+    observed = {
+        "fault_id": fault.get("fault_id"), "reverted_at": fault.get("reverted_at"),
+        "reverted_by": fault.get("reverted_by"), "status": status,
+        "error": None if done else (fault.get("error") or str(body)[:300]),
+    }  # fmt: skip
+    conn.execute(
+        text(
+            "INSERT INTO rai.observations (run_id, step_key, kind, rule, observed_value, "
+            "expected, outcome) VALUES (:run, :step, CAST(:kind AS rai.observation_kind), "
+            "'fault.reverted', CAST(:observed AS jsonb), CAST(:expected AS jsonb), "
+            "CAST(:outcome AS rai.observation_outcome)) "
+            "ON CONFLICT (run_id, step_key, rule) DO NOTHING"
+        ),
+        {
+            "run": run_id, "step": step_key, "kind": "metric" if done else "note",
+            "observed": json.dumps(observed), "expected": spec.model_dump_json(),
+            "outcome": "pass" if done else "error",
         },
     )  # fmt: skip
 

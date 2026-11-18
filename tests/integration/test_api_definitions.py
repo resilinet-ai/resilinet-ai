@@ -299,9 +299,8 @@ def test_plans_pin_test_cases_and_contracts(world: World) -> None:
         code: str = response.json()["code"]
         return code
 
-    assert (
-        refused({"item_type": "scenario", "scenario_id": str(uuid4())}) == "plans.scenarios_not_yet"
-    )
+    unknown = {"item_type": "scenario", "scenario_id": str(uuid4())}
+    assert refused(unknown) == "plans.unknown_scenario"  # B-26: scenarios exist now
     assert refused({}) == "plans.test_required"
     assert refused({"test_id": str(uuid4())}) == "plans.unknown_test"
     assert refused({"test_id": check["test_id"], "contract_id": contract["contract_id"]}) == (
