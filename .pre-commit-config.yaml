@@ -4,8 +4,11 @@ repos:
     hooks:
       - id: check-yaml
       - id: check-toml
+      # Recovered design originals are kept byte-for-byte (docs/design/README.md).
       - id: end-of-file-fixer
+        exclude: ^docs/design/wireframes/v0\.1/
       - id: trailing-whitespace
+        exclude: ^docs/design/wireframes/v0\.1/
       - id: check-added-large-files
         args: ["--maxkb=500"]
       - id: detect-private-key

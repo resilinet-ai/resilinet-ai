@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en" data-theme="midnight">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAI MVP wireframes</title>
+<!--
+  Resilinet-AI (RAI) MVP wireframes, v0.2 draft (docs/design/rai-wireframes.md).
+  Follows the design language of the v0.1 original screen
+  (v0.1/2026-11-13-01-executive-dashboard.html): left navigation, project header,
+  synthetic-data banner, cards with requirement tags, pills that carry a word
+  and an icon. Values are illustrative and synthetic.
+
+  Open in a browser. Screen: #dashboard, #runs, ... or ?screen=runs.
+  Theme: the selector in the header, or ?theme=midnight|clarity|evergreen|contrast.
+  Screenshots for the design document: scripts/render_wireframes.py.
+  Self-contained on purpose: no external fonts or scripts.
+-->
+<style>
+/* ---------- Themes (D10). Every pair used for text meets WCAG 2.2 AA. ---------- */
+:root, [data-theme="clarity"] {
+  --bg:#F6F7F9; --surface:#FFFFFF; --sunken:#F6F7F9; --border:#D9DDE3; --rule:#EDF0F3;
+  --text:#1B1F24; --muted:#5B6470; --accent:#2457C5; --accent-ink:#1A3F91; --accent-soft:#E6EDFB;
+  --on-accent:#FFFFFF; --hover:#EEF1F5; --control-border:#C5CBD3;
+  --pass-bg:#E3F4E8; --pass:#1A6B35; --fail-bg:#FCE8E6; --fail:#A3201A; --fail-line:#E8B4AE;
+  --warn-bg:#FDF1DC; --warn:#7A4800; --neutral-bg:#EEF1F5; --neutral:#3A4350;
+  --banner-bg:#FDF1DC; --banner-line:#E9C88A; --banner:#5C3A00;
+  --bar:#BFCDEB; --bar-miss:#E8B4AE; --bar-now:#2457C5; --target:#B42318; --focus:#2457C5;
+  --line-w:1px;
+}
+[data-theme="midnight"] {
+  --bg:#0E141B; --surface:#151D27; --sunken:#111821; --border:#2C3947; --rule:#1F2A36;
+  --text:#E6EBF1; --muted:#A3AFBD; --accent:#7AA7FF; --accent-ink:#B9D0FF; --accent-soft:#1D2B45;
+  --on-accent:#0B1220; --hover:#1C2633; --control-border:#3A4859;
+  --pass-bg:#123222; --pass:#7EE2A0; --fail-bg:#3D1A1A; --fail:#FF9C94; --fail-line:#7A3A36;
+  --warn-bg:#3A2C10; --warn:#F5C76A; --neutral-bg:#222D39; --neutral:#C9D2DC;
+  --banner-bg:#33270E; --banner-line:#7A5A1C; --banner:#F5D58E;
+  --bar:#3C5A8F; --bar-miss:#9C4A44; --bar-now:#7AA7FF; --target:#FF8A80; --focus:#7AA7FF;
+  --line-w:1px;
+}
+[data-theme="evergreen"] {
+  --bg:#F3F6F4; --surface:#FFFFFF; --sunken:#F3F6F4; --border:#D3DDD7; --rule:#E7EEEA;
+  --text:#17201B; --muted:#4F5D55; --accent:#1E6B4A; --accent-ink:#134A33; --accent-soft:#E1F0E8;
+  --on-accent:#FFFFFF; --hover:#EAF1ED; --control-border:#BCCAC2;
+  --pass-bg:#E1F3E7; --pass:#17663A; --fail-bg:#FBE7E4; --fail:#A12318; --fail-line:#E6B3AB;
+  --warn-bg:#FBF0D9; --warn:#784700; --neutral-bg:#ECF1EE; --neutral:#38443D;
+  --banner-bg:#FBF0D9; --banner-line:#E2C385; --banner:#5A3A00;
+  --bar:#B8D7C6; --bar-miss:#E6B3AB; --bar-now:#1E6B4A; --target:#A12318; --focus:#1E6B4A;
+  --line-w:1px;
+}
+[data-theme="contrast"] {
+  --bg:#000000; --surface:#000000; --sunken:#000000; --border:#FFFFFF; --rule:#8A8A8A;
+  --text:#FFFFFF; --muted:#E8E8E8; --accent:#FFE600; --accent-ink:#FFE600; --accent-soft:#2B2B00;
+  --on-accent:#000000; --hover:#1A1A1A; --control-border:#FFFFFF;
+  --pass-bg:#000000; --pass:#7CFF9B; --fail-bg:#000000; --fail:#FF8A80; --fail-line:#FF8A80;
+  --warn-bg:#000000; --warn:#FFE600; --neutral-bg:#000000; --neutral:#FFFFFF;
+  --banner-bg:#000000; --banner-line:#FFE600; --banner:#FFE600;
+  --bar:#FFFFFF; --bar-miss:#FF8A80; --bar-now:#FFE600; --target:#FF8A80; --focus:#FFE600;
+  --line-w:2px;
+}
+
+/* ---------- Base ---------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text);
+  font: 14px/1.45 Inter, "Segoe UI", system-ui, -apple-system, Arial, sans-serif; }
+a { color: var(--accent); } a:hover { color: var(--accent-ink); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+h1 { margin: 0; font-size: 26px; font-weight: 700; }
+h2 { margin: 0; font-size: 16px; font-weight: 650; }
+p { margin: 0; }
+.skip { position: absolute; left: -999px; } .skip:focus { left: 12px; top: 12px; z-index: 9;
+  background: var(--surface); padding: 8px 12px; }
+.app { display: flex; min-height: 100vh; }
+.side { flex: 0 0 232px; background: var(--surface); border-right: var(--line-w) solid var(--border);
+  padding: 20px 12px; display: flex; flex-direction: column; gap: 4px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 12px 20px; font-weight: 700; font-size: 16px; }
+.nav { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 8px;
+  color: var(--text); text-decoration: none; font-size: 14px; }
+.nav:hover { background: var(--hover); color: var(--text); }
+.nav[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent); }
+.nav .soon { margin-left: auto; font-size: 10px; color: var(--muted); border: var(--line-w) solid var(--border);
+  border-radius: 4px; padding: 0 4px; }
+.navsep { margin: 12px 12px 4px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.col { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 32px; background: var(--surface); border-bottom: var(--line-w) solid var(--border); }
+.crumbs, .who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.dim { color: var(--muted); }
+.avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink);
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 600; }
+.banner { margin: 16px 32px 0; padding: 10px 16px; border-radius: 8px; background: var(--banner-bg);
+  border: var(--line-w) solid var(--banner-line); color: var(--banner); font-size: 13px; font-weight: 600; }
+main { padding: 24px 32px 40px; }
+section[data-screen] { display: flex; flex-direction: column; gap: 20px; }
+.head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.sub { margin-top: 6px; color: var(--muted); font-size: 14px; }
+.grid { display: grid; gap: 16px; }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+.g21 { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); }
+.card { background: var(--surface); border: var(--line-w) solid var(--border); border-radius: 10px; padding: 20px;
+  min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.card.alert { border-color: var(--fail-line); }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.tag { font-size: 11px; color: var(--neutral); background: var(--neutral-bg); border: var(--line-w) solid transparent;
+  border-radius: 4px; padding: 2px 6px; font-weight: 500; white-space: nowrap; }
+[data-theme="contrast"] .tag { border-color: var(--border); }
+.big { font-size: 32px; font-weight: 700; line-height: 1.1; }
+.big.bad { color: var(--fail); }
+.note { font-size: 13px; color: var(--muted); }
+.small { font-size: 12px; color: var(--muted); }
+.mono { font-family: "JetBrains Mono", Consolas, ui-monospace, monospace; font-size: 12px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 8px 10px;
+  border-bottom: var(--line-w) solid var(--border); white-space: nowrap; }
+.tbl td { padding: 10px; border-bottom: var(--line-w) solid var(--rule); white-space: nowrap; }
+.tbl.wrap td { white-space: normal; }
+.tbl tr.sel td { background: var(--accent-soft); }
+.tbl tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.scroll { overflow-x: auto; }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; border: var(--line-w) solid transparent; white-space: nowrap; }
+.pass { background: var(--pass-bg); color: var(--pass); }
+.fail { background: var(--fail-bg); color: var(--fail); }
+.warn { background: var(--warn-bg); color: var(--warn); }
+.neutral { background: var(--neutral-bg); color: var(--neutral); }
+[data-theme="contrast"] .pill { border-color: currentColor; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 0 16px;
+  border-radius: 8px; font: 600 14px inherit; font-family: inherit; border: var(--line-w) solid var(--control-border);
+  background: var(--surface); color: var(--text); cursor: pointer; text-decoration: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.danger { color: var(--fail); border-color: var(--fail-line); }
+.btn[disabled] { opacity: 1; color: var(--muted); border-style: dashed; cursor: not-allowed; background: var(--sunken); }
+.btn.sm { min-height: 32px; padding: 0 10px; font-size: 13px; }
+select.btn { appearance: auto; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.field input, .field select, .field textarea { min-height: 40px; padding: 8px 10px; border-radius: 8px;
+  border: var(--line-w) solid var(--control-border); background: var(--surface); color: var(--text); font: inherit; }
+.field textarea { min-height: 72px; resize: vertical; }
+.box { padding: 12px; border: var(--line-w) solid var(--border); border-radius: 8px; }
+.box.alert { border-color: var(--fail-line); }
+.sunk { padding: 10px 12px; background: var(--sunken); border: var(--line-w) solid var(--rule); border-radius: 8px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; }
+.steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.steps span.s { padding: 4px 10px; border-radius: 999px; background: var(--neutral-bg); color: var(--neutral);
+  border: var(--line-w) solid transparent; }
+.steps span.s.now { background: var(--fail-bg); color: var(--fail); font-weight: 700; border-color: var(--fail-line); }
+.steps .arr { color: var(--muted); }
+.flow { display: flex; align-items: stretch; gap: 8px; }
+.node { flex: 1 1 0; min-width: 0; padding: 10px 12px; border: var(--line-w) solid var(--border); border-radius: 8px;
+  background: var(--sunken); font-size: 13px; }
+.node b { display: block; overflow-wrap: anywhere; }
+.flow .arr { align-self: center; color: var(--muted); }
+.chart { position: relative; height: 180px; border-left: var(--line-w) solid var(--control-border);
+  border-bottom: var(--line-w) solid var(--control-border); display: flex; align-items: flex-end; gap: 12px; padding: 0 12px; }
+.chart .bar { flex: 1; background: var(--bar); border-radius: 4px 4px 0 0; position: relative; }
+.chart .bar.miss { background: var(--bar-miss); } .chart .bar.now { background: var(--bar-now); }
+.chart .bar i { position: absolute; top: -18px; left: 0; right: 0; text-align: center; font-style: normal;
+  font-size: 11px; color: var(--text); }
+.chart .target { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--target); }
+.chart .target span { position: absolute; right: 4px; top: -18px; font-size: 11px; color: var(--target); }
+.xlab { display: flex; gap: 12px; padding: 4px 12px 0; font-size: 11px; color: var(--muted); }
+.xlab span { flex: 1; text-align: center; }
+.hbar { display: grid; grid-template-columns: 130px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; }
+.hbar .track { height: 10px; background: var(--rule); border-radius: 5px; overflow: hidden; }
+.hbar .fill { height: 100%; background: var(--warn); }
+.hbar .n { text-align: right; font-weight: 600; }
+.center { min-height: 100vh; display: flex; flex-direction: column; }
+.signin { flex: 1; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 24px; padding: 48px 32px; }
+.signin .card { width: 400px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- =================================== W1 sign-in (no app shell) =================================== -->
+<div class="center" data-screen="signin" hidden>
+  <div class="banner" role="note" style="margin-top:24px">RAI RUNS ON SANDBOX AND STAGING DATA ONLY · Never production · Synthetic or authorised-snapshot data</div>
+  <div class="signin">
+    <section class="card" aria-labelledby="si-h">
+      <div class="brand" style="padding:0"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="color:var(--accent)"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>Resilinet-AI</div>
+      <h1 id="si-h" style="font-size:22px">Sign in</h1>
+      <label class="field">Email<input type="email" value="a.user@example.org" autocomplete="username"></label>
+      <label class="field">Password<input type="password" value="correct horse battery" autocomplete="current-password"></label>
+      <button class="btn primary" type="button">Sign in</button>
+      <div class="box alert" role="alert"><span class="pill fail">✕ Not signed in</span> Email or password is wrong</div>
+      <p class="small">The same message for an unknown email, a wrong password and a disabled account (threat S-01). Repeated failures wait for the server's Retry-After.</p>
+      <span class="tag" style="align-self:flex-start">FR-01.1</span>
+    </section>
+    <section class="card" aria-labelledby="tn-h">
+      <h1 id="tn-h" style="font-size:22px">Choose a tenant</h1>
+      <p class="note">Signed in as A. User · a.user@example.org</p>
+      <a class="box" href="#dashboard" style="display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--text);border-color:var(--accent)"><span><b>SandboxBank Demo tenant</b><span class="small" style="display:block">sandboxbank-demo</span></span><span class="pill neutral">Reviewer</span></a>
+      <a class="box" href="#dashboard" style="display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--text)"><span><b>Research lab</b><span class="small" style="display:block">research-lab</span></span><span class="pill neutral">Engineer</span></a>
+      <p class="small">No tenant listed? Tenants are created by the operator (<span class="mono">rai admin create-tenant</span>); ask an admin to invite you.</p>
+      <span class="tag" style="align-self:flex-start">FR-01.1 · NFR-SEC-1</span>
+    </section>
+  </div>
+</div>
+
+<!-- =================================== App shell =================================== -->
+<div class="app" data-shell>
+  <nav class="side" aria-label="Primary">
+    <div class="brand"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="color:var(--accent)"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>Resilinet-AI</div>
+    <a class="nav" href="#dashboard">Dashboard</a>
+    <a class="nav" href="#runs">Runs</a>
+    <a class="nav" href="#scenario">Chaos scenarios</a>
+    <a class="nav" href="#recovery">Recovery</a>
+    <a class="nav" href="#contracts">Contracts &amp; data</a>
+    <a class="nav" href="#models">Models &amp; drift <span class="soon">planned</span></a>
+    <a class="nav" href="#approvals">Approvals &amp; gates</a>
+    <a class="nav" href="#evidence">Evidence</a>
+    <div class="navsep">Admin</div>
+    <a class="nav" href="#environments">Environments</a>
+    <a class="nav" href="#signin">Sign out</a>
+  </nav>
+  <div class="col">
+    <header class="top">
+      <div class="crumbs">
+        <span class="dim">SandboxBank Demo tenant</span><span aria-hidden="true" class="dim">/</span>
+        <button class="btn sm" type="button">SandboxBank payments ▾</button>
+        <span class="pill neutral">SANDBOX-01</span>
+      </div>
+      <div class="who">
+        <label class="dim" for="theme">Theme</label>
+        <select id="theme" class="btn sm" aria-label="Theme">
+          <option value="midnight">Midnight</option><option value="clarity">Clarity</option>
+          <option value="evergreen">Evergreen</option><option value="contrast">High contrast</option>
+        </select>
+        <span class="dim">Role: <span data-role>Reviewer</span></span>
+        <span class="avatar" aria-hidden="true" data-initials>RV</span>
+      </div>
+    </header>
+    <div class="banner" role="note">SYNTHETIC DATA · SandboxBank reference system · Not a production result</div>
+    <main id="main">
+
+<!-- =================================== W2 dashboard =================================== -->
+<section data-screen="dashboard" data-title="Dashboard">
+  <div class="head">
+    <div><h1>Assurance overview</h1>
+      <p class="sub">SandboxBank payments · window: last 30 days (19 Oct – 18 Nov 2026, UTC) · every metric shows n and its definition</p></div>
+    <div class="row"><button class="btn" type="button">Last 30 days ▾</button><a class="btn primary" href="#runs">Start a run</a></div>
+  </div>
+  <section aria-label="Key metrics" class="grid g4">
+    <div class="card"><div class="row"><span class="lbl">Validation pass rate</span><span class="tag">FR-03</span></div>
+      <div class="big">96.1%</div><div class="note">1,153 of 1,200 rule checks passed</div><a href="#contracts" class="small">Definition and failing rules</a></div>
+    <div class="card"><div class="row"><span class="lbl">RTO attainment</span><span class="tag">FR-08.1</span></div>
+      <div class="big">14 / 16</div><div class="note">chaos runs met their scenario RTO target</div><a href="#recovery" class="small">See the 2 misses</a></div>
+    <div class="card"><div class="row"><span class="lbl">RPO attainment</span><span class="tag">FR-08.2</span></div>
+      <div class="big">15 / 16</div><div class="note">chaos runs met their scenario RPO target</div><a href="#recovery" class="small">Method: seeding-log ground truth</a></div>
+    <div class="card alert"><div class="row"><span class="lbl">Open critical findings</span><span class="tag">FR-10.1</span></div>
+      <div class="big bad">2</div><div class="note">1 blocks release gate v1.4</div><a href="#approvals" class="small">Review findings</a></div>
+  </section>
+  <section class="grid g2">
+    <div class="card">
+      <div class="row"><h2>Data lineage &amp; validation</h2><span class="tag">FR-03 · FR-04.1</span></div>
+      <div class="flow" aria-label="Pipeline P1 and P2">
+        <div class="node"><b>transactions_raw</b><span class="small">feed · contract v1</span></div><span class="arr" aria-hidden="true">→</span>
+        <div class="node"><b>ledger_transactions</b><span class="small">payments-api · append-only</span></div><span class="arr" aria-hidden="true">→</span>
+        <div class="node"><b>fact_transaction</b><span class="small">etl-job · warehouse</span></div><span class="arr" aria-hidden="true">→</span>
+        <div class="node"><b>fraud-score</b><span class="small">model · planned</span></div>
+      </div>
+      <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1.4fr)">
+        <div class="sunk"><span class="lbl">Schema conformance</span><div class="big" style="font-size:26px">98.7%</div><span class="small">3,948 of 4,002 fields valid · 30 batches</span></div>
+        <div class="sunk" style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Data-quality issues by rule (count)</span>
+          <div class="hbar"><span>Missing values</span><span class="track"><span class="fill" style="width:100%;display:block"></span></span><span class="n">26</span></div>
+          <div class="hbar"><span>Out of range</span><span class="track"><span class="fill" style="width:31%;display:block"></span></span><span class="n">8</span></div>
+          <div class="hbar"><span>Duplicate txn_id</span><span class="track"><span class="fill" style="width:19%;display:block"></span></span><span class="n">5</span></div>
+          <div class="hbar"><span>Schema drift (breaking)</span><span class="track"><span class="fill" style="width:12%;display:block"></span></span><span class="n">3</span></div>
+        </div>
+      </div>
+      <span class="small">n = 30 batches validated in the window · counts are failing rule checks, not rows</span>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Controlled chaos testing</h2><span class="tag">FR-07 · NFR-SAF-1</span></div>
+      <div class="scroll"><table class="tbl wrap">
+        <thead><tr><th scope="col">Scenario (fault)</th><th scope="col">Target</th><th scope="col">Expected behaviour</th><th scope="col">Result</th></tr></thead>
+        <tbody>
+          <tr><td>api-latency@1 <span class="small">(latency 2 s)</span></td><td>payments-api</td><td>Degrade within threshold</td><td><span class="pill pass">✓ Passed</span></td></tr>
+          <tr><td>ledger-partition@2 <span class="small">(network_partition)</span></td><td>ledger-db</td><td>Retry, then recover</td><td><span class="pill pass">✓ Passed</span></td></tr>
+          <tr><td>etl-stale-feed@2 <span class="small">(stale_upstream)</span></td><td>etl-job</td><td>Resume, nothing lost</td><td><span class="pill fail">✕ RTO missed</span></td></tr>
+          <tr><td>ledger-resilience@3 <span class="small">(stop + restart)</span></td><td>ledger-db</td><td>Recover within RTO</td><td><span class="pill pass">✓ Passed</span></td></tr>
+        </tbody></table></div>
+      <span class="small">Faults run only in registered sandbox environments, inside an approved blast radius · 0 refusals overridden</span>
+    </div>
+  </section>
+  <section class="grid g2">
+    <div class="card">
+      <div class="row"><h2>Recovery time per run vs target</h2><span class="tag">FR-11.1 · FR-08.1</span></div>
+      <div class="chart" role="img" aria-label="RTO in minutes for the last 8 chaos runs of scenarios with a 30 minute target; runs 121 and 124 missed">
+        <div class="target" style="bottom:150px"><span>target 30 min</span></div>
+        <div class="bar" style="height:112px"><i>22.4</i></div><div class="bar" style="height:129px"><i>25.8</i></div>
+        <div class="bar" style="height:94px"><i>18.7</i></div><div class="bar miss" style="height:168px"><i>33.6 ✕</i></div>
+        <div class="bar" style="height:121px"><i>24.1</i></div><div class="bar" style="height:101px"><i>20.2</i></div>
+        <div class="bar miss" style="height:173px"><i>34.6 ✕</i></div><div class="bar now" style="height:121px"><i>24.2</i></div>
+      </div>
+      <div class="xlab"><span>#112</span><span>#114</span><span>#116</span><span>#121</span><span>#122</span><span>#123</span><span>#124</span><span>#128</span></div>
+      <div class="small">Last 8 chaos runs of scenarios with a 30 min target · n = 8 · ✕ missed target · latest run highlighted · RTO = onset → validated restoration</div>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Release gates</h2><span class="tag">FR-12.2</span></div>
+      <a href="#approvals" class="box alert row" style="text-decoration:none;color:var(--text)"><span><b>v1.4</b><span class="small" style="display:block">Blocked by 1 critical finding · 3 runs</span></span><span class="pill fail">⛔ Blocked</span></a>
+      <div class="box row"><span><b>v1.3</b><span class="small" style="display:block">Approved by R. Reviewer · 2 Nov 2026</span></span><span class="pill pass">✓ Approved</span></div>
+      <div class="row"><h2>Model drift (fraud-score)</h2><span class="tag">FR-09.2 · planned</span></div>
+      <div class="sunk row"><span>PSI vs reference window</span><b>0.07 · below 0.10 alert</b></div>
+      <div class="small">n = 48,000 scored transactions · reference: Aug · current: Oct</div>
+    </div>
+  </section>
+  <section class="grid g3" aria-label="TEVV summary">
+    <div class="card"><div class="row"><span class="lbl">Seeded defects detected</span><span class="tag">Protocol §6</span></div>
+      <div class="big">173 / 180</div><div class="note">defect instances caught (96.1%) · dev seeds, not the registered benchmark</div></div>
+    <div class="card"><div class="row"><span class="lbl">False alarms on clean batches</span><span class="tag">Protocol §6</span></div>
+      <div class="big">1 / 36</div><div class="note">clean control batches with any alert</div></div>
+    <div class="card"><div class="row"><span class="lbl">Incidents by type</span><span class="tag">FR-10.1</span></div>
+      <div class="hbar"><span>Data quality</span><span class="track"><span class="fill" style="width:100%;display:block"></span></span><span class="n">3</span></div>
+      <div class="hbar"><span>Service degradation</span><span class="track"><span class="fill" style="width:33%;display:block"></span></span><span class="n">1</span></div>
+      <div class="hbar"><span>Schema / integration</span><span class="track"><span class="fill" style="width:33%;display:block"></span></span><span class="n">1</span></div>
+      <div class="small">n = 5 findings opened in the window</div></div>
+  </section>
+  <section class="card">
+    <div class="row"><h2>Recent runs</h2><a href="#runs" class="small">All runs</a></div>
+    <div class="scroll"><table class="tbl">
+      <thead><tr><th scope="col">Run</th><th scope="col">Plan</th><th scope="col">Trigger</th><th scope="col">Verdict</th><th scope="col">RTO / target</th><th scope="col">RPO / target</th><th scope="col">Started</th></tr></thead>
+      <tbody>
+        <tr><td><a href="#runs">#128</a></td><td>ledger-resilience@3</td><td>manual</td><td><span class="pill pass">✓ Passed</span></td><td>24.2 / 30 min</td><td>2.9 / 5 min</td><td>12 Nov, 14:00</td></tr>
+        <tr><td><a href="#runs">#127</a></td><td>ci-contracts@5</td><td>CI · a91f3c2</td><td><span class="pill fail">✕ Failed</span></td><td>—</td><td>—</td><td>12 Nov, 11:42</td></tr>
+        <tr><td><a href="#runs">#126</a></td><td>api-latency@1</td><td>manual</td><td><span class="pill pass">✓ Passed</span></td><td>3.1 / 10 min</td><td>0.0 / 1 min</td><td>11 Nov, 16:05</td></tr>
+        <tr><td><a href="#runs">#125</a></td><td>ledger-resilience@3</td><td>manual</td><td><span class="pill neutral">⊘ Refused</span></td><td>—</td><td>—</td><td>11 Nov, 15:58</td></tr>
+        <tr><td><a href="#runs">#124</a></td><td>etl-stale-feed@2</td><td>schedule</td><td><span class="pill fail">✕ Failed</span></td><td>34.6 / 30 min</td><td>4.1 / 5 min</td><td>10 Nov, 02:00</td></tr>
+      </tbody></table></div>
+    <div class="small">Refused = preflight stopped the run before any fault was injected (NFR-SAF-1).</div>
+  </section>
+</section>
+
+<!-- =================================== W3 run detail =================================== -->
+<section data-screen="runs" data-title="Runs" hidden>
+  <div class="head">
+    <div><h1>Run #128 · ledger-resilience@3</h1>
+      <p class="sub">Manual run by A. Engineer · environment SANDBOX-01 · rai 0.1.0</p></div>
+    <div class="row"><span class="pill pass">✓ Passed · verdict pass</span><button class="btn" type="button">View pins JSON</button></div>
+  </div>
+  <div class="steps" aria-label="Run states"><span class="s">queued 14:00:01</span><span class="arr">→</span><span class="s">preflight</span><span class="arr">→</span><span class="s">running 14:00:03</span><span class="arr">→</span><span class="s">evaluating</span><span class="arr">→</span><span class="s" style="background:var(--pass-bg);color:var(--pass);font-weight:700">✓ passed 14:31:40</span></div>
+  <section class="grid g21">
+    <div class="card">
+      <div class="row"><h2>Steps</h2><span class="tag">FR-06.1 · FR-06.2</span></div>
+      <div class="scroll"><table class="tbl">
+        <thead><tr><th scope="col">Step</th><th scope="col">Plan item</th><th scope="col">State</th><th scope="col">Verdict</th><th scope="col">Attempt</th><th scope="col">Summary</th></tr></thead>
+        <tbody>
+          <tr><td>item-1</td><td>scenario ledger-resilience v3</td><td>done</td><td><span class="pill pass">✓ pass</span></td><td>1</td><td>RTO 24.2 min ≤ 30 · RPO 2.9 min ≤ 5</td></tr>
+          <tr><td>item-2</td><td>ledger.consistency v1</td><td>done</td><td><span class="pill pass">✓ pass</span></td><td>1</td><td>0 missing · 0 duplicated · 0 mismatched</td></tr>
+          <tr><td>item-3</td><td>transactions_raw contract v1</td><td>done</td><td><span class="pill pass">✓ pass</span></td><td>2</td><td>36 rules · 0 critical failures</td></tr>
+        </tbody></table></div>
+      <p class="small">A recorded step is never repeated; item-3 resumed on a second worker after a lease expired (attempt 2).</p>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Pinned at queue time</h2><span class="tag">NFR-REP-1</span></div>
+      <dl class="kv">
+        <dt>Plan</dt><dd>ledger-resilience v3 <span class="mono">sha256 9f3c…e1</span></dd>
+        <dt>Scenario</dt><dd>ledger-resilience v3</dd>
+        <dt>Approval</dt><dd>R. Reviewer · 11 Nov 15:40</dd>
+        <dt>Contract</dt><dd>transactions_raw v1 <span class="mono">4be1…09</span></dd>
+        <dt>Environment</dt><dd>SANDBOX-01 (active)</dd>
+      </dl>
+      <p class="small">The worker runs only from these pins, so the run can be replayed.</p>
+    </div>
+  </section>
+  <section class="card">
+    <div class="row"><h2>Observations</h2>
+      <span class="small">Showing 6 of 11</span><div class="row" role="tablist" aria-label="Filter"><button class="btn sm" role="tab" aria-selected="true" style="border-color:var(--accent)">All 11</button><button class="btn sm" role="tab" aria-selected="false">Fail 0</button><button class="btn sm" role="tab" aria-selected="false">Error 0</button><button class="btn sm" role="tab" aria-selected="false">Skipped 1</button></div></div>
+    <div class="scroll"><table class="tbl">
+      <thead><tr><th scope="col">Step</th><th scope="col">Rule</th><th scope="col">Outcome</th><th scope="col">Observed</th><th scope="col">Expected</th><th scope="col">Rows</th></tr></thead>
+      <tbody>
+        <tr><td>item-1.fault-1</td><td>fault.onset</td><td><span class="pill pass">✓ pass</span></td><td>container_stop ledger-db · 14:00:12Z</td><td>—</td><td>—</td></tr>
+        <tr><td>item-1.fault-1</td><td>fault.reverted</td><td><span class="pill pass">✓ pass</span></td><td>14:10:12Z · by agent</td><td>—</td><td>—</td></tr>
+        <tr><td>item-1</td><td>recovery.rto</td><td><span class="pill pass">✓ pass</span></td><td>24.2 min</td><td>≤ 30 min</td><td>—</td></tr>
+        <tr><td>item-1</td><td>recovery.rpo</td><td><span class="pill pass">✓ pass</span></td><td>2.9 min · 0 rows lost</td><td>≤ 5 min</td><td>—</td></tr>
+        <tr><td>item-2</td><td>recovery.rpo_truth</td><td><span class="pill pass">✓ pass</span></td><td>0 lost acknowledged writes · agrees with ledger</td><td>agree</td><td>12,000</td></tr>
+        <tr><td>item-2</td><td>consistency.unexpected</td><td><span class="pill neutral">— skipped</span></td><td>3 rows from other writers</td><td>allowed</td><td>190,002</td></tr>
+      </tbody></table></div>
+  </section>
+  <section class="card">
+    <div class="row"><h2>Lineage of this run</h2><span class="tag">FR-04.1</span></div>
+    <div class="flow">
+      <div class="node"><b>seeding log</b><span class="mono">sha256 51d0…a2 · 12,000 acks</span></div><span class="arr" aria-hidden="true">→</span>
+      <div class="node"><b>ledger_transactions</b><span class="mono">sha256 4be1…09 · 190,002 rows</span></div><span class="arr" aria-hidden="true">→</span>
+      <div class="node"><b>item-2 consistency</b><span class="small">transform ledger.consistency v1</span></div><span class="arr" aria-hidden="true">→</span>
+      <div class="node"><b>fact_transaction</b><span class="mono">sha256 77a0…3c · 190,002 rows</span></div>
+    </div>
+    <p class="small">Digests are SHA-256 over the data the worker actually read (rai-frame-digest/1). A finished run never changes, so this page has no edit controls.</p>
+  </section>
+</section>
+
+<!-- =================================== W4 chaos scenario =================================== -->
+<section data-screen="scenario" data-title="Chaos scenarios" hidden>
+  <div class="head">
+    <div><h1>ledger-resilience · version 3</h1>
+      <p class="sub">Author A. Engineer · created 11 Nov 2026 15:02 UTC · environment SANDBOX-01</p></div>
+    <span class="pill warn">◷ Pending review</span>
+  </div>
+  <section class="grid g21">
+    <div class="card">
+      <div class="row"><h2>Blast radius</h2><span class="tag">FR-07.2 · NFR-SAF-1</span></div>
+      <div class="row" style="justify-content:flex-start"><span class="pill neutral">◎ ledger-db</span><span class="pill neutral">◎ ledger-db-proxy</span><span class="small">both on the SANDBOX-01 allow-list, with their registered labels</span></div>
+      <h2>Faults, in order</h2>
+      <div class="scroll"><table class="tbl">
+        <thead><tr><th scope="col">#</th><th scope="col">Type</th><th scope="col">Target</th><th scope="col">Duration</th><th scope="col">Ceiling</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>container_stop</td><td>ledger-db</td><td>10 min</td><td><span class="pill pass">✓ within 15 min</span></td></tr>
+          <tr><td>2</td><td>connection_drop</td><td>ledger-db-proxy</td><td>2 min</td><td><span class="pill pass">✓ within 15 min</span></td></tr>
+        </tbody></table></div>
+      <h2>Recovery plan</h2>
+      <dl class="kv">
+        <dt>Probes</dt><dd>payments-health (2xx)</dd><dt>Ledger head</dt><dd>payments-ledger</dd>
+        <dt>Objectives</dt><dd>RTO ≤ 30 min · RPO ≤ 5 min</dd><dt>Window</dt><dd>45 min after the last revert</dd>
+        <dt>Stability</dt><dd>3 consecutive healthy rounds</dd>
+      </dl>
+      <p class="small">Every fault of this scenario keeps this radius, including faults already reverted; the chaos agent refuses anything wider (docs/refusals.md).</p>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Review</h2><span class="tag">FR-07.2 · NFR-AUD-1</span></div>
+      <p class="small">The latest decision counts; each version is reviewed. Approvals are append-only.</p>
+      <div class="box"><span class="small">v2 · 4 Nov 2026 · R. Reviewer</span><div class="row" style="justify-content:flex-start;margin-top:6px"><span class="pill pass">✓ approve</span><span class="note">“radius limited to P1”</span></div></div>
+      <b>No decision yet on version 3.</b>
+      <label class="field">Comment<textarea>Second fault widens nothing; objectives match the P1 runbook.</textarea></label>
+      <div class="row" style="justify-content:flex-start"><button class="btn primary" type="button">✓ Approve</button><button class="btn danger" type="button">✕ Reject</button></div>
+      <div class="sunk small">You are a reviewer and did not write this scenario. Its author sees these buttons disabled: “You wrote this scenario, so another reviewer must decide.” The database refuses self-approval too.</div>
+    </div>
+  </section>
+</section>
+
+<!-- =================================== W5 recovery =================================== -->
+<section data-screen="recovery" data-title="Recovery" hidden>
+  <div class="head">
+    <div><h1>Recovery</h1><p class="sub">All scenarios · window: last 30 days (19 Oct – 18 Nov 2026, UTC)</p></div>
+    <button class="btn" type="button">All scenarios ▾</button>
+  </div>
+  <section class="grid g3">
+    <div class="card"><div class="row"><span class="lbl">RTO objective met</span><span class="tag">FR-08.1</span></div><div class="big">14 / 16</div><div class="note">Onset → first of 3 stable healthy rounds after the last revert</div></div>
+    <div class="card"><div class="row"><span class="lbl">RPO objective met</span><span class="tag">FR-08.2</span></div><div class="big">15 / 16</div><div class="note">Onset → earliest lost acknowledged write; 0 if none lost</div></div>
+    <div class="card"><div class="row"><span class="lbl">Consistent after recovery</span><span class="tag">FR-08.3</span></div><div class="big">16 / 16</div><div class="note">No missing, duplicated or mismatched keys</div></div>
+  </section>
+  <section class="card">
+    <div class="row"><h2>Runs</h2><span class="small">Showing 5 of 16</span></div>
+    <div class="scroll"><table class="tbl">
+      <thead><tr><th scope="col">Run</th><th scope="col">Scenario</th><th scope="col">RTO</th><th scope="col">RPO (ledger)</th><th scope="col">RPO (seeding log)</th><th scope="col">Agree</th><th scope="col">Consistency</th></tr></thead>
+      <tbody>
+        <tr><td>#128</td><td>ledger-resilience@3</td><td><span class="pill pass">✓ 24.2 / 30 min</span></td><td>2.9 min</td><td>2.9 min</td><td>✓ yes</td><td><span class="pill pass">✓ 0 / 0 / 0</span></td></tr>
+        <tr><td>#126</td><td>api-latency@1</td><td><span class="pill pass">✓ 3.1 / 10 min</span></td><td>0 s</td><td>0 s</td><td>✓ yes</td><td><span class="pill pass">✓ 0 / 0 / 0</span></td></tr>
+        <tr><td>#124</td><td>etl-stale-feed@2</td><td><span class="pill fail">✕ 34.6 / 30 min</span></td><td>4.1 min</td><td>4.1 min</td><td>✓ yes</td><td><span class="pill pass">✓ 0 / 0 / 0</span></td></tr>
+        <tr><td>#121</td><td>ledger-resilience@2</td><td><span class="pill fail">✕ 33.6 / 30 min</span></td><td><span class="pill fail">✕ 6.2 min</span></td><td>6.2 min</td><td>✓ yes</td><td><span class="pill pass">✓ 0 / 0 / 0</span></td></tr>
+        <tr><td>#114</td><td>ledger-partition@2</td><td><span class="pill pass">✓ 25.8 / 30 min</span></td><td>0 s</td><td>0 s</td><td>✓ yes</td><td><span class="pill pass">✓ 0 / 0 / 0</span></td></tr>
+      </tbody></table></div>
+    <p class="small">Consistency = missing / duplicated / mismatched keys. RPO ground truth comes from SandboxBank's hash-chained seeding log, kept outside the system under test; if it disagrees with the ledger the step fails (B-30).</p>
+  </section>
+</section>
+
+<!-- =================================== W6 contracts & data =================================== -->
+<section data-screen="contracts" data-title="Contracts & data" hidden>
+  <div class="head">
+    <div><h1>Contracts &amp; data</h1><p class="sub">Assets, their contracts and the connectors that read them</p></div>
+    <button class="btn primary" type="button">New contract version</button>
+  </div>
+  <section class="grid g21">
+    <div class="card">
+      <div class="row"><h2>transactions_raw · contract v1</h2><span class="tag">FR-03.1 · FR-03.4</span></div>
+      <p class="small">Batch B000214 · 100,000 rows · showing 7 of 36 rules · severity default critical</p>
+      <div class="scroll"><table class="tbl">
+        <thead><tr><th scope="col">Rule</th><th scope="col">Column</th><th scope="col">Severity</th><th scope="col">Threshold</th><th scope="col">Last batch</th></tr></thead>
+        <tbody>
+          <tr><td>required</td><td>account_id</td><td>critical</td><td>0</td><td><span class="pill pass">✓ 0 failing</span></td></tr>
+          <tr><td>references accounts.account_id</td><td>account_id</td><td>critical</td><td>0</td><td><span class="pill pass">✓ 0 failing</span></td></tr>
+          <tr><td>unique (within + across batches)</td><td>txn_id</td><td>critical</td><td>0</td><td><span class="pill fail">✕ 5 duplicates</span></td></tr>
+          <tr><td>allowed [card_present … p2p]</td><td>channel</td><td>critical</td><td>0</td><td><span class="pill pass">✓ 0 failing</span></td></tr>
+          <tr><td>min 0.01 · max 25,000 and the account's txn_limit</td><td>amount</td><td>critical</td><td>0</td><td><span class="pill fail">✕ 8 out of range</span></td></tr>
+          <tr><td>required</td><td>is_fraud</td><td>warn</td><td>0</td><td><span class="pill pass">✓ 0 failing</span></td></tr>
+          <tr><td>freshness ≤ 1 h</td><td>created_at</td><td>critical</td><td>—</td><td><span class="pill pass">✓ 12 min</span></td></tr>
+        </tbody></table></div>
+      <div class="box alert"><b>Schema drift · breaking</b> <span class="tag">FR-03.2</span><p class="note" style="margin-top:4px">Batch B000214: column <span class="mono">merchant_id</span> renamed to <span class="mono">merchant</span>. A breaking change fails the batch; a new column would be non-breaking.</p></div>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Connectors</h2><span class="tag">FR-02.1 · FR-02.3</span></div>
+      <div class="box"><b>ledger-pg</b> <span class="pill neutral">PostgreSQL</span><dl class="kv" style="margin-top:6px"><dt>Environment</dt><dd>SANDBOX-01 only</dd><dt>Session</dt><dd>read-only</dd><dt>Credential</dt><dd class="mono">env:LEDGER_RO_DSN</dd></dl></div>
+      <div class="box"><b>fixtures-csv</b> <span class="pill neutral">CSV / Parquet</span><dl class="kv" style="margin-top:6px"><dt>Environment</dt><dd>SANDBOX-01 only</dd><dt>Root</dt><dd>operator-configured folder</dd><dt>Credential</dt><dd>none</dd></dl></div>
+      <p class="small">Credentials are secret references (env:, file:), never stored values. Paths and addresses come from operator configuration, not from tenants.</p>
+      <div class="row"><h2>Privacy sentinel</h2><span class="tag">FR-05.1 · planned</span></div>
+      <div class="sunk small">Synthetic canary values planted in sensitive fields; an alert if one appears anywhere it should not. Uses no real personal data.</div>
+    </div>
+  </section>
+</section>
+
+<!-- =================================== W7 models & drift (planned) =================================== -->
+<section data-screen="models" data-title="Models & drift" hidden>
+  <div class="head">
+    <div><h1>Models &amp; drift <span class="pill warn" style="vertical-align:middle">◷ Planned API · M09</span></h1>
+      <p class="sub">fraud-score · gradient-boosted classifier trained on synthetic data (ADR-005)</p></div>
+    <button class="btn" type="button">Model card</button>
+  </div>
+  <section class="grid g4">
+    <div class="card"><div class="row"><span class="lbl">Recall at threshold 0.5</span><span class="tag">FR-09.1</span></div><div class="big">0.81</div><div class="note">95% CI 0.77–0.85 · n = 1,240 synthetic frauds</div></div>
+    <div class="card"><div class="row"><span class="lbl">Precision</span><span class="tag">FR-09.1</span></div><div class="big">0.64</div><div class="note">95% CI 0.60–0.68 · n = 1,570 alerts</div></div>
+    <div class="card"><div class="row"><span class="lbl">PSI (score)</span><span class="tag">FR-09.2</span></div><div class="big">0.07</div><div class="note">alert at 0.10 · Aug vs Oct · n = 48,000</div></div>
+    <div class="card"><div class="row"><span class="lbl">KS (amount)</span><span class="tag">FR-09.2</span></div><div class="big">0.04</div><div class="note">p = 0.21 · no drift flagged</div></div>
+  </section>
+  <section class="card">
+    <div class="row"><h2>Feature drift</h2><span class="small">Reference: Aug (n = 52,000) · current: Oct (n = 48,000)</span></div>
+    <div class="scroll"><table class="tbl">
+      <thead><tr><th scope="col">Feature</th><th scope="col">Test</th><th scope="col">Statistic</th><th scope="col">Alert at</th><th scope="col">Result</th></tr></thead>
+      <tbody>
+        <tr><td>amount</td><td>KS</td><td>0.04</td><td>0.10</td><td><span class="pill pass">✓ stable</span></td></tr>
+        <tr><td>channel</td><td>PSI</td><td>0.12</td><td>0.10</td><td><span class="pill warn">▲ drift</span></td></tr>
+        <tr><td>merchant category</td><td>PSI</td><td>0.03</td><td>0.10</td><td><span class="pill pass">✓ stable</span></td></tr>
+      </tbody></table></div>
+    <p class="small">Every estimate shows its sample size and interval. Robustness tests (FR-09.3) are a later item.</p>
+  </section>
+</section>
+
+<!-- =================================== W8 approvals & gates =================================== -->
+<section data-screen="approvals" data-title="Approvals & gates" hidden>
+  <div class="head">
+    <div><h1>Approvals &amp; gates</h1><p class="sub">Release gate v1.4 · <span class="pill fail">⛔ Blocked</span> by 1 critical finding</p></div>
+    <span class="pill warn">◷ Findings API planned (B-33)</span>
+  </div>
+  <section class="grid g21">
+    <div class="card">
+      <div class="row"><h2>Findings</h2><span class="small">Showing 4 of 5 open · 37 in all</span></div>
+      <div class="scroll"><table class="tbl">
+        <thead><tr><th scope="col">Severity</th><th scope="col">Finding</th><th scope="col">Owner</th><th scope="col">Gate</th></tr></thead>
+        <tbody>
+          <tr class="sel"><td><span class="pill fail">✕ critical</span></td><td>Duplicate txn_id across batches</td><td>A. Engineer</td><td><b>⛔ blocks</b></td></tr>
+          <tr><td><span class="pill fail">✕ critical</span></td><td>RTO objective missed (etl-stale-feed)</td><td>A. Engineer</td><td>◷ waived to 15 Dec</td></tr>
+          <tr><td><span class="pill warn">▲ high</span></td><td>Drift: channel PSI 0.12</td><td>M. Analyst</td><td>— no</td></tr>
+          <tr><td><span class="pill neutral">● medium</span></td><td>Late rows above 1%</td><td>A. Engineer</td><td>— no</td></tr>
+        </tbody></table></div>
+    </div>
+    <div class="card alert">
+      <div class="row"><h2>Duplicate txn_id across batches</h2><span class="tag">FR-10.1</span></div>
+      <dl class="kv"><dt>Source</dt><dd>run #127 · duplicates.cross_batch</dd><dt>Owner</dt><dd>A. Engineer</dd><dt>Fix</dt><dd>PR #41 (linked)</dd><dt>Retest</dt><dd><span class="pill fail">✕ not run yet</span></dd></dl>
+      <p class="small">Closes only on a passing retest.</p>
+      <div class="row"><h2>Request a waiver</h2><span class="tag">FR-12.2</span></div>
+      <label class="field">Reason (required)<textarea></textarea></label>
+      <div class="grid" style="grid-template-columns:1fr 1fr"><label class="field">Expires on (required)<input value="2026-12-15"></label><label class="field">Approver (not you)<select><option>R. Reviewer</option></select></label></div>
+      <button class="btn primary" type="button" style="align-self:flex-start">Request waiver</button>
+      <p class="small">Until a named reviewer approves it, the gate stays blocked. When the waiver expires, the finding blocks again (FR-12.1, FR-12.2).</p>
+    </div>
+  </section>
+</section>
+
+<!-- =================================== W9 evidence =================================== -->
+<section data-screen="evidence" data-title="Evidence" hidden>
+  <div class="head">
+    <div><h1>Evidence</h1><p class="sub">Deterministic bundles for review outside RAI</p></div>
+    <span class="pill warn">◷ Evidence API planned (B-34, B-35)</span>
+  </div>
+  <section class="grid g2">
+    <div class="card">
+      <div class="row"><h2>Export a bundle</h2><span class="tag">FR-13.1</span></div>
+      <label class="field">Scope<select><option>Run #128 · ledger-resilience@3</option><option>Release gate v1.4 (3 runs)</option></select></label>
+      <span class="lbl">Contents (always included)</span>
+      <ul class="note" style="margin:0;padding-left:18px">
+        <li>Run pins and digests</li><li>Steps and observations</li><li>Lineage edges</li><li>Scenario approvals</li><li>Audit-chain head</li><li>SHA-256 manifest</li></ul>
+      <button class="btn primary" type="button" style="align-self:flex-start">Export bundle</button>
+      <p class="small">Synthetic batches are not included; the manifest records their digests. Two exports of the same scope are byte-identical.</p>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Last export</h2><span class="tag">FR-13.2 · NFR-AUD-2</span></div>
+      <dl class="kv"><dt>File</dt><dd>rai-evidence-run128.zip · 412 KB</dd><dt>Manifest</dt><dd class="mono">sha256 3e7a…d0 · 37 files</dd><dt>Chain head</dt><dd class="mono">seq 1,204 · 8d2c…7b</dd><dt>Signature</dt><dd class="mono">Ed25519 · rai-evidence-1</dd></dl>
+      <div class="sunk mono">$ rai verify rai-evidence-run128.zip<br>✓ 37 files match the manifest<br>✓ signature valid · ✓ chain head matches</div>
+      <div class="box">Tamper-evident, not tamper-proof: a change to the bundle or the audit chain is detected, not prevented.</div>
+    </div>
+  </section>
+</section>
+
+<!-- =================================== W10 environments (admin) =================================== -->
+<section data-screen="environments" data-title="Environments" data-role="Admin" data-initials="AD" hidden>
+  <div class="head">
+    <div><h1>Environments</h1><p class="sub">Where faults may run, and on what. Admin only.</p></div>
+    <button class="btn primary" type="button">Register environment</button>
+  </div>
+  <section class="grid g21">
+    <div class="card">
+      <div class="row"><h2>SANDBOX-01 · target allow-list</h2><span class="tag">FR-07.2 · NFR-SAF-1</span></div>
+      <div class="scroll"><table class="tbl wrap">
+        <thead><tr><th scope="col">Target</th><th scope="col">Kind</th><th scope="col">Required label</th><th scope="col">Health URL</th><th scope="col"><span class="skip">Action</span></th></tr></thead>
+        <tbody>
+          <tr><td>ledger-db</td><td>container</td><td class="mono">rai.target=ledger-db</td><td>—</td><td><button class="btn sm danger" type="button">Remove</button></td></tr>
+          <tr><td>ledger-db-proxy</td><td>proxy</td><td class="mono">rai.target=ledger-db-proxy</td><td>—</td><td><button class="btn sm danger" type="button">Remove</button></td></tr>
+          <tr><td>payments-api</td><td>container</td><td class="mono">rai.target=payments-api</td><td class="mono">http://payments-api:8000/health</td><td><button class="btn sm danger" type="button">Remove</button></td></tr>
+          <tr><td>payments-ledger</td><td>http</td><td>—</td><td class="mono">http://payments-api:8000/v1/ledger/head</td><td><button class="btn sm danger" type="button">Remove</button></td></tr>
+        </tbody></table></div>
+      <p class="small">Targets are added or removed, never edited. Every change is audited.</p>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Environments</h2><span class="tag">NFR-SAF-1</span></div>
+      <div class="box row"><span><b>SANDBOX-01</b><span class="small" style="display:block">sandbox · ceiling 15 min</span></span><span class="pill pass">✓ active</span></div>
+      <div class="box row"><span><b>STAGING-01</b><span class="small" style="display:block">staging · ceiling 30 min</span></span><span class="pill pass">✓ active</span></div>
+      <div class="box row"><span><b>SANDBOX-OLD</b><span class="small" style="display:block">sandbox · no new targets</span></span><span class="pill neutral">⊘ retired</span></div>
+      <label class="field">Type<select><option>sandbox</option><option>staging</option></select></label>
+      <div class="sunk small">There is no production type, and names containing PROD are refused: production cannot be registered (Data Model §5). Ceiling: default 15 min, at most 60.</div>
+    </div>
+  </section>
+</section>
+
+    </main>
+  </div>
+</div>
+
+<script>
+(function () {
+  var themes = ["midnight", "clarity", "evergreen", "contrast"];
+  var params = new URLSearchParams(location.search);
+  var root = document.documentElement;
+  var select = document.getElementById("theme");
+  function store(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* no storage */ } }
+  function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function setTheme(t) {
+    if (themes.indexOf(t) < 0) t = "midnight";
+    root.setAttribute("data-theme", t); select.value = t; store("rai-wf-theme", t);
+  }
+  setTheme(params.get("theme") || load("rai-wf-theme") || "midnight");
+  select.addEventListener("change", function () { setTheme(select.value); });
+
+  var shell = document.querySelector("[data-shell]");
+  var role = document.querySelector("[data-role]"), initials = document.querySelector("[data-initials]");
+  function show() {
+    var id = (location.hash || "").slice(1) || params.get("screen") || "dashboard";
+    var screens = document.querySelectorAll("[data-screen]"), found = null;
+    screens.forEach(function (s) { var on = s.getAttribute("data-screen") === id; s.hidden = !on; if (on) found = s; });
+    if (!found) { id = "dashboard"; found = document.querySelector('[data-screen="dashboard"]'); found.hidden = false; }
+    shell.hidden = id === "signin";
+    role.textContent = found.getAttribute("data-role") || "Reviewer";
+    initials.textContent = found.getAttribute("data-initials") || "RV";
+    document.querySelectorAll(".nav").forEach(function (a) {
+      if (a.getAttribute("href") === "#" + id) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+    document.title = "RAI wireframes · " + (found.getAttribute("data-title") || "Sign in");
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener("hashchange", show);
+  show();
+})();
+</script>
+</body>
+</html>
