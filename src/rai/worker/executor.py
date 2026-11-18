@@ -62,7 +62,13 @@ from sqlalchemy import Connection, Engine, text
 
 from rai.connectors import ConnectorError, connector
 from rai.core.runs import TERMINAL, PinnedItem, Pins
-from rai.core.scenarios import FaultSpec, RecoveryPlan, ScenarioDefinition, latest_decision
+from rai.core.scenarios import (
+    FaultSpec,
+    RecoveryPlan,
+    ScenarioDefinition,
+    latest_decision,
+    scenario_ref,
+)
 from rai.core.tenancy import set_context
 from rai.lineage.digest import frame_digest
 from rai.recovery.measure import Head, Sample, rpo, rto
@@ -206,7 +212,7 @@ def _scenario_problems(
     if decision is None or decision.decision != "approve":
         return None, ["the scenario's approval was withdrawn after the run was queued"]
     definition = ScenarioDefinition(blast_radius=scenario.blast_radius, faults=scenario.faults)
-    specs = tuple(definition.specs())
+    specs = tuple(definition.specs(scenario_ref(scenario.scenario_id, scenario.version)))
     problems: list[str] = []
     for n, spec in enumerate(specs, start=1):
         _, found = fault_preflight(

@@ -49,6 +49,9 @@ class FaultSpec(ScenarioFault):
     """One fault with the scenario's blast radius: what the worker checks and signs."""
 
     blast_radius: tuple[str, ...] = Field(min_length=1, max_length=MAX_BLAST_RADIUS)
+    # B-27: the scenario version the fault belongs to ("<scenario_id>@<version>"), signed
+    # so the agent can hold every fault of one scenario step to one radius.
+    scenario: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def _inside(self) -> FaultSpec:
@@ -111,9 +114,17 @@ class ScenarioDefinition(BaseModel):
                 )
         return self
 
-    def specs(self) -> list[FaultSpec]:
+    def specs(self, scenario: str | None = None) -> list[FaultSpec]:
+        """One spec per fault, each carrying the whole radius and the scenario's identity."""
         radius = tuple(sorted(self.blast_radius))
-        return [FaultSpec(**f.model_dump(), blast_radius=radius) for f in self.faults]
+        return [
+            FaultSpec(**f.model_dump(), blast_radius=radius, scenario=scenario) for f in self.faults
+        ]
+
+
+def scenario_ref(scenario_id: UUID, version: int) -> str:
+    """How a scenario version is named in signed fault requests (B-27)."""
+    return f"{scenario_id}@{version}"
 
 
 def _is_name(name: str) -> bool:

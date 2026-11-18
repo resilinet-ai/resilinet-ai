@@ -80,7 +80,7 @@ class PreparedFault:
             "jitter_ms": spec.jitter_ms, "network": spec.network, "run_id": str(self.run_id),
             "step_key": self.step_key, "tenant_id": str(self.tenant_id),
             "environment": self.environment, "max_duration_seconds": self.ceiling_seconds,
-            "blast_radius": sorted(spec.blast_radius),
+            "blast_radius": sorted(spec.blast_radius), "scenario": spec.scenario,
         }  # fmt: skip
 
 

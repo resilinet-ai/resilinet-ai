@@ -223,6 +223,7 @@ def test_the_worker_runs_an_approved_scenario(
     faults = chaos.agent.state.load().values()
     assert {f.request.step_key for f in faults} == {"item-1.fault-1", "item-1.fault-2"}
     assert all(f.request.run_id == run["run_id"] for f in faults)
+    assert {f.request.scenario for f in faults} == {f"{sid}@1"}  # B-27: signed identity
 
 
 def test_a_retry_after_a_crash_injects_nothing_twice(
