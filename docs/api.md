@@ -260,6 +260,40 @@ uv run rai worker            # or: rai worker --once
 - **`recovery.rpo_truth`** is the run's first fault onset minus the earliest *acknowledged* write that the ledger no longer holds. It's 0 s if nothing was lost, and never negative. Without a fault in the run, a loss can't be dated (`seconds: null`).
 - **The step fails** if any acknowledged write was lost, if the RPO exceeds `objective_seconds`, or if the ledger's own account in the same run (`recovery.rpo`) disagrees about whether anything was lost. The observation shows both (`measured`), so a system that reports a healthy ledger head while dropping writes is caught.
 
+## Findings
+
+A finding records a defect a run observed (FR-10.1). It cites the failing or errored observation it came from (run, step, rule), and has a severity, an owner and, once someone works on it, a fix reference.
+
+| Endpoint | Write roles | Notes |
+| --- | --- | --- |
+| `POST /v1/projects/{id}/findings` | engineer, reviewer, admin | `{"run_id", "step_key", "rule", "title", "severity", "description"?, "owner_id"?}`; the owner defaults to you |
+| `GET /v1/projects/{id}/findings` | | Oldest first; `?status=open\|closed\|dismissed`, `?severity=critical\|high\|medium\|low` |
+| `GET /v1/findings/{id}` | | |
+| `PATCH /v1/findings/{id}` | engineer, reviewer, admin | Owner (a member), `fix_ref`, description; open findings only |
+| `POST /v1/findings/{id}/retest` | engineer, reviewer, admin | `{"run_id"}`: closes the finding if the run passes the rule |
+| `POST /v1/findings/{id}/dismiss` | reviewer, admin | `{"reason"}`; not by the finding's creator |
+
+```bash
+curl -s -X POST "$API/v1/projects/$PROJECT/findings" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"run_id": "'$RUN'", "step_key": "item-1", "rule": "unique_across_batches:txn_id",
+       "title": "Duplicate txn_id in the feed", "severity": "critical"}'
+# 201 {"finding_id": "...", "status": "open", "severity": "critical", "owner_id": "...", ...}
+curl -s -X POST "$API/v1/findings/$FINDING/retest" -H "$AUTH" -d '{"run_id": "'$LATER_RUN'"}'
+# 200 {"status": "closed", "retest_run_id": "...", ...}   or 409 findings.retest_not_passing
+```
+
+- **One finding per observation.** Citing a passing observation is `422 findings.source_not_failing`. Citing an observation that already has a finding is `409 findings.duplicate`, with a `Location` header pointing to the existing one.
+- **Only a passing retest closes a finding.** The retest run must be:
+  - in the same project;
+  - queued after the finding was opened (otherwise `409 findings.retest_too_early`);
+  - finished, passed or failed (otherwise `409 findings.retest_unfinished`);
+  - observing the same rule for the same test, with outcome `pass` and no failure of it (otherwise `409 findings.retest_not_passing`).
+- **Dismissal** ends a finding that is not a defect. It needs a reason and someone other than the creator (`403 findings.self_dismissal`).
+- **Resolved findings never change** (`409 findings.resolved`). Title, severity and source never change either, so a critical finding cannot be quietly downgraded.
+- **Enforced in the database too.** A trigger enforces the same rules, deletes are refused, and every change is an audit entry (`finding.insert`, `finding.update`).
+
+Waivers and the release gate that a critical finding blocks come next (B-33, FR-12.2).
+
 ## Lineage
 
 Lineage records **which data a run actually read**, as SHA-256 digests (FR-04.1).
