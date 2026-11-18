@@ -557,8 +557,9 @@ class Executor:
                 break
             reverted = _moment(body.get("reverted_at")) or datetime.now(UTC)
         missed: list[str] = []
+        measurement: dict[str, Any] | None = None
         if failure is None and step.recovery is not None and onset and reverted:
-            missed = self._measure(job, step, onset, reverted, before)
+            missed, measurement = self._measure(job, step, onset, reverted, before)
         with tenant_transaction(self.engine, job, self.config.name) as conn:
             self._record_step(
                 conn, job, step.item, started,
@@ -566,6 +567,8 @@ class Executor:
                 verdict=None if failure else ("fail" if missed else "pass"),
                 error=failure or ("; ".join(missed) if missed else None),
             )  # fmt: skip
+            if measurement is not None:  # same transaction as the step (B-29)
+                _record_measurement(conn, job, step, measurement)
             if self.before_commit is not None:
                 self.before_commit(step.item.step_key)
 
@@ -593,9 +596,9 @@ class Executor:
     def _measure(
         self, job: Job, step: PreparedScenario, onset: datetime, reverted: datetime,
         before: Head | None,
-    ) -> list[str]:  # fmt: skip
+    ) -> tuple[list[str], dict[str, Any]]:  # fmt: skip
         """Probe until restored (or the window closes), then RTO and RPO as observations.
-        Returns the objectives missed."""
+        Returns the objectives missed, and the row for ``recovery_measurements``."""
         plan = step.recovery
         assert plan is not None  # noqa: S101 - the caller checks
         samples: list[Sample] = []
@@ -633,7 +636,18 @@ class Executor:
             if rpo_observed is not None:
                 self._observe(conn, job, key, "recovery.rpo", "fail" if rpo_missed else "pass",
                               rpo_observed, {"rpo_seconds": plan.rpo_seconds})  # fmt: skip
-        return rto_missed + rpo_missed
+        measurement = {
+            "onset_at": onset, "reverted_at": reverted, "restored_at": measured.restored_at,
+            "rto_seconds": seconds, "rto_objective_seconds": plan.rto_seconds,
+            "rto_met": None if plan.rto_seconds is None else not rto_missed,
+            "rpo_attempted": rpo_observed is not None,
+            "rpo_seconds": None if rpo_observed is None else rpo_observed.get("seconds"),
+            "rpo_objective_seconds": plan.rpo_seconds,
+            "rpo_met": None if plan.rpo_seconds is None else not rpo_missed,
+            "lost_rows": None if rpo_observed is None else rpo_observed.get("lost_rows"),
+            "stable_checks": plan.stable_checks, "window_seconds": plan.window_seconds,
+        }  # fmt: skip
+        return rto_missed + rpo_missed, measurement
 
     @staticmethod
     def _rpo(
@@ -1008,3 +1022,23 @@ def _head_dict(head: Head) -> dict[str, Any]:
 
 def _head_json(head: Head | None) -> dict[str, Any] | None:
     return None if head is None else _head_dict(head)
+
+
+def _record_measurement(
+    conn: Connection, job: Job, step: PreparedScenario, row: dict[str, Any]
+) -> None:
+    """The step's recovery measurement (B-29), insert-only and committed with the step."""
+    scenario = step.item.scenario
+    assert scenario is not None  # noqa: S101 - a scenario step
+    conn.execute(
+        text(
+            "INSERT INTO rai.recovery_measurements (run_id, step_key, scenario_id, onset_at, "
+            "reverted_at, restored_at, rto_seconds, rto_objective_seconds, rto_met, "
+            "rpo_attempted, rpo_seconds, rpo_objective_seconds, rpo_met, lost_rows, "
+            "stable_checks, window_seconds) VALUES (:r, :k, :s, :onset_at, :reverted_at, "
+            ":restored_at, :rto_seconds, :rto_objective_seconds, :rto_met, :rpo_attempted, "
+            ":rpo_seconds, :rpo_objective_seconds, :rpo_met, :lost_rows, :stable_checks, "
+            ":window_seconds)"
+        ),
+        {"r": job.run_id, "k": step.item.step_key, "s": scenario.scenario_id, **row},
+    )
