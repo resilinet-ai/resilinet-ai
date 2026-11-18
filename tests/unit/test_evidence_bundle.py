@@ -1,4 +1,5 @@
-"""Evidence bundles: deterministic bytes and a manifest that catches changes (B-34: FR-13.1)."""
+"""Evidence bundles: deterministic bytes, a manifest and a signature that catch changes
+(B-34: FR-13.1; B-35: FR-13.2)."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ import json
 import zipfile
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -98,3 +100,71 @@ def test_verify_names_every_change() -> None:
     assert evidence.verify(b"not a zip").problems == ("not a ZIP file",)
     flat = {k.split("/", 1)[1]: v for k, v in files.items()}
     assert evidence.verify(rezip(flat)).problems == ("members must sit in one folder",)
+
+
+# ---- signatures (B-35: FR-13.2) --------------------------------------------------------------
+
+
+SIGNER = evidence.EvidenceSigner.generate()
+
+
+def trusted(*signers: evidence.EvidenceSigner) -> list[Any]:
+    return [evidence.public_key_from_text(s.public_key) for s in signers]
+
+
+def test_a_signed_bundle_is_still_deterministic_and_its_manifest_still_checks() -> None:
+    first, second = evidence.build(RUN, MEMBERS, SIGNER), evidence.build(RUN, MEMBERS, SIGNER)
+    assert first.data == second.data  # Ed25519 signatures are deterministic
+    assert first.key_id == SIGNER.key_id
+    assert evidence.verify(first.data).ok  # signature.json is outside the manifest
+    names = list(members(first.data))
+    assert names[-2:] == [f"rai-evidence-{RUN}/manifest.json", f"rai-evidence-{RUN}/signature.json"]
+    with pytest.raises(ValueError, match="signature"):
+        evidence.build(RUN, {"signature.json": {}})
+
+
+def test_only_a_valid_signature_by_a_trusted_key_is_trusted() -> None:
+    signed = evidence.build(RUN, MEMBERS, SIGNER).data
+    assert evidence.check_signature(signed, trusted(SIGNER)).status == "trusted"
+    untrusted = evidence.check_signature(signed, trusted(evidence.EvidenceSigner.generate()))
+    assert (untrusted.status, untrusted.key_id) == ("untrusted", SIGNER.key_id)
+    assert evidence.check_signature(signed).status == "untrusted"  # no key given
+    assert evidence.check_signature(evidence.build(RUN, MEMBERS).data).status == "unsigned"
+
+
+def test_a_changed_manifest_or_signature_is_invalid() -> None:
+    files = members(evidence.build(RUN, MEMBERS, SIGNER).data)
+    root = f"rai-evidence-{RUN}"
+    # Someone edits a member and rewrites the manifest to match: the signature breaks.
+    run = files[f"{root}/run.json"].replace(b"passed", b"failed")
+    manifest = json.loads(files[f"{root}/manifest.json"])
+    for entry in manifest["files"]:
+        if entry["path"] == "run.json":
+            entry.update(sha256=evidence.sha256(run), bytes=len(run))
+    forged = files | {f"{root}/run.json": run,
+                      f"{root}/manifest.json": evidence.canonical_json(manifest)}  # fmt: skip
+    assert evidence.verify(rezip(forged)).ok  # the manifest alone cannot tell
+    check = evidence.check_signature(rezip(forged), trusted(SIGNER))
+    assert (check.status, check.detail) == ("invalid", "the signature is for another manifest")
+    # ... and re-signing it with their own key makes it valid, but not trusted.
+    other = evidence.EvidenceSigner.generate()
+    resigned = forged | {f"{root}/signature.json": evidence.canonical_json(
+        other.sign(evidence.canonical_json(manifest)))}  # fmt: skip
+    assert evidence.check_signature(rezip(resigned), trusted(SIGNER)).status == "untrusted"
+    # A signature over the right manifest hash, but the wrong bytes, does not verify.
+    envelope = json.loads(files[f"{root}/signature.json"])
+    envelope["signature"] = other.sign(files[f"{root}/manifest.json"])["signature"]
+    swapped = files | {f"{root}/signature.json": evidence.canonical_json(envelope)}
+    assert evidence.check_signature(rezip(swapped), trusted(SIGNER)).detail == (
+        "the signature does not verify")  # fmt: skip
+    garbled = files | {f"{root}/signature.json": b"{}"}
+    assert evidence.check_signature(rezip(garbled)).status == "invalid"
+
+
+def test_keys_must_be_ed25519() -> None:
+    assert evidence.EvidenceSigner.from_pem(SIGNER.pem()).key_id == SIGNER.key_id
+    with pytest.raises(evidence.EvidenceKeyError):
+        evidence.EvidenceSigner.from_pem(b"not a key")
+    with pytest.raises(evidence.EvidenceKeyError):
+        evidence.public_key_from_text("c2hvcnQ=")  # 5 bytes
+    assert "PRIVATE" not in repr(SIGNER)

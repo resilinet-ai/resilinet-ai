@@ -161,6 +161,33 @@ def chaos_keygen_command(
     print(signer.public_key)  # stdout carries only the public key, for scripts
 
 
+@admin_app.command("evidence-keygen")
+def evidence_keygen_command(
+    out: Annotated[
+        Path, typer.Option(help="Where to write the API's private key (PEM); must not exist")
+    ],
+) -> None:
+    """Make the API's Ed25519 key for signing evidence bundles (B-35: FR-13.2).
+
+    Writes the private key to OUT (owner-only permissions) for RAI_EVIDENCE_SIGNING_KEY
+    (file:OUT), and prints the public key alone on stdout: publish it where verifiers
+    can trust it, for ``rai verify --key``.
+    """
+    from rai.core.evidence import EvidenceSigner
+
+    if out.exists():
+        errors.print(f"error: {out} exists; a key is never overwritten")
+        raise typer.Exit(2)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    signer = EvidenceSigner.generate()
+    descriptor = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(signer.pem())
+    errors.print(f"private key written to {out} (key id {signer.key_id}); "
+                 f"set RAI_EVIDENCE_SIGNING_KEY=file:{out.resolve().as_posix()}")  # fmt: skip
+    print(signer.public_key)  # stdout carries only the public key, for scripts
+
+
 def worker_command(
     once: Annotated[bool, typer.Option(help="Process at most one job, then exit")] = False,
     poll: Annotated[float, typer.Option(help="Seconds between polls when idle")] = 2.0,

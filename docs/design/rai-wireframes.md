@@ -40,7 +40,7 @@ The wireframe set is one self-contained page, [`wireframes/rai-wireframes.html`]
 | W03 | Chaos scenarios: definition and review | M07, M12 | FR-07.1, FR-07.2, NFR-SAF-1, NFR-AUD-1 | `GET /v1/scenarios/{id}`, `POST /v1/scenarios/{id}/approvals` |
 | W04 | Contracts & data | M02, M03, M05 | FR-02.1, FR-02.3, FR-03.1–03.4, FR-05.1 | assets and contracts; connectors from operator configuration |
 | W05 | Approvals & gates | M10, M12 | FR-10.1, FR-12.1, FR-12.2 | findings: `/v1/projects/{id}/findings`, `/v1/findings/{id}/retest`; waivers: `/v1/findings/{id}/waivers`, `/v1/waivers/{id}/decisions`; gate: `/v1/projects/{id}/gate` |
-| W06 | Evidence | M13 | FR-13.1, FR-13.2, NFR-AUD-2 | `GET /v1/assurance/runs/{id}/evidence`; signature and `rai verify` *planned* (B-35) |
+| W06 | Evidence | M13 | FR-13.1, FR-13.2, NFR-AUD-2 | `GET /v1/assurance/runs/{id}/evidence`, `GET /v1/evidence/public-key`; `rai verify` |
 | W07 | Environments (admin) | M01, M07 | FR-07.2, NFR-SAF-1 | `/v1/environments`, `/v1/environments/{id}/targets` |
 | W08 | Recovery | M08 | FR-08.1, FR-08.2, FR-08.3 | `GET /v1/assurance/recovery`; consistency from observations |
 | W09 | Models & drift | M09 | FR-09.1, FR-09.2 | *planned* |
@@ -79,7 +79,7 @@ Rules, severities and limits are those of `contracts/sandboxbank/transactions_ra
 
 ![W05 Approvals and gates](wireframes/png/approvals.png)
 
-### W06. Evidence *(planned API)*
+### W06. Evidence
 
 ![W06 Evidence export](wireframes/png/evidence.png)
 

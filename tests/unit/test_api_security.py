@@ -22,6 +22,7 @@ from rai.api.tokens import (
     refresh_hash,
 )
 from rai.cli.main import app
+from rai.core.evidence import EvidenceSigner
 from rai.core.passwords import WeakPassword, hash_password, verify_password
 
 SECRET = secrets.token_urlsafe(48)  # a fresh signing key per test run
@@ -81,7 +82,8 @@ def test_refresh_tokens_are_random_and_stored_only_as_hashes() -> None:
 
 
 def test_settings_from_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    for name in ("RAI_API_DATABASE_URL", "RAI_JWT_SECRET", "RAI_JWT_SECRET_FILE"):
+    for name in ("RAI_API_DATABASE_URL", "RAI_JWT_SECRET", "RAI_JWT_SECRET_FILE",
+                 "RAI_EVIDENCE_SIGNING_KEY"):  # fmt: skip
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(SettingsError, match="RAI_API_DATABASE_URL"):
         Settings.from_env()
@@ -127,3 +129,29 @@ def test_failure_limiter_slides_and_clears() -> None:
     limiter.fail("a")
     limiter.clear("a")
     assert limiter.retry_after("a") is None
+
+
+def test_the_evidence_signing_key_comes_from_a_secret_reference(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """B-35: RAI_EVIDENCE_SIGNING_KEY names the key; without it bundles are unsigned."""
+    monkeypatch.setenv("RAI_API_DATABASE_URL", "postgresql://rai_api@localhost/rai")
+    monkeypatch.setenv("RAI_JWT_SECRET", SECRET)
+    monkeypatch.delenv("RAI_JWT_SECRET_FILE", raising=False)
+    monkeypatch.delenv("RAI_EVIDENCE_SIGNING_KEY", raising=False)
+    assert Settings.from_env().evidence_signer is None
+    signer = EvidenceSigner.generate()
+    key_file = tmp_path / "evidence.pem"
+    key_file.write_bytes(signer.pem())
+    monkeypatch.setenv("RAI_EVIDENCE_SIGNING_KEY", f"file:{key_file.as_posix()}")
+    settings = Settings.from_env()
+    assert settings.evidence_signer is not None
+    assert settings.evidence_signer.key_id == signer.key_id
+    assert "PRIVATE" not in repr(settings)
+    monkeypatch.setenv("RAI_EVIDENCE_SIGNING_KEY", key_file.as_posix())  # not a reference
+    with pytest.raises(SettingsError, match="RAI_EVIDENCE_SIGNING_KEY"):
+        Settings.from_env()
+    key_file.write_text("not a key", encoding="utf-8")
+    monkeypatch.setenv("RAI_EVIDENCE_SIGNING_KEY", f"file:{key_file.as_posix()}")
+    with pytest.raises(SettingsError, match="readable PEM"):
+        Settings.from_env()

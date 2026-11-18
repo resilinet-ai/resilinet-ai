@@ -90,7 +90,7 @@ Workers read data only through connectors the operator configures (`RAI_WORKER_C
 
 - **Audit chain:** every state change appends a hash-chained entry computed in the database, under a per-tenant advisory lock; a trigger refuses UPDATE, DELETE and TRUNCATE even from the owner. An independent Python verifier recomputes the chain (`docs/audit-chain.md`).
 - **Append-only results:** observations, run steps, lineage edges and scenario approvals are insert-only.
-- **Evidence bundle** (FR-13): a deterministic export of a finished run with a SHA-256 manifest and an audit-chain anchor, the run's last audit entry (B-34). The signature and `rai verify` are *planned (B-35)*.
+- **Evidence bundle** (FR-13): a deterministic export of a finished run with a SHA-256 manifest and an audit-chain anchor, the run's last audit entry (B-34), and an Ed25519 signature over the manifest, checked offline by `rai verify` against a pinned public key (B-35).
 
 ## 9. Deployment
 
