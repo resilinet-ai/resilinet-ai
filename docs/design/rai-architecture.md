@@ -83,7 +83,7 @@ Workers read data only through connectors the operator configures (`RAI_WORKER_C
 - **Users:** Argon2id passwords; a 15-minute HS256 access JWT naming only the user; an opaque refresh token, rotated on use, stored as SHA-256.
 - **Tenancy:** row-level security on every tenant table, keyed on a transaction-local `app.tenant_id`. The API connects as a login role that only has `rai_app` (no BYPASSRLS) and refuses to start as the schema owner.
 - **CI:** project API keys `rai_<prefix>_<secret>`, only the SHA-256 stored, with scopes, expiry and per-key rate limits.
-- **Transport:** private Docker networks on one host for the MVP; TLS through Caddy is planned (B-36).
+- **Transport:** HTTPS only at the edge: Caddy terminates TLS (its local CA, or ACME on a public name) and is the only published port; the API sits on an internal network shared only with Caddy and trusts forwarded addresses only from it (B-36, `docs/deployment.md`). Inside the host, private Docker networks; mTLS is the upgrade path.
 - The full STRIDE register (35 threats) is `docs/threat-model.md`.
 
 ## 8. Evidence and audit
@@ -94,7 +94,7 @@ Workers read data only through connectors the operator configures (`RAI_WORKER_C
 
 ## 9. Deployment
 
-One Docker Compose file (`compose.yaml`) with profiles: `core` (the RAI database and services) and `sandbox` (SandboxBank). Toxiproxy, the socket proxy, the chaos agent and the watchdog join for chaos runs. The whole stack fits an 8 GB laptop (NFR-REP-2). Images run as non-root users with no privileged containers. Self-hosted only for the MVP (ADR-009).
+One Docker Compose file (`compose.yaml`) with profiles: `core` (the RAI database, the API and Caddy; B-36) and `sandbox` (SandboxBank). Toxiproxy, the socket proxy, the chaos agent and the watchdog join for chaos runs. The whole stack fits an 8 GB laptop (NFR-REP-2). Images run as non-root users with no privileged containers. Self-hosted only for the MVP (ADR-009).
 
 ## 10. Decisions
 

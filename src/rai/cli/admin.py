@@ -219,8 +219,20 @@ def worker_command(
 def serve_command(
     host: Annotated[str, typer.Option(help="Address to bind")] = "127.0.0.1",
     port: Annotated[int, typer.Option(help="Port")] = 8000,
+    forwarded_allow_ips: Annotated[
+        str | None,
+        typer.Option(
+            envvar="RAI_FORWARDED_ALLOW_IPS",
+            help="Addresses of the TLS proxy (comma-separated IPs or CIDRs) whose "
+            "X-Forwarded-For and X-Forwarded-Proto to trust. Default: trust none.",
+        ),
+    ] = None,
 ) -> None:
-    """Run the API (needs RAI_API_DATABASE_URL and RAI_JWT_SECRET)."""
+    """Run the API (needs RAI_API_DATABASE_URL and RAI_JWT_SECRET).
+
+    Behind a proxy (B-36: Caddy), pass its address with --forwarded-allow-ips so the
+    per-address login limit sees each client, not the proxy. Never "*": any caller
+    could then claim any address."""
     import uvicorn
 
     from rai.api.app import create_app
@@ -231,4 +243,11 @@ def serve_command(
     except SettingsError as error:
         errors.print(f"error: {error}")
         raise typer.Exit(2) from None
-    uvicorn.run(application, host=host, port=port, proxy_headers=False, server_header=False)
+    trusted = [a.strip() for a in (forwarded_allow_ips or "").split(",") if a.strip()]
+    if "*" in trusted:
+        errors.print("error: --forwarded-allow-ips must name the proxy, not '*'")
+        raise typer.Exit(2)
+    uvicorn.run(
+        application, host=host, port=port, server_header=False,
+        proxy_headers=bool(trusted), forwarded_allow_ips=trusted or None,
+    )  # fmt: skip

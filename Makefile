@@ -1,4 +1,4 @@
-.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e
+.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e tls-e2e
 
 setup:
 	uv sync --all-packages
@@ -48,3 +48,18 @@ chaos-e2e:
 	key="$$(mktemp -d)/worker.pem"; export RAI_CHAOS_E2E_KEY="$$key" COMPOSE_PROJECT_NAME=rai-chaos-e2e; \
 	RAI_AGENT_WORKER_KEYS="$$(uv run rai admin chaos-keygen --out "$$key")" ETL_INTERVAL_SECONDS=2 RAI_WATCHDOG_GRACE_SECONDS=3 docker compose --profile sandbox --profile chaos up -d --build --wait \
 	&& uv run python scripts/chaos_e2e.py; status=$$?; docker compose --profile sandbox --profile chaos down -v; exit $$status
+
+# NFR-SEC-2: the core profile behind Caddy, with throwaway credentials in a separate compose
+# project (B-36): migrate, set the API role's password, start rai-api and Caddy, then check
+# HTTPS, the headers, no plain HTTP and no direct port to rai-api.
+tls-e2e:
+	secret() { uv run python -c 'import secrets; print(secrets.token_urlsafe(36))'; }; \
+	export COMPOSE_PROJECT_NAME=rai-tls-e2e RAI_DB_PASSWORD="$$(secret)" RAI_API_DB_PASSWORD="$$(secret)" RAI_JWT_SECRET="$$(secret)"; \
+	export RAI_DATABASE_URL="postgresql://rai:$$RAI_DB_PASSWORD@127.0.0.1:55431/rai"; \
+	export LEDGER_DB_PASSWORD=unused ANALYTICS_DB_PASSWORD=unused; \
+	status=0; docker compose --profile core up -d --wait rai-db \
+	&& uv run rai db upgrade && uv run rai db set-api-password \
+	&& docker compose --profile core up -d --build --wait \
+	&& uv run python scripts/tls_e2e.py || status=$$?; \
+	[ $$status -eq 0 ] || docker compose --profile core logs --tail 40 rai-api caddy; \
+	docker compose --profile core down -v; exit $$status

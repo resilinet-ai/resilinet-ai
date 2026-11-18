@@ -1,0 +1,37 @@
+# Caddy in front of rai-api (B-36: NFR-SEC-2; threats I-06, TB1).
+#
+# * HTTPS only. The container listens on 443 and nothing else: no plain-HTTP listener,
+#   so no redirect either; a client that sends HTTP to the TLS port gets an error.
+# * RAI_SITE_ADDRESS is the name clients use (default localhost). RAI_TLS is "internal"
+#   (Caddy's own local CA: development and air-gapped installs) or an email address for
+#   ACME certificates on a public name, obtained through the TLS-ALPN challenge on 443.
+# * Caddy replaces any X-Forwarded-For a client sends with the client's real address
+#   (no trusted_proxies here), and rai-api trusts that header only from Caddy's fixed
+#   address on edge_net (rai serve --forwarded-allow-ips), so the per-address login
+#   limit sees real clients.
+{
+	admin off
+	auto_https disable_redirects
+	skip_install_trust # clients trust the root explicitly; the container has no trust store to change
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$RAI_SITE_ADDRESS:localhost} {
+	tls {$RAI_TLS:internal}
+
+	request_body {
+		max_size 2MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy rai-api:8000
+}
