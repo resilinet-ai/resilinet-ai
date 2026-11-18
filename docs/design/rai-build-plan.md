@@ -65,7 +65,7 @@
 | B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |
 | B-31, B-32 | Not recoverable | — | — |
 | B-33 | Waivers with expiry on blocking findings, and the release gate (FR-12.2) | FR-12.1, FR-12.2 | Done |
-| B-34 | Evidence bundle with SHA-256 manifest and audit-chain head (FR-13.1) | FR-13.1 | Planned |
+| B-34 | Evidence bundle with SHA-256 manifest and audit-chain head (FR-13.1) | FR-13.1 | Done |
 | B-35 | Signed manifest and `rai verify` (FR-13.2) | FR-13.2 | Planned |
 | B-36 | TLS through Caddy (NFR-SEC-2) | NFR-SEC-2 | Planned |
 | B-37 | Persistent synthetic-data banner in the UI (FR-11.2) | FR-11.2 | Planned |
@@ -74,7 +74,7 @@
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
-Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3 and FR-10.1 (built, number not recorded), FR-09.1–09.3, FR-11.1, FR-14.1, NFR-SAF-2, NFR-USE-1, NFR-USE-2, NFR-OPS-1 and NFR-LIC-1. FR-13.1, FR-13.2 and NFR-SEC-2 have planned items above (B-34 to B-36) that the matrix does not record yet.
+Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3 and FR-10.1 (built, number not recorded), FR-09.1–09.3, FR-11.1, FR-14.1, NFR-SAF-2, NFR-USE-1, NFR-USE-2, NFR-OPS-1 and NFR-LIC-1. FR-13.2 and NFR-SEC-2 have planned items above (B-35, B-36) that the matrix does not record yet.
 
 ## 5. First runnable slice: acceptance
 

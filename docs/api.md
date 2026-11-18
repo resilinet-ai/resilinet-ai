@@ -408,6 +408,33 @@ uv run rai run --plan ci-contracts          # a plan name runs its newest versio
 
 Make the job a **required status check** on the branch, and a failing contract blocks the pull request. Outputs: `run-id`, `state`, `verdict`, `gate` (`pass` or `blocked`). This repository's CI job "CI gate" runs the action against a live API and worker on every pull request: a clean plan must pass, and a plan whose batch re-sends rows must fail.
 
+## Evidence
+
+`GET /v1/assurance/runs/{id}/evidence` exports a finished run's **evidence bundle**: a ZIP file to keep, or to hand to someone who does not use RAI (FR-13.1). Any member can export it, and so can an API key with `runs:read`, for its own project.
+
+```bash
+curl -s -OJ "$API/v1/assurance/runs/$RUN/evidence" -H "$AUTH"
+# rai-evidence-<run_id>.zip      X-RAI-Manifest-SHA256: 3e7a...
+```
+
+| Member (under `rai-evidence-<run_id>/`) | Contents |
+| --- | --- |
+| `bundle.json` | Format `rai-evidence/1`, the scope (tenant, project, run), counts, what is excluded, the audit-chain **anchor**, and the tamper-evidence statement |
+| `run.json` | The run, with the pins it executed from (plan version, definitions, environment) |
+| `steps.json`, `observations.json` | Every step and every observation, with the values observed and expected |
+| `lineage.json` | Every lineage edge, with the SHA-256 digest of the data the worker read |
+| `recovery.json` | Recovery measurements (B-29), for chaos runs |
+| `approvals.json` | The scenario approvals the run was pinned to: who approved, when |
+| `audit.json` | The run's own audit-chain entries, with `prev_hash` and `record_hash` |
+| `manifest.json` | The SHA-256 and size of every other member |
+
+- **Deterministic.** Members are canonical JSON (sorted keys, no spaces, UTF-8, times in UTC with microseconds), stored uncompressed in a fixed order with a fixed date and permissions. Two exports of the same run are byte-identical, on any platform and at any time.
+- **Only a finished run** (`passed`, `failed`, `refused`, `aborted` or `error`) has a bundle; earlier it is `409 evidence.run_unfinished`. A finished run's results never change.
+- **Anchor.** `bundle.json` records the `seq` and `record_hash` of the run's last audit entry. If the audit chain is later rewritten at or before that entry, the live hash no longer matches the anchor (threat T-02). The anchor is the run's own entry, not the chain's head, because the head moves with every change and would make each export different.
+- **Not included:** synthetic data (only its digests) and secret values (pins hold secret references only).
+- **Each export is audited** (`evidence.export`), with who took it and the manifest's SHA-256, which is also the `X-RAI-Manifest-SHA256` header.
+- **Tamper-evident, not tamper-proof** (NFR-AUD-2). The manifest shows whether a member changed after export; it does not show that the recorded facts were true. The manifest is not signed yet: B-35 adds an Ed25519 signature and `rai verify` (FR-13.2). Until then, compare the manifest's SHA-256 with the one recorded in the audit chain.
+
 ## Errors
 
 Every error is RFC 9457 problem details (`application/problem+json`) with a stable `code`, for example `auth.invalid_credentials`, `tenant.not_found` or `members.last_admin`. Validation errors list each problem in `errors`. Request bodies over 1 MiB are refused with `413`.

@@ -5,7 +5,7 @@ RAI records every state change in `rai.audit_chain`, with one hash chain per ten
 ## What a valid chain proves, and what it doesn't (NFR-AUD-2)
 
 - **It proves** that the stored entries have not been edited, removed, reordered or replayed since they were chained.
-- **It is tamper-evident, not tamper-proof.** Someone with database superuser rights could rewrite an entry *and every hash after it*. Comparing the current chain head with a head exported earlier (for example, the `chain_head_hash` in an evidence bundle) exposes that.
+- **It is tamper-evident, not tamper-proof.** Someone with database superuser rights could rewrite an entry *and every hash after it*. Comparing the current chain head with a head exported earlier (for example, the `anchor` in an evidence bundle, `docs/api.md`) exposes that.
 - **It does not prove** that the recorded facts were true. It only shows they weren't changed after being recorded.
 
 ## How entries are chained
