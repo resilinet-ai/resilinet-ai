@@ -58,6 +58,7 @@ A contract version's identity is the **SHA-256 of its canonical JSON** form. Run
 | `run_steps` | one row per plan item: state (`done`, `error`), verdict, error, attempt; primary key (run, step) so a step is recorded once |
 | `observations` | kind (`rule_result`, `metric`, `refused`, `note`), rule, outcome (`pass`, `fail`, `error`, `skipped`), observed value, expected, row and failing counts; unique per (run, step, rule) |
 | `lineage_edges` | step, from asset (or a named reference dataset), to asset (or the run), SHA-256 of each side's frame (`rai-frame-digest/1`), rows, transform ref |
+| `recovery_measurements` | one per scenario step that measured recovery (B-29): scenario, method, onset, revert and restoration times, RTO and RPO with their objectives and whether each was met, ledger rows lost; unique per (run, step), foreign key to its `run_steps` row, insert-only |
 
 `lineage_edges` gained `step_key`, `from_name` and `from_rows` relative to v0.1, so a reference dataset can be an input and each edge names the step that read it.
 
@@ -98,6 +99,7 @@ A contract version's identity is the **SHA-256 of its canonical JSON** form. Run
 | Environments | `GET, POST /v1/environments`; `GET, PATCH /v1/environments/{id}`; `GET, POST /v1/environments/{id}/targets`; `DELETE .../targets/{target_id}` |
 | Scenarios | `GET, POST /v1/projects/{id}/scenarios`; `GET /v1/scenarios/{id}`; `POST /v1/scenarios/{id}/approvals` |
 | Runs | `POST, GET /v1/assurance/runs`; `GET /v1/assurance/runs/{id}`; `.../observations`; `.../lineage` |
+| Recovery | `GET /v1/assurance/recovery` (measurements and attainment for a project and window) |
 | *Planned* | findings and waivers (FR-10, FR-12.2); evidence export `GET /v1/evidence/{id}/export` (FR-13) |
 
 Sign-in uses Argon2id; the access token is a 15-minute JWT naming only the user; the tenant is chosen per request and checked against memberships. CI uses project API keys (`Authorization: Bearer rai_<prefix>_<secret>`, scopes `runs:start`, `runs:read`).

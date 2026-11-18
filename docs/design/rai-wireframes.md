@@ -42,7 +42,7 @@ The wireframe set is one self-contained page, [`wireframes/rai-wireframes.html`]
 | W05 | Approvals & gates | M10, M12 | FR-10.1, FR-12.1, FR-12.2 | *planned* (B-33) |
 | W06 | Evidence | M13 | FR-13.1, FR-13.2, NFR-AUD-2 | *planned* (B-34, B-35) |
 | W07 | Environments (admin) | M01, M07 | FR-07.2, NFR-SAF-1 | `/v1/environments`, `/v1/environments/{id}/targets` |
-| W08 | Recovery | M08 | FR-08.1, FR-08.2, FR-08.3 | observations `recovery.*`, `consistency.*` |
+| W08 | Recovery | M08 | FR-08.1, FR-08.2, FR-08.3 | `GET /v1/assurance/recovery`; consistency from observations |
 | W09 | Models & drift | M09 | FR-09.1, FR-09.2 | *planned* |
 | W10 | Sign-in and tenant choice | M01 | FR-01.1, NFR-SEC-1 | `POST /v1/auth/login`, `GET /v1/me` |
 

@@ -142,6 +142,7 @@ A run executes one plan version. It **pins every input** when it is queued: the 
 | `GET /v1/assurance/runs/{id}` | | State, verdict, reason, pins, steps, observation counts by outcome |
 | `GET /v1/assurance/runs/{id}/observations` | | One per rule; `?outcome=fail` |
 | `GET /v1/assurance/runs/{id}/lineage` | | Every hop with the SHA-256 of the data read (see [Lineage](#lineage)) |
+| `GET /v1/assurance/recovery` | | Recovery measurements and attainment for `?project_id=` (see [Recovery measurements](#recovery-measurements)) |
 
 **States:** `queued → preflight → running → evaluating → passed | failed`.
 - **`refused`:** preflight found something this worker cannot run. The reason lists every problem.
@@ -151,6 +152,29 @@ A run executes one plan version. It **pins every input** when it is queued: the 
 Finished runs never change; to try again, start a new run.
 
 **`Idempotency-Key`:** sending the same request with the same key returns the same run, which is safe for CI retries. Reusing a key for a different request is `422`.
+
+### Recovery measurements
+
+Every scenario step with a recovery plan records one row in `recovery_measurements`, committed in the same transaction as the step (B-29). The row holds:
+- onset, revert and restoration times;
+- RTO and RPO, each with the objective it was held to and whether it was met;
+- the ledger rows lost.
+
+Rows are insert-only: the database refuses UPDATE, DELETE and TRUNCATE, even from the owner. A correction is a new run.
+
+```bash
+curl -s "$API/v1/assurance/recovery?project_id=$PROJECT&since=2026-10-19T00:00:00Z" -H "$AUTH"
+# {"since": "...", "until": "...", "measurements": 16, "not_restored": 1,
+#  "rto": {"met": 14, "with_objective": 16, "definition": "First fault onset to ..."},
+#  "rpo": {"met": 15, "with_objective": 16, "definition": "0 s if no committed ..."},
+#  "items": [{"run_id": "...", "scenario_name": "ledger-resilience", "rto_seconds": "1452.300",
+#             "rto_objective_seconds": 1800, "rto_met": true, ...}], "truncated": false}
+```
+
+- **Window:** onset in `[since, until)`. The default is the last 30 days; at most 366 days.
+- **Filters:** `?scenario_id=` narrows the measurements; `?limit=` caps the items (at most 200; the counts always cover the whole window).
+- **Denominators:** `with_objective` counts the measurements whose scenario set that objective. A run that was never restored, or whose ledger could not be read after recovery, counts as a miss, not as missing.
+- **API keys:** a key with `runs:read` sees its own project only.
 
 ### The worker
 
