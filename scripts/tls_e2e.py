@@ -7,7 +7,8 @@ core profile (rai-db, rai-api, caddy). It checks, from the host:
 2. the certificate is not trusted without that CA (it is real TLS, not a pass-through);
 3. plain HTTP on the TLS port is not served;
 4. rai-api has no host port: Caddy is the only way in;
-5. the RAI CLI's client reaches the API through Caddy when told the CA (SSL_CERT_FILE).
+5. the RAI CLI's client reaches the API through Caddy when told the CA (SSL_CERT_FILE);
+6. the web UI is served from the same origin, with its Content-Security-Policy.
 
 Usage: python scripts/tls_e2e.py [--url https://localhost:8443]
 """
@@ -83,6 +84,16 @@ def main() -> int:
             results.append(
                 check("no Server header", headers["Server"] is None, str(headers["Server"]))
             )
+
+        page = get(f"{base}/", trusted)
+        html = page.read().decode("utf-8")
+        policy = page.headers["Content-Security-Policy"] or ""
+        results.append(check("web UI on the same origin", '<div id="root">' in html))
+        results.append(check("CSP: this origin only", "default-src 'self'" in policy, policy[:60]))
+        script = html.split('src="', 1)[-1].split('"', 1)[0]
+        asset = get(f"{base}{script}", trusted)
+        served = asset.status == 200 and script.startswith("/assets/")
+        results.append(check("UI script served", served, script))
 
         try:
             get(f"{base}/healthz", ssl.create_default_context())

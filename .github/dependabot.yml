@@ -21,3 +21,12 @@ updates:
     commit-message:
       prefix: build
     open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5
