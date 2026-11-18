@@ -5,7 +5,8 @@
 Renders each Markdown file to HTML (markdown-it-py, already in the lock as a
 dependency of rich) and prints it to PDF with a local headless Chrome or Edge
 (set RAI_CHROME to its path if it is not found). The Markdown is the source of
-truth; the PDFs are exports of it.
+truth; the PDFs are exports of it. Images (the wireframe SVGs) resolve relative to
+docs/design/, as they do on GitHub.
 """
 
 from __future__ import annotations
@@ -47,6 +48,8 @@ pre code { background: none; padding: 0; font-size: 7.5pt; }
 blockquote { margin: 8pt 0; padding: 6pt 10pt; background: #fff7e0;
              border-left: 4px solid #e0a800; }
 tr, li { page-break-inside: avoid; }
+img { display: block; max-width: 100%; height: auto; margin: 4pt 0 10pt;
+      page-break-inside: avoid; }
 .footer { margin-top: 18pt; font-size: 8pt; color: #555; border-top: 1px solid #c9d6df;
           padding-top: 4pt; }
 """
@@ -64,7 +67,7 @@ def render(source: Path, footer: str) -> str:
     title = source.read_text(encoding="utf-8").splitlines()[0].lstrip("# ").strip()
     return (
         f"<!doctype html><html lang='en'><head><meta charset='utf-8'><title>{html.escape(title)}"
-        f"</title><style>{CSS}</style></head><body>{body}"
+        f"</title><base href='{DESIGN.as_uri()}/'><style>{CSS}</style></head><body>{body}"
         f"<div class='footer'>{html.escape(footer)}</div></body></html>"
     )
 

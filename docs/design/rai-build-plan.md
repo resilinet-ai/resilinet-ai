@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Version** | v0.2 (reconstructed draft), 2026-11-17 |
+| **Version** | v0.2 (reconstructed draft), 2026-11-17; aligned with `docs/traceability.csv` 2026-11-18 |
 | **Status** | Draft. **Pending review and approval by the author of record**, Trevor Kauyu (ADR-007) |
 | **Supersedes** | Nothing. The v0.1 original (2026-11-13) has not been found; if it is, it takes precedence over this draft |
 
@@ -30,49 +30,51 @@
 
 ## 4. Backlog
 
-| Item | Scope | Status |
-| --- | --- | --- |
-| B-01 | Repository bootstrap: CI, licence, DCO sign-off | Done |
-| B-02 | Branch protection; SandboxBank generator: seed ranges, SHA-256 manifest, golden hash | Done |
-| B-03 | payments-api and ledger-db: idempotent posting, append-only ledger | Done |
-| B-04 | etl-job and analytics-db (P2) | Done |
-| B-05 | RAI core schema: tenants, RLS, hash-chained audit | Done |
-| B-06 | Threat model v1 (STRIDE) | Done |
-| B-07 | Defect injector for the 12 classes; sealed fixture sets | Done |
-| B-08 | Contract YAML parser and SandboxBank contracts | Done |
-| B-09 | Polars rule engine | Done |
-| B-10 | Duplicates within and across batches | Done |
-| B-11 | Schema drift detection | Done |
-| B-12 | Batch and run verdicts | Done |
-| B-13 | CSV, Parquet and PostgreSQL connectors with secret references | Done |
-| B-14 | `rai validate` and the first runnable slice | Done |
-| B-15 | Benchmark harness (`rai-bench`) | Done |
-| B-16 | API sign-in, tenants, members, RBAC | Done |
-| B-17 | Projects, assets, contracts, test cases, plans | Done |
-| B-18 | Runs, PostgreSQL job queue, worker | Done |
-| B-19 | Lineage with SHA-256 digests | Done |
-| B-20 | Project API keys, `rai run`, GitHub Action gate | Done |
-| B-21 | Baselines B1 and B2 drafted for review | Done |
-| B-22 | Environments and the target allow-list | Done |
-| B-23 | Chaos agent: seven fault types | Done |
-| B-24 | Signed fault requests and the second preflight | Done |
-| B-25 | Independent watchdog and kill-switch drill | Done |
-| B-26 | Chaos scenarios with separated review; B-26b RTO/RPO measurement | Done |
-| B-27 | Scenario-level blast radius; refusal suite | Done |
-| — | Post-recovery consistency checks (FR-08.3; no backlog number recorded) | Done |
-| B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07) | Planned |
-| B-29 | Append-only recovery measurements (threat T-03) | Planned |
-| B-30 | RPO ground truth from a seeding log (threat T-07) | Done |
-| B-31, B-32 | Not recoverable | — |
-| B-33 | Waivers with expiry on blocking findings (FR-12.2) | Planned |
-| B-34 | Evidence bundle with SHA-256 manifest and audit-chain head (FR-13.1) | Planned |
-| B-35 | Signed manifest and `rai verify` (FR-13.2) | Planned |
-| B-36 | TLS through Caddy (NFR-SEC-2) | Planned |
-| B-37 | Persistent synthetic-data banner in the UI (FR-11.2) | Planned |
-| B-38, B-39 | Not recoverable | — |
-| B-40 | Image hardening (SSDF: SBOM, signed images; NFR-SEC-3) | Planned |
+| Item | Scope | Requirements | Status |
+| --- | --- | --- | --- |
+| B-01 | Repository bootstrap: CI, licence, DCO sign-off | NFR-SEC-3 | Done |
+| B-02 | Branch protection; SandboxBank generator: seed ranges, SHA-256 manifest, golden hash | NFR-REP-1 | Done |
+| B-03 | payments-api and ledger-db: idempotent posting, append-only ledger | NFR-REP-2 | Done |
+| B-04 | etl-job and analytics-db (P2) | NFR-REP-2 | Done |
+| B-05 | RAI core schema: tenants, RLS, hash-chained audit | FR-01.1, FR-01.2, NFR-SEC-1, NFR-AUD-2 | Done |
+| B-06 | Threat model v1 (STRIDE) | NFR-SEC-3, NFR-SEC-4 | Done |
+| B-07 | Defect injector for the 12 classes; sealed fixture sets | NFR-REP-1 | Done |
+| B-08 | Contract YAML parser and SandboxBank contracts | FR-03.1, FR-03.4 | Done |
+| B-09 | Polars rule engine | FR-03.1, NFR-PERF-1 | Done |
+| B-10 | Duplicates within and across batches | FR-03.3, NFR-PERF-1 | Done |
+| B-11 | Schema drift detection | FR-03.2 | Done |
+| B-12 | Batch and run verdicts | FR-03.4 | Done |
+| B-13 | CSV, Parquet and PostgreSQL connectors with secret references | FR-02.1, FR-02.3 | Done |
+| B-14 | `rai validate` and the first runnable slice | FR-06.1 | Done |
+| B-15 | Benchmark harness (`rai-bench`) | NFR-REP-1, NFR-PERF-1, NFR-PERF-2 | Done |
+| B-16 | API sign-in, tenants, members, RBAC | FR-01.1, NFR-SEC-1 | Done |
+| B-17 | Projects, assets, contracts, test cases, plans | FR-01.2, FR-03.1, FR-03.4, FR-04.1, FR-06.1, FR-11.2 | Done |
+| B-18 | Runs, PostgreSQL job queue, worker | FR-06.1, FR-06.2, NFR-REP-1 | Done |
+| B-19 | Lineage with SHA-256 digests | FR-04.1, NFR-REP-1 | Done |
+| B-20 | Project API keys, `rai run`, GitHub Action gate | FR-06.1, NFR-SEC-1 | Done |
+| B-21 | Baselines B1 and B2 drafted for review | NFR-REP-1, NFR-PERF-2 | Done |
+| B-22 | Environments and the target allow-list | FR-07.2, NFR-SAF-1 | Done |
+| B-23 | Chaos agent: seven fault types | FR-07.1, FR-07.3, NFR-SAF-1 | Done |
+| B-24 | Signed fault requests and the second preflight | FR-07.1, FR-07.2, NFR-SAF-1 | Done |
+| B-25 | Independent watchdog and kill-switch drill | FR-07.3, NFR-SAF-1 | Done |
+| B-26 | Chaos scenarios with separated review; B-26b RTO/RPO measurement | FR-07.1, FR-07.2, FR-08.1, FR-08.2 | Done |
+| B-27 | Scenario-level blast radius; refusal suite | FR-07.2, NFR-SAF-1 | Done |
+| — | Post-recovery consistency checks (FR-08.3; no backlog number recorded) | FR-08.3 | Done |
+| B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07) | — | Planned |
+| B-29 | Append-only recovery measurements (threat T-03) | — | Planned |
+| B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |
+| B-31, B-32 | Not recoverable | — | — |
+| B-33 | Waivers with expiry on blocking findings (FR-12.2) | FR-12.2 | Planned |
+| B-34 | Evidence bundle with SHA-256 manifest and audit-chain head (FR-13.1) | FR-13.1 | Planned |
+| B-35 | Signed manifest and `rai verify` (FR-13.2) | FR-13.2 | Planned |
+| B-36 | TLS through Caddy (NFR-SEC-2) | NFR-SEC-2 | Planned |
+| B-37 | Persistent synthetic-data banner in the UI (FR-11.2) | FR-11.2 | Planned |
+| B-38, B-39 | Not recoverable | — | — |
+| B-40 | Image hardening (SSDF: SBOM, signed images; NFR-SEC-3) | NFR-SEC-3 | Planned |
 
-Requirements with no backlog number yet: FR-09 (TEVV), FR-10 (findings), FR-11.1 (dashboard), FR-12.1 (named approvals for runs), FR-14 (docs and playbooks), NFR-USE, NFR-OPS. The live status of every requirement is `docs/traceability.csv`.
+The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
+
+Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3 (built, number not recorded), FR-09.1–09.3, FR-10.1, FR-11.1, FR-12.1, FR-14.1, NFR-SAF-2, NFR-AUD-1, NFR-USE-1, NFR-USE-2, NFR-OPS-1 and NFR-LIC-1. FR-12.2, FR-13.1, FR-13.2 and NFR-SEC-2 have planned items above (B-33 to B-36) that the matrix does not record yet.
 
 ## 5. First runnable slice: acceptance
 
