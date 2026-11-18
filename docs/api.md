@@ -220,6 +220,21 @@ uv run rai worker            # or: rai worker --once
   - `consistency.mismatched`: keys whose `compare` columns differ. Rows written after the snapshot don't have to have arrived yet, but they must match once they have.
 - **Each finding is an observation** with its count, up to 10 sample keys, the rounds and the seconds taken. Any finding left at the end makes the step's verdict `fail`. Lineage records the hop with both frames' digests.
 - **Values are compared as the connectors return them (text),** so both sides must render a column the same way (a `numeric(14,2)` on each side does).
+- **`allow_unexpected: true`** still counts target rows the source never had, but records them as `skipped` instead of failing. Use it when the target has other writers too.
+
+**RPO ground truth (B-30).** The ledger-based RPO above relies on the system under test reporting its own ledger head honestly. For ground truth, run SandboxBank's seeder during the scenario (see [SandboxBank](../sandboxbank/README.md#seeding-log-b-30-rpo-ground-truth)) and add a check that reconciles the ledger against the seeder's log:
+
+```json
+{"name": "ledger.rpo_truth", "type": "consistency_check", "target_asset_id": "<ledger_transactions>",
+ "definition": {"connector": "ledger", "environment": "SANDBOX-01",
+                "source": {"asset": "seeding_log", "connector": "seeder", "where": {"acked": "true"}},
+                "key": ["txn_id"], "compare": ["seq"], "allow_unexpected": true,
+                "rpo": {"at": "acked_at", "objective_seconds": 0}}}
+```
+
+- **Declare the seeding log upstream of the ledger** (the seeder feeds it), and give the worker a connector to the log's folder.
+- **`recovery.rpo_truth`** is the run's first fault onset minus the earliest *acknowledged* write that the ledger no longer holds. It's 0 s if nothing was lost, and never negative. Without a fault in the run, a loss can't be dated (`seconds: null`).
+- **The step fails** if any acknowledged write was lost, if the RPO exceeds `objective_seconds`, or if the ledger's own account in the same run (`recovery.rpo`) disagrees about whether anything was lost. The observation shows both (`measured`), so a system that reports a healthy ledger head while dropping writes is caught.
 
 ## Lineage
 

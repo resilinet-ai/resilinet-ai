@@ -206,3 +206,110 @@ def test_after_a_scenario_the_check_runs_once_the_system_has_recovered(
         ]  # fmt: skip
     finally:
         chaos.server.shutdown()
+
+
+# ---- RPO ground truth from the seeding log (B-30: threat T-07) --------------------------------
+
+ACK_HEADER = "n,txn_id,outcome,acked,seq,acked_at,chain\n"
+EARLY = "2026-01-01T00:00:00.000000Z"  # long before any onset in these tests
+
+
+def seeding_log(data: Data, *rows: tuple[str, str]) -> None:
+    """A seeding log (chain values are not checked by RAI; sandboxbank verify-acks does)."""
+    lines = [f"{n},{txn},{outcome},{'true' if outcome == 'created' else 'false'},{n},{EARLY},x"
+             for n, (txn, outcome) in enumerate(rows, start=1)]  # fmt: skip
+    (data.ledger / "acks.csv").write_text(ACK_HEADER + "\n".join(lines) + "\n", encoding="utf-8")
+
+
+def truth_check(lab: Lab, **rpo: Any) -> str:
+    """The ledger reconciled against the seeding log that fed it, with rpo."""
+    log = asset(lab, "source", "seeding_log", "acks.csv")
+    ledger = asset(lab, "table", "ledger_transactions", "transactions.csv")
+    declare(lab, ledger, log, "sandboxbank-seed")
+    body = {
+        "name": "ledger.rpo_truth", "type": "consistency_check", "target_asset_id": ledger,
+        "definition": {
+            "connector": "ledger", "environment": "SANDBOX-01",
+            "source": {"asset": "seeding_log", "connector": "ledger",
+                       "where": {"acked": "true"}},
+            "key": ["txn_id"], "within_seconds": 0, "allow_unexpected": True,
+            "rpo": {"at": "acked_at"} | rpo,
+        },
+    }  # fmt: skip
+    test_id: str = lab.post(f"/v1/projects/{lab.project}/test-cases", body)["test_id"]
+    return test_id
+
+
+def test_a_lost_acknowledged_write_fails_whatever_the_ledger_says(
+    lab: Lab, data: Data, worker_engine: Engine, feed: Path, tmp_path: Path
+) -> None:
+    """T-07: 'e' was acknowledged but is not in the ledger. 'u' was never acknowledged,
+    so its absence is not a broken promise. With no fault in the run, the loss can't be
+    dated."""
+    drain(Worker(worker_engine, config(feed, tmp_path / "earlier")))
+    seeding_log(data, ("a", "created"), ("e", "created"), ("u", "unacknowledged"))
+    run = lab.start(plan(lab, truth_check(lab)))
+    assert worker(worker_engine, feed, tmp_path, data).run_once()
+    step = lab.run(run["run_id"])["steps"][0]
+    assert (step["state"], step["verdict"]) == ("done", "fail")
+    assert "1 acknowledged write(s) are not in the ledger" in step["error"]
+    truth = observed(lab, run["run_id"])["recovery.rpo_truth"]
+    assert truth["outcome"] == "fail"
+    value = truth["observed_value"]
+    assert (value["lost_acknowledged"], value["seconds"], value["onset"]) == (1, None, None)
+    assert value["sample"] == [{"txn_id": "e", "acked_at": EARLY}]
+    other_writers = observed(lab, run["run_id"])["consistency.unexpected"]
+    assert (other_writers["outcome"], other_writers["failing_count"]) == ("skipped", 3)
+
+
+@pytest.mark.parametrize("lost", [False, True])
+def test_after_a_scenario_the_ground_truth_is_set_beside_the_ledgers_own_rpo(
+    lab: Lab, client: TestClient, owner: Engine, data: Data, worker_engine: Engine,
+    feed: Path, tmp_path: Path, lost: bool,
+) -> None:  # fmt: skip
+    """The ledger head the system reports never moves, so its own RPO says nothing was
+    lost. When the seeding log shows a lost acknowledged write, the two disagree, and
+    the step fails on the ground truth."""
+    from tests.integration.test_scenario_recovery import System
+
+    chaos = Chaos(lab, client, owner, tmp_path)
+    system = System(lambda: chaos.toxiproxy.proxies["ledger-db-proxy"]["enabled"])
+    try:
+        drain(Worker(worker_engine, config(feed, tmp_path / "earlier")))
+        for name, path in (("payments-health", "/health"), ("payments-ledger", "/ledger")):
+            target = {"kind": "http", "name": name, "health_url": system.url + path}
+            assert client.post(f"/v1/environments/{lab.environment}/targets", json=target,
+                               headers=lab.admin).status_code == 201  # fmt: skip
+        seeding_log(data, ("a", "created"), *([("e", "created")] if lost else []))
+        faults = [{"type": "connection_drop", "target": "ledger-db-proxy", "duration_seconds": 1}]
+        recovery = {"probes": ["payments-health"], "ledger": "payments-ledger",
+                    "stable_checks": 1, "window_seconds": 20}  # fmt: skip
+        sid = chaos.scenario(faults, blast_radius=["ledger-db-proxy"],
+                             recovery=recovery)["scenario_id"]  # fmt: skip
+        chaos.review(sid)
+        items = [{"item_type": "scenario", "scenario_id": sid}, {"test_id": truth_check(lab)}]
+        plan_id = lab.post(f"/v1/projects/{lab.project}/plans",
+                           {"name": "outage-then-truth", "environment_id": lab.environment,
+                            "items": items})["plan_id"]  # fmt: skip
+        run = lab.start(plan_id)
+        made = chaos.worker(worker_engine, feed, tmp_path, probe_interval=0.05)
+        made.executor.config = dataclasses.replace(
+            made.executor.config, connectors=made.executor.config.connectors | data.connectors()
+        )
+        assert made.run_once()
+        done = lab.run(run["run_id"])
+        truth = observed(lab, run["run_id"])["recovery.rpo_truth"]["observed_value"]
+        assert truth["onset"] is not None
+        assert truth["measured"] == {"seconds": 0.0, "lost_rows": 0}  # the ledger's own account
+        if not lost:
+            assert (done["state"], done["verdict"]) == ("passed", "pass"), done
+            assert (truth["seconds"], truth["lost_acknowledged"]) == (0.0, 0)
+        else:
+            assert done["verdict"] == "fail"
+            assert truth["seconds"] > 0  # acknowledged long before the onset
+            step = next(s for s in done["steps"] if s["step_key"] == "item-2")
+            assert "the ledger's own head reported 0 lost row(s), but the seeding log shows " \
+                   "1 lost acknowledged write(s)" in step["error"]  # fmt: skip
+    finally:
+        chaos.server.shutdown()
+        system.server.shutdown()

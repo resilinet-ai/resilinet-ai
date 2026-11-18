@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import polars as pl
@@ -10,6 +11,7 @@ from pydantic import ValidationError
 
 from rai.recovery.consistency import (
     ConsistencyDefinition,
+    ground_truth,
     prepare_source,
     prepare_target,
     reconcile,
@@ -78,6 +80,16 @@ def test_rows_written_after_the_snapshot_need_not_have_arrived_yet() -> None:
     assert arrived_wrong["mismatched"] == (1, [{"txn_id": "d"}])  # but must match once there
 
 
+def test_unexpected_rows_can_be_allowed_when_the_target_has_other_writers() -> None:
+    target = prepare_target(facts(("1", "a", "10.00"), ("2", "b", "20.00"), ("9", "z", "1.00")),
+                            DEFINITION)  # fmt: skip
+    snapshot = prepare_source(LEDGER, DEFINITION)
+    result = reconcile(snapshot, snapshot, target, key=DEFINITION.key, allow_unexpected=True)
+    unexpected = {f.rule: f for f in result.findings}["unexpected"]
+    assert (result.passed, unexpected.count, unexpected.outcome) == (True, 1, "skipped")
+    assert result.summary() == "consistent"
+
+
 def test_samples_are_capped() -> None:
     many = ledger(*[(str(n), f"t{n:03}", "1.00", "posted") for n in range(25)])
     seen = check(facts(), source=many, snapshot=many)
@@ -111,3 +123,58 @@ def test_columns_that_do_not_exist_are_reported(change: dict[str, Any], message:
 def test_definitions_are_checked(change: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         ConsistencyDefinition.model_validate(DEFINITION.model_dump() | change)
+
+
+# ---- RPO ground truth from the seeding log (B-30) ---------------------------------------------
+
+ONSET = datetime(2026, 11, 17, 12, 0, 30, tzinfo=UTC)
+
+
+def acks(*rows: tuple[str, str]) -> pl.DataFrame:
+    return pl.DataFrame([{"txn_id": t, "acked_at": a} for t, a in rows],
+                        schema={"txn_id": pl.Utf8, "acked_at": pl.Utf8})  # fmt: skip
+
+
+ACKS = acks(("a", "2026-11-17T12:00:00.000000Z"), ("b", "2026-11-17T12:00:10.500000Z"),
+            ("c", "2026-11-17T12:00:40.000000Z"))  # fmt: skip
+
+
+def in_ledger(*ids: str) -> pl.DataFrame:
+    return pl.DataFrame({"txn_id": list(ids)}, schema={"txn_id": pl.Utf8})
+
+
+def test_nothing_lost_is_a_ground_truth_rpo_of_zero() -> None:
+    truth = ground_truth(ACKS, in_ledger("a", "b", "c", "z"), key=("txn_id",), at="acked_at",
+                         onset=ONSET)  # fmt: skip
+    assert (truth.lost, truth.seconds, truth.earliest_lost_at) == (0, 0.0, None)
+
+
+def test_rpo_runs_from_the_earliest_lost_acknowledgement_to_the_onset() -> None:
+    truth = ground_truth(ACKS, in_ledger("a"), key=("txn_id",), at="acked_at", onset=ONSET)
+    assert (truth.lost, truth.seconds) == (2, 19.5)
+    assert truth.sample[0] == {"txn_id": "b", "acked_at": "2026-11-17T12:00:10.500000Z"}
+
+
+def test_writes_lost_after_the_onset_count_but_do_not_make_rpo_negative() -> None:
+    truth = ground_truth(ACKS, in_ledger("a", "b"), key=("txn_id",), at="acked_at", onset=ONSET)
+    assert (truth.lost, truth.seconds) == (1, 0.0)
+
+
+def test_without_an_onset_a_loss_cannot_be_dated() -> None:
+    truth = ground_truth(ACKS, in_ledger("a"), key=("txn_id",), at="acked_at", onset=None)
+    assert (truth.lost, truth.seconds) == (2, None)
+
+
+@pytest.mark.parametrize(
+    ("frame", "at", "message"),
+    [
+        (ACKS, "when", "no column when"),
+        (acks(("a", "noon")), "acked_at", "not an ISO 8601"),
+        (acks(("a", "2026-11-17T12:00:00")), "acked_at", "no time zone"),
+    ],
+)
+def test_unusable_acknowledgement_times_are_reported(
+    frame: pl.DataFrame, at: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        ground_truth(frame, in_ledger(), key=("txn_id",), at=at, onset=ONSET)

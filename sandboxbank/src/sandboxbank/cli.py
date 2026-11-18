@@ -8,6 +8,8 @@ sandboxbank serve --port 8080                              (needs SANDBOXBANK_LE
 sandboxbank fixtures --data-seed 1 --injector-seed 2 --out data/fixtures
 sandboxbank seal data/fixtures [--expect <sha256>]
 sandboxbank etl [--once]          (needs SANDBOXBANK_LEDGER_DSN and SANDBOXBANK_ANALYTICS_DSN)
+sandboxbank seed --data data/sandboxbank --log acks/acks.csv --rate 10
+sandboxbank verify-acks acks/acks.csv
 """
 
 from __future__ import annotations
@@ -90,6 +92,19 @@ def _parser() -> argparse.ArgumentParser:
     etl.add_argument(
         "--lag", type=float, default=5.0, help="Only read rows committed this long ago"
     )
+
+    seed = commands.add_parser(
+        "seed", help="Post transactions one by one at a steady rate, logging every answer."
+    )
+    seed.add_argument("--data", type=Path, required=True, help="Dataset directory")
+    seed.add_argument("--log", type=Path, required=True, help="Seeding log (CSV, appended)")
+    seed.add_argument("--api", default="http://127.0.0.1:18080", help="payments-api base URL")
+    seed.add_argument("--batch", action="append", help="Batch ID such as B000000 (repeatable)")
+    seed.add_argument("--rate", type=float, default=10.0, help="Transactions per second")
+    seed.add_argument("--limit", type=int, help="Stop after this many transactions")
+
+    acks = commands.add_parser("verify-acks", help="Check a seeding log's hash chain.")
+    acks.add_argument("log", type=Path, help="Seeding log")
     return parser
 
 
@@ -251,6 +266,43 @@ def _serve(args: argparse.Namespace) -> int:  # pragma: no cover - starts a serv
     return 0
 
 
+def _seed(args: argparse.Namespace) -> int:
+    from itertools import chain, islice
+
+    from sandboxbank.loader import read_rows
+    from sandboxbank.seeder import AckLog, seed
+
+    folder = args.data / "transactions_raw"
+    files = (
+        [folder / f"{batch}.csv" for batch in args.batch]
+        if args.batch
+        else sorted(folder.glob("B*.csv"))
+    )
+    missing = [str(path) for path in files if not path.is_file()]
+    if missing or not files:
+        return _error(f"batch files not found: {', '.join(missing) or folder}")
+    rows = chain.from_iterable(read_rows(path) for path in files)
+    try:
+        log = AckLog(args.log)
+        totals = seed(args.api, islice(rows, args.limit), log, rate=args.rate)
+    except (ValueError, OSError) as error:
+        return _error(error)
+    print(", ".join(f"{outcome}: {count}" for outcome, count in sorted(totals.items())))
+    print(f"log: {args.log} ({log.count} rows, chain head {log.head})")
+    return 0
+
+
+def _verify_acks(args: argparse.Namespace) -> int:
+    from sandboxbank.seeder import verify
+
+    try:
+        rows, head = verify(args.log)
+    except (ValueError, OSError) as error:
+        return _error(error, code=1)
+    print(f"intact: {rows} rows, chain head {head}")
+    return 0
+
+
 COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "generate": _generate,
     "verify": _verify,
@@ -261,6 +313,8 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "fixtures": _fixtures,
     "seal": _seal,
     "slice": _slice,
+    "seed": _seed,
+    "verify-acks": _verify_acks,
 }
 
 

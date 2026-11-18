@@ -24,9 +24,12 @@ from sandboxbank.ledger import MAX_BATCH, migrate
 from sandboxbank.schema import column_names
 
 
-def _read(path: Path) -> Iterator[dict[str, str]]:
+def read_rows(path: Path) -> Iterator[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         yield from csv.DictReader(handle)
+
+
+_read = read_rows
 
 
 def load_reference(conn: psycopg.Connection[Any], data_dir: Path) -> dict[str, int]:

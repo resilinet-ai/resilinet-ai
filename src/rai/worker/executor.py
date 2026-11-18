@@ -50,6 +50,9 @@ and the source again every ``interval_seconds`` (renewing the lease) until nothi
 is missing, doubled, unexpected or mismatched, or ``within_seconds`` has passed. The
 four findings are observations; lineage records the hop with both frames' digests.
 Placed after a scenario in a plan, it checks that the system recovered correctly.
+With ``rpo`` (B-30), the source is SandboxBank's seeding log and the step also
+records ``recovery.rpo_truth``: the run's first fault onset minus the earliest
+acknowledged write the ledger lost, set beside the ledger-based ``recovery.rpo``.
 """
 
 from __future__ import annotations
@@ -81,7 +84,9 @@ from rai.core.tenancy import set_context
 from rai.lineage.digest import frame_digest
 from rai.recovery.consistency import (
     ConsistencyDefinition,
+    GroundTruth,
     Reconciliation,
+    ground_truth,
     prepare_source,
     prepare_target,
     reconcile,
@@ -838,6 +843,7 @@ class Executor:
                     snapshot, prepare_source(source_raw, definition),
                     prepare_target(target_raw, definition),
                     key=definition.key, compare=definition.compare,
+                    allow_unexpected=definition.allow_unexpected,
                 )  # fmt: skip
                 elapsed = (datetime.now(UTC) - started).total_seconds()
                 if result.passed or elapsed + definition.interval_seconds > (
@@ -857,14 +863,62 @@ class Executor:
             return
         seconds = round((datetime.now(UTC) - started).total_seconds(), 3)
         observations = _consistency_observations(result, definition, rounds, seconds)
+        problems = [] if result.passed else [
+            f"not consistent after {rounds} round(s) in {seconds} s: {result.summary()}"
+        ]  # fmt: skip
+        if definition.rpo is not None:
+            try:
+                truth_obs, truth_problems = self._ground_truth(
+                    job, definition, snapshot, prepare_target(target_raw, definition)
+                )
+            except ValueError as error:
+                truth_obs = None
+                truth_problems = [f"RPO ground truth: {error}"]
+            if truth_obs is not None:
+                observations.append(truth_obs)
+            problems += truth_problems
         read = {step.source.asset_id: _digested(source_raw),
                 step.item.asset.asset_id: _digested(target_raw)}  # fmt: skip
-        problem = None if result.passed else (
-            f"not consistent after {rounds} round(s) in {seconds} s: {result.summary()}"
-        )  # fmt: skip
         self._commit_step(job, step.item, started, observations, _edges(step.item, read, {}),
-                          state="done", verdict="pass" if result.passed else "fail",
-                          error=problem)  # fmt: skip
+                          state="done", verdict="fail" if problems else "pass",
+                          error="; ".join(problems) or None)  # fmt: skip
+
+    def _ground_truth(
+        self, job: Job, definition: ConsistencyDefinition, acked: pl.DataFrame,
+        ledger: pl.DataFrame,
+    ) -> tuple[dict[str, Any], list[str]]:  # fmt: skip
+        """recovery.rpo_truth (B-30): what the seeding log says the ledger lost, dated
+        from the run's first fault onset, beside the ledger's own account (B-26b)."""
+        assert definition.rpo is not None  # noqa: S101 - the caller checks
+        with tenant_transaction(self.engine, job, self.config.name) as conn:
+            onsets = conn.execute(
+                text("SELECT observed_value->>'onset' FROM rai.observations "
+                     "WHERE run_id = :r AND rule = 'fault.onset'"), {"r": job.run_id},
+            ).scalars().all()  # fmt: skip
+            measured = conn.execute(
+                text("SELECT observed_value FROM rai.observations WHERE run_id = :r "
+                     "AND rule = 'recovery.rpo' ORDER BY observed_at LIMIT 1"),
+                {"r": job.run_id},
+            ).scalar_one_or_none()  # fmt: skip
+        moments = [m for m in (_moment(o) for o in onsets) if m is not None]
+        truth = ground_truth(acked, ledger, key=definition.key, at=definition.rpo.at,
+                             onset=min(moments) if moments else None)  # fmt: skip
+        problems = _truth_problems(truth, definition.rpo.objective_seconds, measured)
+        observed = {
+            "seconds": truth.seconds, "lost_acknowledged": truth.lost,
+            "earliest_lost_at": _stamp(truth.earliest_lost_at), "onset": _stamp(truth.onset),
+            "acknowledged": acked.height, "sample": list(truth.sample),
+            "measured": None if measured is None else {
+                "seconds": measured.get("seconds"), "lost_rows": measured.get("lost_rows"),
+            },
+        }  # fmt: skip
+        expected = {"lost_acknowledged": 0, "objective_seconds": definition.rpo.objective_seconds}
+        return {
+            "kind": "metric", "rule": "recovery.rpo_truth",
+            "outcome": "fail" if problems else "pass", "rows": acked.height,
+            "failing": truth.lost, "observed": json.dumps(observed, default=str),
+            "expected": json.dumps(expected),
+        }, problems  # fmt: skip
 
     def _read_upstream(self, step: Prepared) -> dict[UUID, Digested]:
         """Read and digest the upstream assets the definition maps to a connector."""
@@ -896,6 +950,26 @@ class Executor:
 Step = Prepared | PreparedScenario | PreparedConsistency
 
 
+def _truth_problems(
+    truth: GroundTruth, objective: int | None, measured: dict[str, Any] | None
+) -> list[str]:
+    problems = []
+    if truth.lost:
+        problems.append(f"{truth.lost} acknowledged write(s) are not in the ledger "
+                        "(seeding log)")  # fmt: skip
+    if objective is not None and truth.seconds is not None and truth.seconds > objective:
+        problems.append(f"ground-truth RPO {truth.seconds:.1f} s exceeds the objective of "
+                        f"{objective} s")  # fmt: skip
+    if measured is not None:
+        reported = int(measured.get("lost_rows") or 0)
+        if (reported == 0) != (truth.lost == 0):
+            problems.append(
+                f"the ledger's own head reported {reported} lost row(s), but the seeding log "
+                f"shows {truth.lost} lost acknowledged write(s)"
+            )
+    return problems
+
+
 def _consistency_observations(
     result: Reconciliation, definition: ConsistencyDefinition, rounds: int, seconds: float
 ) -> list[dict[str, Any]]:
@@ -905,7 +979,7 @@ def _consistency_observations(
     return [
         {
             "kind": "rule_result", "rule": f"consistency.{finding.rule}",
-            "outcome": "pass" if finding.passed else "fail", "rows": result.target_rows,
+            "outcome": finding.outcome, "rows": result.target_rows,
             "failing": finding.count,
             "observed": json.dumps({
                 "count": finding.count, "sample": list(finding.sample), "rounds": rounds,
