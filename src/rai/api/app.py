@@ -26,6 +26,7 @@ from rai.api import (
     routes_recovery,
     routes_runs,
     routes_scenarios,
+    routes_waivers,
 )
 from rai.api.context import check_login_role
 from rai.api.problems import Problem, problem_response
@@ -88,6 +89,8 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
     app.include_router(routes_runs.router)
     app.include_router(routes_recovery.router)
     app.include_router(routes_findings.router)
+    app.include_router(routes_waivers.router)
+    app.include_router(routes_waivers.router)
     return app
 
 

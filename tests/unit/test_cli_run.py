@@ -1,4 +1,4 @@
-"""``rai run``: exit codes, reporting and GitHub outputs (B-20: FR-06.1)."""
+"""``rai run``: exit codes, reporting and GitHub outputs (B-20: FR-06.1; B-33: FR-12.2)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from rai.cli.main import app
 from rai.cli.run import Gate, Reply, RunProblem, UrllibHttp
 
 RUN = "0193a5b0-0000-7000-8000-000000000001"
+PROJECT = "0193a5b0-0000-7000-8000-0000000000bb"
 
 
 def run_body(state: str, *, reason: str | None = None, **extra: Any) -> dict[str, Any]:
@@ -21,6 +22,7 @@ def run_body(state: str, *, reason: str | None = None, **extra: Any) -> dict[str
     )
     return {
         "run_id": RUN,
+        "project_id": PROJECT,
         "state": state,
         "verdict": None,
         "reason": reason,
@@ -52,11 +54,17 @@ FAILING = {"items": [{
     "observed_value": {"message": "2 rows repeat earlier batches"},
 }], "next_cursor": None}  # fmt: skip
 
+GATE_PASS = Reply(200, {"verdict": "pass", "blocking_count": 0, "waived_count": 0,
+                        "blocking": [], "waived": []})  # fmt: skip
+BLOCKER = {"finding_id": "0193a5b0-0000-7000-8000-0000000000cc", "title": "Duplicate txn_id"}
+GATE_BLOCKED = Reply(200, {"verdict": "blocked", "blocking_count": 1, "waived_count": 0,
+                           "blocking": [BLOCKER], "waived": []})  # fmt: skip
+
 
 def test_a_passing_run_exits_0_and_a_plan_name_is_sent_by_name() -> None:
     lines: list[str] = []
     script = Script(Reply(202, run_body("queued")), Reply(200, run_body("running")),
-                    Reply(200, run_body("passed")))  # fmt: skip
+                    Reply(200, run_body("passed")), GATE_PASS)  # fmt: skip
     outcome = gate(script, lines).run("ci-contracts", trigger_ref="abc123", idempotency_key="k1")
     assert outcome.code == 0
     method, path, body, headers = script.sent[0]
@@ -64,18 +72,19 @@ def test_a_passing_run_exits_0_and_a_plan_name_is_sent_by_name() -> None:
     assert body == {"plan": "ci-contracts", "trigger_ref": "abc123"}
     assert headers == {"Idempotency-Key": "k1"}
     assert lines[0] == f"run {RUN} queued (plan ci-contracts @ abc123)"
-    assert lines[-1] == f"PASSED run {RUN}"
+    assert lines[-2:] == [f"PASSED run {RUN}", "GATE pass"]
+    assert script.sent[-1][:2] == ("GET", f"/v1/projects/{PROJECT}/gate")
 
 
 def test_a_failing_run_exits_1_and_names_the_failing_rules() -> None:
     lines: list[str] = []
     script = Script(Reply(202, run_body("queued")), Reply(200, run_body("failed")),
-                    Reply(200, FAILING), Reply(200, {"items": []}))  # fmt: skip
+                    Reply(200, FAILING), Reply(200, {"items": []}), GATE_PASS)  # fmt: skip
     outcome = gate(script, lines).run("0193a5b0-0000-7000-8000-0000000000aa", project="ignored")
     assert outcome.code == 1
     assert script.sent[0][2] == {"plan_id": "0193a5b0-0000-7000-8000-0000000000aa",
                                  "trigger_ref": None}  # fmt: skip
-    assert lines[-2:] == [
+    assert lines[-3:-1] == [
         f"FAILED run {RUN}: item-1 fail",
         "  FAIL  item-1 unique_across_batches:txn_id (critical) 2/2,002 rows "
         "2 rows repeat earlier batches",
@@ -111,7 +120,7 @@ def test_api_problems_exit_2_with_the_reason() -> None:
 def test_waiting_tolerates_brief_outages_but_not_forever() -> None:
     lines: list[str] = []
     flaky = Script(Reply(202, run_body("queued")), Reply(503, None), Reply(429, None),
-                   Reply(200, run_body("passed")))  # fmt: skip
+                   Reply(200, run_body("passed")), GATE_PASS)  # fmt: skip
     assert gate(flaky, lines).run("p").code == 0
     down = Script(Reply(202, run_body("queued")), *[Reply(502, None)] * 6)
     assert gate(down, lines).run("p").code == 2
@@ -158,13 +167,50 @@ def test_the_command_needs_a_key_and_writes_github_outputs(
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     script = Script(Reply(202, run_body("queued")), Reply(200, run_body("failed")),
-                    Reply(200, FAILING), Reply(200, {"items": []}))  # fmt: skip
+                    Reply(200, FAILING), Reply(200, {"items": []}), GATE_BLOCKED)  # fmt: skip
     monkeypatch.setattr(
         "rai.cli.run.UrllibHttp.request", lambda self, *a, **k: script.request(*a, **k)
     )
     result = runner.invoke(app, ["run", "--plan", "p", "--interval", "0.1"])
     assert result.exit_code == 1, result.output
-    assert output.read_text("utf-8") == f"run-id={RUN}\nstate=failed\nverdict=\n"
+    assert output.read_text("utf-8") == f"run-id={RUN}\nstate=failed\nverdict=\ngate=blocked\n"
     text = summary.read_text("utf-8")
     assert "### RAI gate: FAILED" in text
     assert "| item-1 | `unique_across_batches:txn_id` | fail | 2 |" in text
+    assert "Release gate: **blocked** (1 blocking, 0 waived)." in text
+    assert f"| `{BLOCKER['finding_id']}` | Duplicate txn_id |" in text
+
+
+def test_a_passing_run_still_fails_while_the_release_gate_is_blocked() -> None:
+    """FR-12.2: an open critical finding without a waiver blocks the gate."""
+    lines: list[str] = []
+    script = Script(Reply(202, run_body("queued")), Reply(200, run_body("passed")), GATE_BLOCKED)
+    outcome = gate(script, lines).run("p")
+    assert outcome.code == 1
+    assert outcome.release is not None
+    assert lines[-2:] == [
+        "GATE blocked: 1 open critical finding(s) without a waiver in force",
+        f"  BLOCKS {BLOCKER['finding_id']} Duplicate txn_id",
+    ]
+    until = BLOCKER | {"waiver_expires_at": "2026-12-01T00:00:00Z"}
+    waived = Reply(200, {"verdict": "pass", "blocking_count": 0, "waived_count": 1,
+                         "blocking": [], "waived": [until]})  # fmt: skip
+    script = Script(Reply(202, run_body("queued")), Reply(200, run_body("passed")), waived)
+    assert gate(script, lines).run("p").code == 0
+    assert lines[-2:] == [
+        "GATE pass (1 critical finding(s) waived)",
+        f"  WAIVED {BLOCKER['finding_id']} Duplicate txn_id until 2026-12-01T00:00:00Z",
+    ]
+
+
+def test_the_release_gate_can_be_skipped_but_not_silently_lost() -> None:
+    lines: list[str] = []
+    script = Script(Reply(202, run_body("queued")), Reply(200, run_body("passed")))
+    assert gate(script, lines).run("p", release_gate=False).code == 0
+    assert len(script.sent) == 2
+    missing = Reply(403, {"title": "This API key cannot do this",
+                          "detail": "needs scope runs:read"})  # fmt: skip
+    script = Script(Reply(202, run_body("queued")), Reply(200, run_body("passed")), missing)
+    assert gate(script, lines).run("p").code == 2
+    assert lines[-1] == ("ERROR could not read the release gate: This API key cannot do this "
+                         "(needs scope runs:read)")  # fmt: skip

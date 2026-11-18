@@ -58,6 +58,8 @@ A contract version's identity is the **SHA-256 of its canonical JSON** form. Run
 | `run_steps` | one row per plan item: state (`done`, `error`), verdict, error, attempt; primary key (run, step) so a step is recorded once |
 | `observations` | kind (`rule_result`, `metric`, `refused`, `note`), rule, outcome (`pass`, `fail`, `error`, `skipped`), observed value, expected, row and failing counts; unique per (run, step, rule) |
 | `findings` | a defect a run observed (FR-10.1): project, title, severity (`critical`, `high`, `medium`, `low`), status (`open`, `closed`, `dismissed`), the source observation (run, step, rule; one finding each), owner, fix reference, retest run, resolution; title, severity and source never change; closed only by a later run that passes the rule; never deleted; audited |
+| `waivers` | a request to waive an open critical finding (FR-12.2): finding, reason, expiry (at most 90 days), requester; insert-only; audited |
+| `waiver_decisions` | a named reviewer's approve or reject of a waiver (FR-12.1); append-only, the latest counts; never by the requester or the finding's owner (trigger); audited |
 | `lineage_edges` | step, from asset (or a named reference dataset), to asset (or the run), SHA-256 of each side's frame (`rai-frame-digest/1`), rows, transform ref |
 | `recovery_measurements` | one per scenario step that measured recovery (B-29): scenario, method, onset, revert and restoration times, RTO and RPO with their objectives and whether each was met, ledger rows lost; unique per (run, step), foreign key to its `run_steps` row, insert-only |
 
@@ -102,7 +104,8 @@ A contract version's identity is the **SHA-256 of its canonical JSON** form. Run
 | Runs | `POST, GET /v1/assurance/runs`; `GET /v1/assurance/runs/{id}`; `.../observations`; `.../lineage` |
 | Recovery | `GET /v1/assurance/recovery` (measurements and attainment for a project and window) |
 | Findings | `GET, POST /v1/projects/{id}/findings`; `GET, PATCH /v1/findings/{id}`; `POST /v1/findings/{id}/retest`; `POST /v1/findings/{id}/dismiss` |
-| *Planned* | waivers and the release gate (FR-12.2, B-33); evidence export `GET /v1/evidence/{id}/export` (FR-13) |
+| Waivers and gate | `POST, GET /v1/findings/{id}/waivers`; `GET /v1/waivers/{id}`; `POST /v1/waivers/{id}/decisions`; `GET /v1/projects/{id}/gate` |
+| *Planned* | evidence export `GET /v1/evidence/{id}/export` (FR-13) |
 
 Sign-in uses Argon2id; the access token is a 15-minute JWT naming only the user; the tenant is chosen per request and checked against memberships. CI uses project API keys (`Authorization: Bearer rai_<prefix>_<secret>`, scopes `runs:start`, `runs:read`).
 

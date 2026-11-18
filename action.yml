@@ -1,7 +1,8 @@
 name: RAI gate
 description: >-
   Run a Resilinet-AI test plan and fail the job when the plan's gate fails
-  (FR-06.1). Exit codes: 0 passed, 1 failed, 2 no verdict.
+  (FR-06.1) or an open critical finding without a waiver blocks the release
+  (FR-12.2). Exit codes: 0 passed, 1 failed or blocked, 2 no verdict.
 author: Trevor Kauyu
 
 inputs:
@@ -9,7 +10,7 @@ inputs:
     description: RAI API base URL (https; http only for localhost).
     required: true
   api-key:
-    description: A project API key with scope runs:start. Pass it from a secret.
+    description: A project API key with scopes runs:start and runs:read. Pass it from a secret.
     required: true
   plan:
     description: Plan name (its newest version) or plan id.
@@ -33,6 +34,9 @@ outputs:
   verdict:
     description: pass or fail (empty without a verdict).
     value: ${{ steps.gate.outputs.verdict }}
+  gate:
+    description: The project's release gate, pass or blocked (FR-12.2; empty without a verdict).
+    value: ${{ steps.gate.outputs.gate }}
 
 runs:
   using: composite

@@ -78,7 +78,8 @@ def test_a_failing_contract_fails_the_ci_gate(
     named_plan(lab, "ci-contracts", lab.tests["batch_0"])
     clean = gate.run("ci-contracts", trigger_ref="4f2a9c1", interval=0)
     assert clean.code == 0, lines
-    assert lines[-1].startswith("PASSED run ")
+    assert lines[-2].startswith("PASSED run ")
+    assert lines[-1] == "GATE pass"  # no open critical findings (FR-12.2)
 
     # The pipeline changes: the plan's newest version also checks the next batch,
     # which re-sends rows from the first.

@@ -292,7 +292,34 @@ curl -s -X POST "$API/v1/findings/$FINDING/retest" -H "$AUTH" -d '{"run_id": "'$
 - **Resolved findings never change** (`409 findings.resolved`). Title, severity and source never change either, so a critical finding cannot be quietly downgraded.
 - **Enforced in the database too.** A trigger enforces the same rules, deletes are refused, and every change is an audit entry (`finding.insert`, `finding.update`).
 
-Waivers and the release gate that a critical finding blocks come next (B-33, FR-12.2).
+## Waivers and the release gate
+
+A project's **release gate** is blocked while any open critical finding has no waiver in force (FR-12.2). A waiver lets a team ship knowingly with a known defect, for a limited time, with a second person's name on it (FR-12.1).
+
+| Endpoint | Write roles | Notes |
+| --- | --- | --- |
+| `GET /v1/projects/{id}/gate` | | `pass` or `blocked`, with the blocking and the waived findings; also with an API key that has `runs:read` |
+| `POST /v1/findings/{id}/waivers` | engineer, reviewer, admin | `{"reason", "expires_at"}`: an open critical finding only, expiring at most 90 days ahead |
+| `GET /v1/findings/{id}/waivers` | | Every waiver asked for, oldest first, with its decisions |
+| `GET /v1/waivers/{id}` | | |
+| `POST /v1/waivers/{id}/decisions` | reviewer, admin | `{"decision": "approve"\|"reject", "comment"?}`; not by the requester or the finding's owner |
+
+```bash
+curl -s "$API/v1/projects/$PROJECT/gate" -H "$AUTH"
+# {"verdict": "blocked", "blocking_count": 1, "waived_count": 0,
+#  "blocking": [{"finding_id": "...", "title": "Duplicate txn_id in the feed", ...}], ...}
+curl -s -X POST "$API/v1/findings/$FINDING/waivers" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"reason": "fix ships in 2.4; duplicates are filtered downstream", "expires_at": "2026-12-01T00:00:00Z"}'
+# 201 {"waiver_id": "...", "status": "pending", "in_force": false, ...}
+curl -s -X POST "$API/v1/waivers/$WAIVER/decisions" -H "$REVIEWER_AUTH" -d '{"decision": "approve"}'
+# 201 {"status": "approved", "in_force": true, ...}   then the gate is "pass" with the finding under "waived"
+```
+
+- **What blocks.** Open findings of severity `critical`. High, medium and low findings, closed findings and dismissed findings do not block, and cannot be waived (`422 waivers.not_blocking`, `409 findings.resolved`).
+- **A waiver is in force** while its latest decision is `approve`, it has not expired and its finding is open. Decisions are append-only; a later `reject` withdraws an approval. A pending or rejected waiver lifts nothing.
+- **Expiry is required**, in the future and at most 90 days ahead, with a time zone (`422 waivers.expiry_out_of_range`, `waivers.expiry_without_zone`). When it passes, the gate blocks again without anyone acting; an expired waiver cannot be approved (`409 waivers.expired`), and a new one may be asked for.
+- **One at a time.** A finding with a pending waiver, or one in force, refuses another (`409 waivers.exists`, with a `Location` header).
+- **No self-approval.** The requester and the finding's owner cannot decide (`403 waivers.self_approval`). A trigger enforces this in the database too, both tables are never changed or deleted, and every row is an audit entry (`waiver.insert`, `waiver_decision.insert`).
 
 ## Lineage
 
@@ -353,7 +380,7 @@ CI signs in with a **project API key**, not a user account (FR-06.1, threat S-02
 - **Accountability:** a run started by a key records the key (`api_key_id`) and its creator (`triggered_by`); the audit log names the key as actor.
 - **Rate limit:** 120 requests per minute per key (`429` with `Retry-After`).
 
-**`rai run`** starts a plan and gates on its verdict:
+**`rai run`** starts a plan and gates on its verdict and on the project's release gate:
 
 ```bash
 export RAI_API_URL=https://rai.example.test RAI_API_KEY=rai_...   # never on the command line
@@ -361,10 +388,12 @@ uv run rai run --plan ci-contracts          # a plan name runs its newest versio
 # run 0193... queued (plan ci-contracts @ 4f2a9c1)
 # FAILED run 0193...: item-1 pass, item-2 fail
 #   FAIL  item-2 unique_across_batches:txn_id (critical) 2/2,002 rows ...
+# GATE blocked: 1 open critical finding(s) without a waiver in force
+#   BLOCKS 0193... Duplicate txn_id in the feed
 ```
 
-- **Exit codes:** `0` passed, `1` failed (the gate), `2` no verdict (refused, error, timeout, unknown plan, bad key, API unreachable), the same as `rai validate`.
-- `--trigger-ref` defaults to `GITHUB_SHA`; `--idempotency-key` makes a retried request return the same run; `--no-wait` only queues.
+- **Exit codes:** `0` the run and the release gate passed, `1` the run failed or the release gate is blocked, `2` no verdict (refused, error, timeout, unknown plan, bad key, API unreachable), the same as `rai validate`.
+- `--trigger-ref` defaults to `GITHUB_SHA`; `--idempotency-key` makes a retried request return the same run; `--no-wait` only queues; `--no-release-gate` skips the release gate. A release gate that cannot be read (for example a key without `runs:read`) is exit `2`, never a pass.
 - Plain `http://` is refused except to localhost, so a key never crosses a network in clear.
 
 **The GitHub Action** (`action.yml` at the repository root) wraps `rai run`. It installs RAI from this repository's lockfile and writes a job summary:
@@ -377,7 +406,7 @@ uv run rai run --plan ci-contracts          # a plan name runs its newest versio
     plan: ci-contracts
 ```
 
-Make the job a **required status check** on the branch, and a failing contract blocks the pull request. Outputs: `run-id`, `state`, `verdict`. This repository's CI job "CI gate" runs the action against a live API and worker on every pull request: a clean plan must pass, and a plan whose batch re-sends rows must fail.
+Make the job a **required status check** on the branch, and a failing contract blocks the pull request. Outputs: `run-id`, `state`, `verdict`, `gate` (`pass` or `blocked`). This repository's CI job "CI gate" runs the action against a live API and worker on every pull request: a clean plan must pass, and a plan whose batch re-sends rows must fail.
 
 ## Errors
 
