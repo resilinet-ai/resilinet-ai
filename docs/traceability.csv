@@ -28,7 +28,7 @@ FR-11.1,M11,M,Executive dashboard with denominators,,,,,,planned
 FR-11.2,M11,M,Persistent synthetic-data banner,B-17,,#22,tests/integration/test_api_definitions.py,docs/api.md,in progress
 FR-12.1,M12,M,Named reviewer approvals; no self-approval,B-26;B-33,,,tests/integration/test_scenarios.py;tests/integration/test_waivers.py,docs/api.md,in progress
 FR-12.2,M12,M,Critical finding blocks gate unless waived with expiry,B-33,,,tests/integration/test_waivers.py;tests/unit/test_cli_run.py,docs/api.md;action.yml,in progress
-FR-13.1,M13,M,Deterministic evidence bundle with SHA-256 manifest,,,,,,planned
+FR-13.1,M13,M,Deterministic evidence bundle with SHA-256 manifest,B-34,,,tests/unit/test_evidence_bundle.py;tests/integration/test_evidence.py,docs/api.md,in progress
 FR-13.2,M13,S,Signed manifest and rai verify,,,,,,planned
 FR-14.1,M14,M,"Docs site, quick-start and playbooks",,,,,,planned
 NFR-SAF-1,Safety,M,Deny-by-default fault injection; production fails closed,B-22;B-23;B-24;B-25;B-27,,#27;#28;#29;#30;#33,tests/integration/test_environments.py;tests/unit/test_chaos_agent.py;tests/unit/test_chaos_signing.py;tests/integration/test_chaos_worker.py;scripts/chaos_e2e.py;tests/unit/test_refusal_catalogue.py,docs/api.md;docs/chaos-agent.md;docs/refusals.md,in progress
