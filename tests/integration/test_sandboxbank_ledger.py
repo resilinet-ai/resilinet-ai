@@ -7,6 +7,7 @@ Skipped when it is not set; CI always sets it.
 
 from __future__ import annotations
 
+import csv
 import os
 import socket
 import threading
@@ -279,3 +280,34 @@ def test_generated_dataset_posts_once_and_replays_cleanly(
     assert "accounts: 0 new" in capsys.readouterr().out
     assert main(["post", "--data", str(tmp_path), "--api", live_api, "--batch", "B000001"]) == 0
     assert "replayed: 300" in capsys.readouterr().out
+
+
+# ---- the seeding log (B-30) -------------------------------------------------
+
+
+def test_every_acknowledged_write_in_the_seeding_log_is_in_the_ledger(
+    client: TestClient, conn: psycopg.Connection[Any], tmp_path: Path
+) -> None:
+    """The seeder's log against the real payments-api and ledger: an acknowledged write
+    has exactly the seq the ledger gave it; a rejected one is logged but not acked."""
+    from sandboxbank.seeder import AckLog, seed, verify
+
+    def through_client(url: str, payload: dict[str, Any], timeout: float) -> Any:
+        reply = client.post(url.removeprefix("http://api"), json=payload)
+        return reply.status_code, reply.json()
+
+    rows = [{k: str(v).lower() if isinstance(v, bool) else ("" if v is None else str(v))
+             for k, v in body(t).items()}
+            for t in (txn(), txn(), txn(account_id="ACC-0009999"))]  # fmt: skip
+    log = AckLog(tmp_path / "acks.csv")
+    totals = seed("http://api", rows, log, rate=1000, post=through_client)
+    assert totals == {"created": 2, "rejected": 1}
+    assert verify(log.path)[0] == 3
+    with log.path.open(encoding="utf-8") as handle:
+        logged = list(csv.DictReader(handle))
+    acked = {r["txn_id"]: int(r["seq"]) for r in logged if r["acked"] == "true"}
+    in_ledger = dict(conn.execute(
+        "SELECT txn_id::text, seq FROM ledger_transactions WHERE txn_id::text = ANY(%s)",
+        (list(acked),),
+    ).fetchall())  # fmt: skip
+    assert in_ledger == acked

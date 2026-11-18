@@ -37,6 +37,23 @@ Running `post` a second time is safe. Every row comes back `replayed`, and the l
 
 Concurrent retries of the same `txn_id` create exactly one row. The ledger is append-only, and a trigger refuses any `UPDATE` or `DELETE`.
 
+## Seeding log (B-30: RPO ground truth)
+
+The ledger is the system under test, so RAI doesn't take its word alone for what was lost (threat T-07). `sandboxbank seed` posts transactions one at a time at a steady rate, for example while a chaos scenario runs. After each answer, and before sending the next write, it appends a line to its own log:
+
+```
+python -m uv run sandboxbank seed --data data/sandboxbank --log acks/acks.csv --rate 10 --limit 3000
+python -m uv run sandboxbank verify-acks acks/acks.csv
+```
+
+- **Columns:** `n, txn_id, outcome, acked, seq, acked_at, chain`.
+  - `outcome` is `created`, `replayed`, `conflict`, `rejected`, or `unacknowledged` (a timeout, a refused connection or a 5xx).
+  - `acked` is `true` only for `created` and `replayed`: the API promised the write was committed.
+- **Each line is fsynced** before the next write is sent, so the log never claims less than the API acknowledged.
+- **The log is append-only and hash-chained.** `verify-acks` finds an edited, reordered or truncated line. A restarted seeder continues the same chain.
+- **RAI reconciles the acknowledged rows against the ledger** after recovery (see [RPO ground truth](../docs/api.md#chaos-scenarios)). An acknowledged write missing from the ledger is a broken promise, whatever `GET /v1/ledger/head` says.
+- **Use transactions the ledger hasn't seen yet,** e.g. a batch that hasn't been posted. A repeated `txn_id` comes back `replayed`, which is acknowledged but proves nothing new.
+
 ## Settlement ETL and analytics warehouse (B-04, pipeline P2)
 
 `etl-job` is a long-running service. It copies the ledger into the `warehouse` schema of `analytics-db` (published on `127.0.0.1:55434`) every `ETL_INTERVAL_SECONDS` (default 60). Each cycle does three things:
