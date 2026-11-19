@@ -10,6 +10,7 @@ An API key with ``runs:read`` sees its own project only; others are 404 to it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
@@ -17,7 +18,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import Connection, text
 
 from rai.api.context import ROLES, TenantSession, require
 from rai.api.problems import Problem
@@ -101,21 +102,9 @@ def recovery(
     if not session.own_project(project_id):
         raise Problem(404, "projects.not_found", "Project not found")
     find_project(session.conn, project_id)
-    end = _aware(until) or datetime.now(UTC)
-    start = _aware(since) or end - DEFAULT_WINDOW
-    if start >= end:
-        raise Problem(422, "recovery.window_empty", "since must be before until")
-    if end - start > MAX_WINDOW:
-        raise Problem(422, "recovery.window_too_long", "The window may be at most 366 days")
+    start, end = window(since, until, "recovery")
     params = {"p": project_id, "s": scenario_id, "since": start, "until": end}
-    counts = session.conn.execute(
-        text(
-            "SELECT count(*) AS n, count(*) FILTER (WHERE m.restored_at IS NULL) AS unrestored, "
-            "count(*) FILTER (WHERE m.rto_met) AS rto_met, count(m.rto_met) AS rto_n, "
-            f"count(*) FILTER (WHERE m.rpo_met) AS rpo_met, count(m.rpo_met) AS rpo_n {_WINDOW}"
-        ),
-        params,
-    ).one()
+    counts = attainment(session.conn, project_id, start, end, scenario_id)
     rows = session.conn.execute(
         text(
             "SELECT m.measurement_id, m.run_id, m.step_key, m.scenario_id, "
@@ -129,14 +118,50 @@ def recovery(
     ).all()
     return RecoveryOut(
         project_id=project_id, scenario_id=scenario_id, since=start, until=end,
-        measurements=counts.n, not_restored=counts.unrestored,
-        rto=Attainment(met=counts.rto_met, with_objective=counts.rto_n,
-                       definition=RTO_DEFINITION),
-        rpo=Attainment(met=counts.rpo_met, with_objective=counts.rpo_n,
-                       definition=RPO_DEFINITION),
+        measurements=counts.measurements, not_restored=counts.not_restored,
+        rto=counts.rto, rpo=counts.rpo,
         items=[MeasurementOut.model_validate(r._asdict()) for r in rows],
-        truncated=counts.n > len(rows),
+        truncated=counts.measurements > len(rows),
     )  # fmt: skip
+
+
+@dataclass(frozen=True, slots=True)
+class Counts:
+    measurements: int
+    not_restored: int
+    rto: Attainment
+    rpo: Attainment
+
+
+def attainment(
+    conn: Connection, project_id: UUID, start: datetime, end: datetime,
+    scenario_id: UUID | None = None,
+) -> Counts:  # fmt: skip
+    """RTO and RPO attainment of the measurements whose onset is in [start, end)."""
+    row = conn.execute(
+        text(
+            "SELECT count(*) AS n, count(*) FILTER (WHERE m.restored_at IS NULL) AS unrestored, "
+            "count(*) FILTER (WHERE m.rto_met) AS rto_met, count(m.rto_met) AS rto_n, "
+            f"count(*) FILTER (WHERE m.rpo_met) AS rpo_met, count(m.rpo_met) AS rpo_n {_WINDOW}"
+        ),
+        {"p": project_id, "s": scenario_id, "since": start, "until": end},
+    ).one()
+    return Counts(
+        measurements=row.n, not_restored=row.unrestored,
+        rto=Attainment(met=row.rto_met, with_objective=row.rto_n, definition=RTO_DEFINITION),
+        rpo=Attainment(met=row.rpo_met, with_objective=row.rpo_n, definition=RPO_DEFINITION),
+    )  # fmt: skip
+
+
+def window(since: datetime | None, until: datetime | None, code: str) -> tuple[datetime, datetime]:
+    """[since, until): default the last 30 days up to now, at most 366 days."""
+    end = _aware(until) or datetime.now(UTC)
+    start = _aware(since) or end - DEFAULT_WINDOW
+    if start >= end:
+        raise Problem(422, f"{code}.window_empty", "since must be before until")
+    if end - start > MAX_WINDOW:
+        raise Problem(422, f"{code}.window_too_long", "The window may be at most 366 days")
+    return start, end
 
 
 def _aware(moment: datetime | None) -> datetime | None:

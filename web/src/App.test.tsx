@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Api } from "./api";
 import { App } from "./App";
-import { fakeFetch, json, ME, PROJECT, RUN } from "./fake";
+import { fakeFetch, json, ME, PROJECT, RUN, SUMMARY } from "./fake";
 
 const PAIR = { access_token: "a1", refresh_token: "r1", token_type: "bearer", expires_in: 900 };
 const GATE_BLOCKED = {
@@ -17,6 +17,7 @@ function api(overrides: Record<string, ReturnType<typeof json>> = {}) {
     "GET /v1/projects": json({ items: [PROJECT], next_cursor: null }),
     "GET /v1/assurance/runs": json({ items: [RUN], next_cursor: null }),
     "GET /v1/projects/p-1/gate": json(GATE_BLOCKED),
+    "GET /v1/assurance/summary": json(SUMMARY),
     ...overrides,
   });
 }
@@ -41,7 +42,7 @@ describe("App", () => {
     expect(notice).toHaveTextContent("RAI RUNS ON SANDBOX AND STAGING DATA ONLY");
     expect(within(notice).queryByRole("button")).toBeNull(); // it cannot be dismissed
     await signIn(user);
-    await screen.findByRole("heading", { name: "Runs" });
+    await screen.findByRole("heading", { name: "Assurance overview" }); // the landing screen
     expect(screen.getByRole("note", { name: "Data notice" })).toHaveTextContent("Never production");
   });
 
@@ -79,6 +80,7 @@ describe("App", () => {
       [`GET /v1/assurance/runs/${RUN.run_id}/observations`]: json({ items: [], next_cursor: null }),
     });
     const user = userEvent.setup();
+    window.location.hash = "#/runs";
     render(<App api={new Api("", fetcher)} />);
     await signIn(user);
     expect(await screen.findByText("✕ Release gate blocked · 1 critical")).toBeInTheDocument();
@@ -103,8 +105,8 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App api={new Api("", api().fetcher)} />);
     await signIn(user);
-    await user.click(await screen.findByRole("link", { name: /Dashboard/ }));
-    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
-    expect(screen.getByText("FR-11.1")).toBeInTheDocument();
+    await user.click(await screen.findByRole("link", { name: /Recovery/ }));
+    expect(await screen.findByRole("heading", { name: "Recovery" })).toBeInTheDocument();
+    expect(screen.getByText("FR-08.1, FR-08.2")).toBeInTheDocument();
   });
 });

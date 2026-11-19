@@ -215,3 +215,49 @@ export class Api {
     return this.fetcher(`${this.base}${path}`, init);
   }
 }
+
+// GET /v1/assurance/summary (FR-11.1, NFR-USE-1): every number with its denominator,
+// its window and its definition.
+export interface Ratio {
+  numerator: number;
+  denominator: number;
+  definition: string;
+}
+
+export interface Attainment {
+  met: number;
+  with_objective: number;
+  definition: string;
+}
+
+export interface ScenarioResult {
+  scenario_id: string;
+  name: string;
+  version: number;
+  run_id: string;
+  step_key: string;
+  state: "done" | "error";
+  verdict: "pass" | "fail" | null;
+  finished_at: string;
+  rto_met: boolean | null;
+  rpo_met: boolean | null;
+}
+
+export type Severity = "critical" | "high" | "medium" | "low";
+
+export interface Summary {
+  project_id: string;
+  since: string;
+  until: string;
+  window_definition: string;
+  validation: Ratio;
+  issues: { total: number; rules: { rule: string; failing_checks: number }[]; definition: string };
+  runs: { finished: number; by_state: Record<string, number>; definition: string };
+  refused: Ratio;
+  chaos: Ratio;
+  scenarios: ScenarioResult[];
+  rto: Attainment;
+  rpo: Attainment;
+  recovery_measurements: number;
+  findings: { open: Record<Severity, number>; opened_in_window: number; definition: string };
+}

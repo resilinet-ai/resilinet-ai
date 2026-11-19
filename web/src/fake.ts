@@ -62,3 +62,27 @@ export const RUN = {
   started_at: "2026-11-18T09:00:01Z",
   finished_at: "2026-11-18T09:00:09Z",
 };
+
+export const SUMMARY = {
+  project_id: "p-1",
+  since: "2026-10-20T09:00:00Z",
+  until: "2026-11-19T09:00:00Z",
+  window_definition: "Runs and steps that finished in [since, until), UTC.",
+  validation: { numerator: 1153, denominator: 1200, definition: "Rule checks that passed, over rule checks judged." },
+  issues: {
+    total: 42,
+    rules: [{ rule: "txn_id.unique", failing_checks: 26 }, { rule: "amount.range", failing_checks: 8 }],
+    definition: "Failing rule checks by rule.",
+  },
+  runs: { finished: 12, by_state: { passed: 9, failed: 2, refused: 1 }, definition: "Runs that finished." },
+  refused: { numerator: 1, denominator: 12, definition: "Runs a preflight stopped." },
+  chaos: { numerator: 3, denominator: 4, definition: "Scenario steps that passed." },
+  scenarios: [
+    { scenario_id: "s-1", name: "etl-stale-feed", version: 2, run_id: RUN.run_id, step_key: "item-1",
+      state: "done", verdict: "fail", finished_at: "2026-11-18T09:00:09Z", rto_met: false, rpo_met: true },
+  ],
+  rto: { met: 14, with_objective: 16, definition: "Onset to validated restoration." },
+  rpo: { met: 15, with_objective: 16, definition: "From the last committed ledger record." },
+  recovery_measurements: 16,
+  findings: { open: { critical: 2, high: 1, medium: 0, low: 0 }, opened_in_window: 5, definition: "Open now." },
+};

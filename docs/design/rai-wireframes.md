@@ -46,7 +46,7 @@ The wireframe set is one self-contained page, [`wireframes/rai-wireframes.html`]
 | W09 | Models & drift | M09 | FR-09.1, FR-09.2 | *planned* |
 | W10 | Sign-in and tenant choice | M01 | FR-01.1, NFR-SEC-1 | `POST /v1/auth/login`, `GET /v1/me` |
 
-**Built in the UI (`web/`):** W02 Runs and W10 Sign-in, with the synthetic-data banner on every screen; the rest appear in the navigation marked *planned*. Screenshots: `docs/ui/`.
+**Built in the UI (`web/`):** W01 Dashboard (the landing screen; its benchmark and model-drift panels and the RTO chart are not built yet), W02 Runs and W10 Sign-in, with the synthetic-data banner on every screen; the rest appear in the navigation marked *planned*. Screenshots: `docs/ui/`.
 
 W01–W07 follow the order of the v0.1 navigation. W08–W10 are added: v0.1 had no screen for recovery (M08) or model drift (M09) in its navigation, and sign-in sits outside it. **Module coverage:** every module M01–M13 has a screen. M14 (docs site, quick-start and playbooks) is documentation, not a screen.
 

@@ -128,6 +128,7 @@ select.btn { appearance: auto; }
 .sunk { padding: 10px 12px; background: var(--sunken); border: var(--line-w) solid var(--rule); border-radius: 8px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; }
+.kv > div { display: contents; }
 .steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
 .steps span.s { padding: 4px 10px; border-radius: 999px; background: var(--neutral-bg); color: var(--neutral);
   border: var(--line-w) solid transparent; }
@@ -185,3 +186,12 @@ main:focus { outline: none; }
   .top, main { padding-left: 16px; padding-right: 16px; }
   .banner { margin-left: 16px; margin-right: 16px; }
 }
+
+/* ---------- Dashboard (W01) ---------- */
+details.small summary { cursor: pointer; color: var(--accent); width: fit-content; }
+details.small p { margin-top: 6px; }
+.hbar .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter { width: 100%; height: 10px; appearance: none; border: 0; border-radius: 5px; background: var(--rule); }
+.meter::-webkit-meter-bar { background: var(--rule); border: 0; border-radius: 5px; height: 10px; }
+.meter::-webkit-meter-optimum-value { background: var(--warn); border-radius: 5px; }
+.meter::-moz-meter-bar { background: var(--warn); border-radius: 5px; }
