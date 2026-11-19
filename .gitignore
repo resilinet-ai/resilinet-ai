@@ -22,3 +22,6 @@ data/
 .idea/
 .vscode/
 *.tsbuildinfo
+
+# The docs site build (mkdocs build)
+/site/

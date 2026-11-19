@@ -71,10 +71,27 @@ def test_lost_rows_behind_new_writes_make_rpo_unknown() -> None:
     [
         ({"seq": 7, "committed_at": "2026-11-17T12:00:00Z", "rows": 7}, head(7, 7)),
         ({"seq": None, "committed_at": None, "rows": 0}, Head(0, None, 0)),  # an empty ledger
+        # SandboxBank's own field name (GET /v1/ledger/head returns ``count``).
+        ({"seq": 7, "committed_at": "2026-11-17T12:00:00Z", "count": 7}, head(7, 7)),
+        ({"seq": None, "committed_at": None, "count": 0}, Head(0, None, 0)),
     ],
 )
 def test_the_ledger_head_is_parsed(body: dict[str, Any], parsed: Head) -> None:
     assert Head.parse(body) == parsed
+
+
+def test_sandboxbanks_own_ledger_head_parses() -> None:
+    """The contract between the two: what SandboxBank's API returns (``asdict`` of its
+    LedgerHead, then JSON) is a head RAI can read. A fake that said ``rows`` hid this."""
+    import json
+    from dataclasses import asdict
+
+    from sandboxbank.ledger import LedgerHead
+
+    sent = LedgerHead(seq=12, committed_at=at(3), count=12)
+    body = json.loads(json.dumps(asdict(sent), default=lambda d: d.isoformat()))
+    assert Head.parse(body) == Head(12, at(3), 12)
+    assert Head.parse(json.loads(json.dumps(asdict(LedgerHead(None, None, 0))))) == Head(0, None, 0)
 
 
 @pytest.mark.parametrize("body", [[], {"seq": 1}, {"seq": "x", "rows": 1}, {"rows": 1,

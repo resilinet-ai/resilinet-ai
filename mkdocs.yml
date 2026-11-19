@@ -1,0 +1,59 @@
+# The documentation site (FR-14.1): `uv run --only-group docs mkdocs serve`, or
+# `mkdocs build --strict` as CI does. The pages are the Markdown in docs/, which
+# also reads well on GitHub; links that leave docs/ go to the repository
+# (scripts/docs_links.py), and a broken link fails the strict build.
+site_name: Resilinet-AI
+site_description: Prove that AI-enabled financial data pipelines catch bad data and recover within stated targets.
+site_url: https://resilinet-ai.github.io/resilinet-ai/
+repo_url: https://github.com/resilinet-ai/resilinet-ai
+repo_name: resilinet-ai/resilinet-ai
+edit_uri: edit/main/docs/
+copyright: Apache License 2.0. Synthetic data only.
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: readthedocs
+  navigation_depth: 3
+  include_homepage_in_sidebar: true
+
+hooks:
+  - scripts/docs_links.py
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - tables
+  - fenced_code
+  - admonition
+
+validation:
+  omitted_files: info     # the journal and ADRs are built and searchable, not in the menu
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn           # a link to a missing #heading fails the strict build too
+
+nav:
+  - Home: index.md
+  - Quick start: quickstart.md
+  - Playbooks:
+      - playbooks/index.md
+      - Gate a pipeline in CI: playbooks/ci-gate.md
+      - Triage a failing run: playbooks/triage.md
+      - Run a chaos scenario: playbooks/chaos-scenario.md
+      - Stop every fault now: playbooks/stop-all-faults.md
+      - Hand over and verify evidence: playbooks/evidence.md
+  - Reference:
+      - API: api.md
+      - Connectors: connectors.md
+      - Chaos agent: chaos-agent.md
+      - Refusal catalogue: refusals.md
+      - Running behind TLS: deployment.md
+      - Logs, traces and health: observability.md
+      - Supply chain: supply-chain.md
+      - Audit chain: audit-chain.md
+  - Design and decisions:
+      - Design documents: design/README.md
+      - Threat model: threat-model.md
+      - Decision log: decision-log.md
+      - Demos: demos/README.md

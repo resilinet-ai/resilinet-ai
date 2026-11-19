@@ -11,6 +11,8 @@ RAI combines four things that smaller banks, credit unions and fintechs rarely h
 
 > **Status:** pre-alpha, under active development. See the [build plan](docs/design/README.md).
 
+**Documentation:** start with the [quick start](docs/quickstart.md), then the [playbooks](docs/playbooks/index.md) for gating CI, triaging a failure, running a chaos scenario, stopping every fault and verifying evidence. The same pages build into a searchable site: `uv run --only-group docs mkdocs serve`.
+
 ## Safety boundaries (non-negotiable)
 
 - Fault injection runs **only** against registered SANDBOX or STAGING environments. Production and unknown targets are refused.
@@ -19,6 +21,8 @@ RAI combines four things that smaller banks, credit unions and fintechs rarely h
 - No offensive security testing of any kind.
 
 ## Quick start (developers)
+
+The full walk-through, with the platform and the dashboard, is [docs/quickstart.md](docs/quickstart.md). In short:
 
 Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), Docker, Git.
 

@@ -69,7 +69,10 @@ class Head:
 
     @classmethod
     def parse(cls, body: Any) -> Head:
-        """SandboxBank's ``GET /v1/ledger/head``; raises ValueError if it is not one."""
+        """SandboxBank's ``GET /v1/ledger/head``; raises ValueError if it is not one.
+
+        SandboxBank names the row count ``count``; ``rows`` (how RAI records a head in
+        its own observations) is accepted too."""
         if not isinstance(body, dict):
             raise ValueError("the ledger head is not a JSON object")
         try:
@@ -80,7 +83,7 @@ class Head:
                     datetime.fromisoformat(str(committed).replace("Z", "+00:00"))
                     if committed else None
                 ),
-                rows=int(body["rows"]),
+                rows=int(body["count"] if "count" in body else body["rows"]),
             )  # fmt: skip
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(f"the ledger head is not usable: {error}") from None
