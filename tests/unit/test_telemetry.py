@@ -130,7 +130,7 @@ def test_json_lines_carry_the_service_level_time_and_errors(captured: Capture) -
 
 
 def test_extra_record_attributes_are_kept_but_terminal_colours_are_not(captured: Capture) -> None:
-    logging.getLogger("uvicorn.error").info(
+    logging.getLogger("rai.test").info(  # as uvicorn logs: with a coloured copy
         "running", extra={"color_message": "[1mrunning[0m", "port": 8000}
     )
     [line] = captured.lines
