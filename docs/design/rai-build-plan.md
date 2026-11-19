@@ -66,6 +66,7 @@
 | — | The DCO checked in CI and the Apache-2.0 declarations tested (NFR-LIC-1; the licence and sign-off themselves date from B-01) | NFR-LIC-1 | Done |
 | — | Docs site, quick-start and playbooks (FR-14.1; no backlog number recorded) | FR-14.1 | Done |
 | — | Drift checks: PSI and KS between a pinned reference and the current data (FR-09.2; no backlog number recorded) | FR-09.2 | Done |
+| — | SandboxBank fraud model and model card (ADR-005), the model FR-09.1 evaluates; RAI's `tevv_metric` test type is next | FR-09.1 | In progress |
 | B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07). The sealing mechanism is done (`rai-bench chaos-plan`, `chaos-seal`); the S01–S20 registry it seals waits for the author | NFR-REP-1 | In progress |
 | B-29 | Append-only recovery measurements (threat T-03) | FR-08.1, FR-08.2, NFR-AUD-1 | Done |
 | B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |

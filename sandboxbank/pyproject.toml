@@ -16,6 +16,11 @@ dependencies = [
 [project.scripts]
 sandboxbank = "sandboxbank.cli:main"
 
+[project.optional-dependencies]
+model = [
+    "scikit-learn>=1.5,<2",
+]
+
 [build-system]
 requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"

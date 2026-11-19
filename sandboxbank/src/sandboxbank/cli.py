@@ -10,6 +10,8 @@ sandboxbank seal data/fixtures [--expect <sha256>]
 sandboxbank etl [--once]          (needs SANDBOXBANK_LEDGER_DSN and SANDBOXBANK_ANALYTICS_DSN)
 sandboxbank seed --data data/sandboxbank --log acks/acks.csv --rate 10
 sandboxbank verify-acks acks/acks.csv
+sandboxbank model card --out sandboxbank/MODEL_CARD.md      (needs the `model` extra)
+sandboxbank model score --feed data/slice/feed --batch B000001 --out scores.csv
 """
 
 from __future__ import annotations
@@ -105,6 +107,18 @@ def _parser() -> argparse.ArgumentParser:
 
     acks = commands.add_parser("verify-acks", help="Check a seeding log's hash chain.")
     acks.add_argument("log", type=Path, help="Seeding log")
+
+    model = commands.add_parser("model", help="The fraud model (ADR-005; the `model` extra).")
+    model_commands = model.add_subparsers(dest="model_command", required=True)
+    card = model_commands.add_parser("card", help="Retrain, evaluate and write the model card.")
+    card.add_argument("--out", type=Path, required=True, help="Model card (Markdown)")
+    score = model_commands.add_parser(
+        "score", help="Retrain, then score one batch of a feed (txn_id, score, is_fraud)."
+    )
+    feed_help = "Feed folder: accounts.csv, merchants.csv, transactions_raw/"
+    score.add_argument("--feed", type=Path, required=True, help=feed_help)
+    score.add_argument("--batch", required=True, help="Batch ID such as B000001, or a CSV path")
+    score.add_argument("--out", type=Path, required=True, help="Scores (CSV)")
     return parser
 
 
@@ -303,6 +317,50 @@ def _verify_acks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _model(args: argparse.Namespace) -> int:
+    import csv
+
+    try:
+        from sandboxbank import model
+    except ImportError:  # pragma: no cover - the extra is installed in CI
+        return _error("the fraud model needs the `model` extra: "
+                      "uv sync --package rai-sandboxbank --extra model")  # fmt: skip
+    try:
+        trained = model.train()
+        if args.model_command == "card":
+            evaluation, fingerprint = model.holdout(trained)
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(model.card(trained, evaluation, fingerprint), encoding="utf-8",
+                                newline="\n")  # fmt: skip
+            print(f"model card written to {args.out}: hold-out ROC AUC "
+                  f"{evaluation.roc_auc:.4f} over {evaluation.n:,} transactions "
+                  f"({evaluation.positives:,} fraud)")  # fmt: skip
+            return 0
+        feed = args.feed
+        batch = Path(args.batch)
+        if not batch.suffix:
+            batch = feed / "transactions_raw" / f"{args.batch}.csv"
+
+        def rows(path: Path) -> list[dict[str, str]]:
+            with path.open(newline="", encoding="utf-8") as handle:
+                return list(csv.DictReader(handle))
+
+        reference = model.Reference.from_rows(rows(feed / "accounts.csv"),
+                                              rows(feed / "merchants.csv"))  # fmt: skip
+        transactions = rows(batch)
+        scores = trained.score(transactions, reference)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        with args.out.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle, lineterminator="\n")
+            writer.writerow(["txn_id", "score", "is_fraud"])
+            for row, value in zip(transactions, scores, strict=True):
+                writer.writerow([row["txn_id"], f"{value:.6f}", row.get("is_fraud", "")])
+    except (OSError, KeyError, ValueError) as error:
+        return _error(error)
+    print(f"{len(scores):,} transactions scored into {args.out}")
+    return 0
+
+
 COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "generate": _generate,
     "verify": _verify,
@@ -315,6 +373,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "slice": _slice,
     "seed": _seed,
     "verify-acks": _verify_acks,
+    "model": _model,
 }
 
 

@@ -81,6 +81,10 @@ python_version = "3.12"
 strict = true
 files = ["src", "chaos_agent/src", "sandboxbank/src", "benchmarks/src", "scripts"]
 
+[[tool.mypy.overrides]]
+module = ["sklearn", "sklearn.*", "numpy", "numpy.*"]  # the fraud model (ADR-005)
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"

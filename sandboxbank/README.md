@@ -165,3 +165,18 @@ Generated data is clean by construction. The tests check that it holds the invar
 Defects are added later, by the separate injector (B-07), never by the generator.
 
 About 0.2% of transactions carry a synthetic fraud label. Fraud rows lean toward e-commerce, high-risk merchant categories and larger amounts, which gives the P3 fraud feature pipeline real signal to learn from.
+
+## Fraud model (ADR-005)
+
+A gradient-boosted classifier (scikit-learn `HistGradientBoostingClassifier`) that scores each transaction's probability of fraud, so RAI has a real model to evaluate (FR-09.1) and whose scores can drift (FR-09.2). Synthetic data only; read the **[model card](MODEL_CARD.md)** for its data, features, hold-out numbers with their counts, and limitations.
+
+```bash
+uv sync --package rai-sandboxbank --extra model          # scikit-learn, only for the model
+uv run sandboxbank model score --feed data/slice/feed --batch B000001 --out scores.csv
+uv run sandboxbank model card --out sandboxbank/MODEL_CARD.md
+```
+
+- **No model file is shipped.** A pickled model can run code when loaded, so the model is its recipe in `sandboxbank/model.py` (development seeds, features, hyperparameters) and is retrained from it in seconds by every command. The card records the recipe's SHA-256 and a fingerprint of the hold-out scores; a test fails if the published card does not match the recipe.
+- **Scores** come out as `txn_id, score, is_fraud`, ready for a RAI drift check on `score` against an earlier batch's scores.
+- **Development seeds only**: training seed 31000, batches 0 to 7, hold-out batches 8 and 9. Evaluation seeds belong to the registered benchmark.
+- **Not in the images.** The `model` extra is not installed in the SandboxBank image; the payments API and the ETL do not use the model.
