@@ -309,6 +309,26 @@ uv run rai worker            # or: rai worker --once
 - **Pinned.** The reference asset is pinned with the run, like the target (`pins.items[].reference`); an unknown name refuses the run (`422 runs.drift_reference_unknown`). Lineage records both datasets with the digest of what was read.
 - **Verdict.** Any alert, or a column that cannot be judged, fails the step, and so the run, like any test. To watch drift without gating a release, keep drift checks in a plan of their own.
 
+**Model evaluation (FR-09.1).** A `tevv_metric` test case judges a binary classifier from its target asset, a table of one score and one label per row, read through a worker connector. SandboxBank's `sandboxbank model score` writes exactly that (`txn_id, score, is_fraud`):
+
+```json
+{"name": "fraud.model", "type": "tevv_metric", "target_asset_id": "<a batch's scores>",
+ "definition": {"connector": "feed", "environment": "SANDBOX-01",
+                "score_column": "score", "label_column": "is_fraud", "threshold": 0.5,
+                "metrics": [{"name": "recall", "at_least": 0.4},
+                            {"name": "roc_auc", "at_least": 0.95},
+                            {"name": "false_positive_rate", "at_most": 0.001}],
+                "judge_on": "estimate", "confidence": 0.95,
+                "min_rows": 100, "min_positives": 30, "min_negatives": 30}}
+```
+
+- **Metrics.** `accuracy`, `precision`, `recall`, `specificity`, `false_positive_rate`, `f1` and `roc_auc`, each with a target `at_least`, `at_most` or both. A row is flagged when `score >= threshold`; ROC AUC uses every score, with ties counted as half.
+- **No number without its n.** Each metric is an observation `tevv.<metric>` (kind `metric`) with its value, its numerator and denominator (recall is true positives *of all positives*), and a confidence interval: Wilson's score interval for the proportions, Hanley and McNeil's approximation for ROC AUC, none for F1. `tevv.sample` records the confusion matrix, the rows read and the rows left out.
+- **Too little data is an error, not a pass.** Fewer than `min_rows` usable rows, `min_positives` positives or `min_negatives` negatives, and nothing is judged: the metrics are still recorded, with outcome `error`. A metric whose denominator is 0 (precision when nothing was flagged) is undefined, also an error, never 0.
+- **Judging.** `judge_on: estimate` compares the metric itself with its target. `confidence_bound` is stricter: `at_least` must be met by the interval's lower end, `at_most` by its upper end, so a pass means the data supports the target at the stated `confidence`. F1 can only be judged on the estimate.
+- **Rows.** A null score or label leaves the row out and is counted (`null_rows`). A score that is not a finite number, or a label other than true/false or 1/0, is an error: the data is not what the test says it is.
+- **Verdict and lineage.** A missed target, a metric that cannot be judged, or too little data fails the step, and so the run. Lineage records the digest of the scores that were judged.
+
 ## Findings
 
 A finding records a defect a run observed (FR-10.1). It cites the failing or errored observation it came from (run, step, rule), and has a severity, an owner and, once someone works on it, a fix reference.
