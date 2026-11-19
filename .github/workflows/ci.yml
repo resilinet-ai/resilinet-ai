@@ -29,6 +29,24 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: python scripts/check_traceability.py "$PR_TITLE"
 
+  dco:
+    name: DCO sign-off
+    # NFR-LIC-1: every commit of a pull request is signed off by its author.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Every commit is signed off by its author
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python scripts/check_dco.py "$BASE" "$HEAD"
+
   checks:
     name: Lint, types and tests
     runs-on: ubuntu-latest
