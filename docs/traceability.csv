@@ -46,4 +46,4 @@ NFR-PERF-2,Performance,M,RAI overhead measured and reported,B-15;B-21,,#19;#26,t
 NFR-USE-1,Usability,M,"Every metric shows definition, n and window",,,,tests/integration/test_summary.py;web/src/screens/Dashboard.test.tsx,docs/api.md;web/README.md,in progress
 NFR-USE-2,Accessibility,M,WCAG 2.2 AA,,,,tests/unit/test_web_contrast.py;web/src/a11y.test.tsx,web/README.md,in progress
 NFR-OPS-1,Operability,M,"Structured logs, traces, health endpoints",,,,tests/unit/test_telemetry.py;tests/integration/test_ops.py,docs/observability.md,in progress
-NFR-LIC-1,Licensing,M,Apache-2.0 with DCO sign-off,,,,,,planned
+NFR-LIC-1,Licensing,M,Apache-2.0 with DCO sign-off,B-01,,,tests/unit/test_licensing.py,LICENSE;NOTICE;CONTRIBUTING.md;.github/workflows/ci.yml,in progress

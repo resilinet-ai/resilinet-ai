@@ -30,3 +30,10 @@ git commit -s -m "feat(FR-03.3): detect duplicate keys across batches"
 ```
 
 Commits to `main` must also be cryptographically signed (SSH or GPG).
+
+The CI job **DCO sign-off** (`scripts/check_dco.py`) checks every commit of a pull request: each needs a `Signed-off-by: Name <address>` trailer in its author's name. To sign off commits you already made:
+
+```bash
+git rebase --signoff origin/main
+git push --force-with-lease
+```
