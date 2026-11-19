@@ -168,3 +168,16 @@ def test_dependabot_moves_the_vite_toolchain_together_and_keeps_pandas_below_3()
     assert {"vite", "vitest", "@vitejs/*"} <= set(patterns)
     ignored = {i["dependency-name"] for i in by_ecosystem["uv"]["ignore"]}
     assert "pandas" in ignored
+
+
+def test_dependabot_never_edits_the_generated_requirements() -> None:
+    # The image requirements are exports of uv.lock; an edit to one alone splits them.
+    config = yaml.safe_load(read(".github/dependabot.yml"))
+    uv = next(u for u in config["updates"] if u["package-ecosystem"] == "uv")
+    generated = {
+        p.relative_to(ROOT).as_posix()
+        for p in ROOT.glob("**/*requirements.txt")
+        if ".venv" not in p.parts and "node_modules" not in p.parts
+    }
+    assert generated
+    assert generated <= set(uv["exclude-paths"])

@@ -21,6 +21,13 @@ updates:
     commit-message:
       prefix: build
     open-pull-requests-limit: 5
+    # Generated from uv.lock (`uv export`, named in each header) and checked against it by
+    # tests: Dependabot must change uv.lock, never these copies.
+    exclude-paths:
+      - chaos_agent/requirements.txt
+      - deploy/rai/requirements.txt
+      - deploy/build-requirements.txt
+      - sandboxbank/requirements.txt
     ignore:
       # benchmarks/pyproject.toml caps pandas below 3: GX 1.x misreads pandas 3's string
       # dtype, so the B2 baseline would report false defects. Lift with that cap.
@@ -39,9 +46,16 @@ updates:
       # Vite, its React plugin and Vitest peer-depend on each other's majors: one PR.
       vite-toolchain:
         patterns: ["vite", "vitest", "@vitejs/*", "@vitest/*"]
+      # react and react-dom must be the same version, with their types.
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
   # Base images are pinned by tag and digest (B-40); these bump both, after the cooldown.
   - package-ecosystem: docker
     directories: [/chaos_agent, /deploy/caddy, /deploy/rai, /sandboxbank]
+    ignore:
+      # The UI build stage stays on a Node LTS line; odd majors are short-lived. Moved by hand.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
     schedule:
       interval: weekly
     cooldown:
