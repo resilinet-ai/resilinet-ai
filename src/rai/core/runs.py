@@ -86,6 +86,8 @@ class PinnedItem(_Frozen):
     contract: PinnedContract | None = None
     # B-19: every hop upstream of the target, as declared when the run was queued.
     upstream: tuple[PinnedInput, ...] = ()
+    # FR-09.2: a drift check's reference asset (by name in its definition), pinned.
+    reference: PinnedAsset | None = None
 
     @model_validator(mode="after")
     def _one_kind(self) -> PinnedItem:

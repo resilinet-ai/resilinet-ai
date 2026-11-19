@@ -241,7 +241,7 @@ function Panels({ summary: s, gate, recent }: { summary: Summary; gate: Gate | n
           <ul className="plain small">
             <li>Seeded defects detected and false alarms on clean batches (Protocol section 6): reported by <span className="mono">rai-bench</span>, not the API.</li>
             <li>Recovery time per run against its target: the Recovery screen.</li>
-            <li>Model drift (FR-09.2).</li>
+            <li>Drift: drift checks run (FR-09.2) and show on the run's page; a dashboard panel is not built yet.</li>
           </ul>
         </article>
       </div>

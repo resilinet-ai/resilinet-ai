@@ -102,6 +102,7 @@ from rai.recovery.consistency import (
     reconcile,
 )
 from rai.recovery.measure import Head, Sample, rpo, rto
+from rai.tevv.drift import ColumnDrift, DriftDefinition, drift
 from rai.validation.contract import Contract
 from rai.validation.engine import ValidationReport, validate
 from rai.validation.history import SqliteKeyStore
@@ -110,7 +111,7 @@ from rai.worker import probes
 from rai.worker.chaos import ChaosClient, FaultOutcome, fault_preflight, record_revert
 from rai.worker.queue import Job
 
-SUPPORTED_TYPES = ("contract_rule", "consistency_check")
+SUPPORTED_TYPES = ("contract_rule", "consistency_check", "drift_check")
 
 
 class LeaseLost(Exception):
@@ -171,6 +172,15 @@ class PreparedConsistency:
     item: PinnedItem
     definition: ConsistencyDefinition
     source: PinnedAsset  # the upstream asset, from the pinned lineage
+
+
+@dataclass(frozen=True)
+class PreparedDrift:
+    """A drift-check step, checked in preflight (FR-09.2)."""
+
+    item: PinnedItem
+    definition: DriftDefinition
+    reference: PinnedAsset  # pinned when the run was queued
 
 
 @dataclass(frozen=True)
@@ -317,6 +327,36 @@ def _consistency_problems(
     return PreparedConsistency(item, definition, sources[0]), []
 
 
+def _drift_problems(
+    conn: Connection, pins: Pins, config: WorkerConfig, item: PinnedItem
+) -> tuple[PreparedDrift | None, list[str]]:
+    """The worker's preflight for a drift check (FR-09.2): a valid definition, a
+    registered environment, connectors on this worker, and both assets locatable."""
+    assert item.test is not None  # noqa: S101 - the caller dispatches on it
+    try:
+        definition = DriftDefinition.model_validate(item.test.definition)
+    except ValidationError as error:
+        fields = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc']) or 'definition'}: {e['msg']}"
+            for e in error.errors()
+        )
+        return None, [f"the drift check's definition is not valid ({fields})"]
+    problems = _environment_problems(conn, pins, definition.environment)
+    for name in dict.fromkeys((definition.connector, definition.reference.connector)):
+        problems += _connector_problems(config, name, definition.environment)
+    if item.asset is None or not item.asset.locator:
+        problems.append("the target asset has no locator")
+    reference = item.reference
+    if reference is None:
+        problems.append(f"the reference asset {definition.reference.asset!r} was not pinned "
+                        "with the run")  # fmt: skip
+    elif not reference.locator:
+        problems.append(f"the reference asset {reference.name!r} has no locator")
+    if problems or reference is None:
+        return None, problems
+    return PreparedDrift(item, definition, reference), []
+
+
 def _health_urls(conn: Connection, pins: Pins, names: list[str]) -> dict[str, str]:
     """Allow-listed targets of the run's environment that have a health_url."""
     if pins.environment is None:
@@ -359,6 +399,12 @@ def preflight(
             problems.extend(f"{where}: {problem}" for problem in found)
             if check is not None:
                 prepared[item.step_key] = check
+            continue
+        if item.test.type == "drift_check":
+            compare, found = _drift_problems(conn, pins, config, item)
+            problems.extend(f"{where}: {problem}" for problem in found)
+            if compare is not None:
+                prepared[item.step_key] = compare
             continue
         try:
             definition = ContractRuleDefinition.model_validate(item.test.definition)
@@ -541,6 +587,8 @@ class Executor:
                 self._scenario(job, pins, step)
             elif isinstance(step, PreparedConsistency):
                 self._consistency(job, step)
+            elif isinstance(step, PreparedDrift):
+                self._drift(job, step)
             else:
                 self._step(job, step)
 
@@ -948,6 +996,43 @@ class Executor:
                           state="done", verdict="fail" if problems else "pass",
                           error="; ".join(problems) or None)  # fmt: skip
 
+    def _drift(self, job: Job, step: PreparedDrift) -> None:
+        """Compare the target (current) with the pinned reference, column by column
+        (FR-09.2). Any alert, or a column that cannot be judged, fails the step."""
+        started = datetime.now(UTC)
+        definition = step.definition
+        environment = definition.environment
+        assert step.item.asset is not None  # noqa: S101 - checked in preflight
+        assert step.item.asset.locator  # noqa: S101 - checked in preflight
+        assert step.reference.locator  # noqa: S101 - checked in preflight
+        try:
+            current = connector(self.config.connectors[definition.connector]).read(
+                step.item.asset.locator, environment=environment
+            )
+            reference = connector(self.config.connectors[definition.reference.connector]).read(
+                step.reference.locator, environment=environment
+            )
+        except (ConnectorError, ValueError) as error:
+            message = f"could not read the data to compare: {error}"
+            note = {"kind": "note", "rule": "read", "outcome": "error", "rows": None,
+                    "failing": None, "observed": json.dumps({"message": message}),
+                    "expected": "{}"}  # fmt: skip
+            self._commit_step(job, step.item, started, [note], [],
+                              state="error", verdict=None, error=message)  # fmt: skip
+            return
+        results = drift(reference, current, definition)
+        problems = [f"{r.column}: {r.error}" for r in results if r.error] + [
+            f"{r.column}: {'; '.join(r.alerts)}" for r in results if r.alerts
+        ]
+        read = {step.item.asset.asset_id: _digested(current)}
+        references = {step.reference.name: _digested(reference)}
+        self._commit_step(
+            job, step.item, started, _drift_observations(results, definition),
+            _edges(step.item, read, references),
+            state="done", verdict="fail" if problems else "pass",
+            error="drift: " + " | ".join(problems) if problems else None,
+        )  # fmt: skip
+
     def _ground_truth(
         self, job: Job, definition: ConsistencyDefinition, acked: pl.DataFrame,
         ledger: pl.DataFrame,
@@ -1012,7 +1097,7 @@ class Executor:
              verdict="pass" if passed else "fail")  # fmt: skip
 
 
-Step = Prepared | PreparedScenario | PreparedConsistency
+Step = Prepared | PreparedScenario | PreparedConsistency | PreparedDrift
 
 
 def _truth_problems(
@@ -1033,6 +1118,33 @@ def _truth_problems(
                 f"shows {truth.lost} lost acknowledged write(s)"
             )
     return problems
+
+
+def _drift_observations(
+    results: list[ColumnDrift], definition: DriftDefinition
+) -> list[dict[str, Any]]:
+    """One metric per column: PSI, KS and both sample sizes; ``fail`` on an alert."""
+    limits = {c.name: c for c in definition.columns}
+    return [
+        {
+            "kind": "metric", "rule": f"drift.{r.column}", "outcome": r.outcome,
+            "rows": r.current_rows, "failing": None,
+            "observed": json.dumps({
+                "kind": r.kind, "psi": r.psi, "band": r.band, "ks_statistic": r.ks_statistic,
+                "ks_p_value": r.ks_p_value, "reference_rows": r.reference_rows,
+                "current_rows": r.current_rows,
+                "reference_null_share": r.reference_null_share,
+                "current_null_share": r.current_null_share, "alerts": list(r.alerts),
+                "error": r.error, "bins": r.bins,
+            }, default=str),
+            "expected": json.dumps({
+                "psi_alert": limits[r.column].psi_alert, "ks_alert": limits[r.column].ks_alert,
+                "bins": definition.bins, "min_rows": definition.min_rows,
+                "reference_asset": definition.reference.asset,
+            }),
+        }
+        for r in results
+    ]  # fmt: skip
 
 
 def _consistency_observations(

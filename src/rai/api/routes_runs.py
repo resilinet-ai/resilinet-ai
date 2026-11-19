@@ -232,6 +232,9 @@ def _pins(session: TenantSession, plan_id: UUID) -> tuple[UUID, Pins]:
             contract = PinnedContract(
                 contract_id=chosen.contract_id, ref=chosen.ref, spec_sha256=chosen.spec_sha256
             )
+        reference = None
+        if row.type == "drift_check":
+            reference = _drift_reference(conn, plan.project_id, row.position, row.definition)
         test = PinnedTest(
             test_id=row.test_id, name=row.name, version=row.version, type=row.type,
             severity=row.severity, definition=row.definition,
@@ -244,6 +247,7 @@ def _pins(session: TenantSession, plan_id: UUID) -> tuple[UUID, Pins]:
                 asset=asset,
                 contract=contract,
                 upstream=upstream,
+                reference=reference,
             )
         )
     pinned = PinnedPlan(plan_id=plan.plan_id, name=plan.name, version=plan.version)
@@ -256,6 +260,28 @@ def _pins(session: TenantSession, plan_id: UUID) -> tuple[UUID, Pins]:
     return plan.project_id, Pins(
         rai_version=__version__, plan=pinned, items=items, environment=environment
     )
+
+
+def _drift_reference(
+    conn: Connection, project_id: UUID, position: int, definition: dict[str, Any]
+) -> PinnedAsset | None:
+    """A drift check's reference asset, named in its definition, pinned like the target
+    (FR-09.2, NFR-REP-1). A definition without one is left to the worker to refuse."""
+    named = definition.get("reference")
+    name = named.get("asset") if isinstance(named, dict) else None
+    if not isinstance(name, str):
+        return None
+    found = conn.execute(
+        text("SELECT asset_id, name, locator, kind::text FROM rai.pipeline_assets "
+             "WHERE project_id = :p AND name = :n"),
+        {"p": project_id, "n": name},
+    ).first()  # fmt: skip
+    if found is None:
+        raise Problem(
+            422, "runs.drift_reference_unknown", "A drift check's reference asset is unknown",
+            detail=f"plan item {position}: this project has no asset named {name!r}",
+        )  # fmt: skip
+    return PinnedAsset.model_validate(found._asdict())
 
 
 def _scenario_item(conn: Connection, position: int, scenario_id: UUID) -> PinnedItem:

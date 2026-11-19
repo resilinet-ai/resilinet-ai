@@ -21,7 +21,7 @@ FR-08.1,M08,M,RTO from onset to validated restoration,B-26b;B-29,,#32,tests/unit
 FR-08.2,M08,M,RPO from last committed ledger record,B-26b;B-29;B-30,,#32;#35,tests/unit/test_recovery_measure.py;tests/integration/test_scenario_recovery.py;tests/integration/test_recovery_measurements.py;tests/unit/test_sandboxbank_seeder.py;tests/unit/test_recovery_consistency.py;tests/integration/test_consistency.py;tests/integration/test_sandboxbank_ledger.py,docs/api.md;sandboxbank/README.md,in progress
 FR-08.3,M08,M,Post-recovery consistency checks,,,#34,tests/unit/test_recovery_consistency.py;tests/integration/test_consistency.py,docs/api.md,in progress
 FR-09.1,M09,S,Model evaluation with sample sizes,,,,,,planned
-FR-09.2,M09,S,Drift detection (PSI/KS),,,,,,planned
+FR-09.2,M09,S,Drift detection (PSI/KS),,,,tests/unit/test_tevv_drift.py;tests/integration/test_drift.py,docs/api.md,in progress
 FR-09.3,M09,L,Robustness tests,,,,,,planned
 FR-10.1,M10,M,"Findings with severity, owner, fix and retest",,,,tests/integration/test_findings.py,docs/api.md,in progress
 FR-11.1,M11,M,Executive dashboard with denominators,,,,tests/integration/test_summary.py;web/src/screens/Dashboard.test.tsx,docs/api.md;web/README.md,in progress
