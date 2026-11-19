@@ -123,7 +123,7 @@ export function Dashboard({ api, project }: { api: Api; project: Project | null 
       </div>
       {error && <div className="box alert" role="alert">{error}</div>}
       {!summary ? (
-        !error && <p className="note">Loading…</p>
+        !error && <p className="note" role="status">Loading…</p>
       ) : (
         <Panels summary={summary} gate={gate} recent={recent ?? []} />
       )}

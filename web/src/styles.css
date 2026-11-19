@@ -3,7 +3,7 @@
 :root, [data-theme="clarity"] {
   --bg:#F6F7F9; --surface:#FFFFFF; --sunken:#F6F7F9; --border:#D9DDE3; --rule:#EDF0F3;
   --text:#1B1F24; --muted:#5B6470; --accent:#2457C5; --accent-ink:#1A3F91; --accent-soft:#E6EDFB;
-  --on-accent:#FFFFFF; --hover:#EEF1F5; --control-border:#C5CBD3;
+  --on-accent:#FFFFFF; --hover:#EEF1F5; --control-border:#8A8E94;
   --pass-bg:#E3F4E8; --pass:#1A6B35; --fail-bg:#FCE8E6; --fail:#A3201A; --fail-line:#E8B4AE;
   --warn-bg:#FDF1DC; --warn:#7A4800; --neutral-bg:#EEF1F5; --neutral:#3A4350;
   --banner-bg:#FDF1DC; --banner-line:#E9C88A; --banner:#5C3A00;
@@ -13,7 +13,7 @@
 [data-theme="midnight"] {
   --bg:#0E141B; --surface:#151D27; --sunken:#111821; --border:#2C3947; --rule:#1F2A36;
   --text:#E6EBF1; --muted:#A3AFBD; --accent:#7AA7FF; --accent-ink:#B9D0FF; --accent-soft:#1D2B45;
-  --on-accent:#0B1220; --hover:#1C2633; --control-border:#3A4859;
+  --on-accent:#0B1220; --hover:#1C2633; --control-border:#5F6B79;
   --pass-bg:#123222; --pass:#7EE2A0; --fail-bg:#3D1A1A; --fail:#FF9C94; --fail-line:#7A3A36;
   --warn-bg:#3A2C10; --warn:#F5C76A; --neutral-bg:#222D39; --neutral:#C9D2DC;
   --banner-bg:#33270E; --banner-line:#7A5A1C; --banner:#F5D58E;
@@ -23,7 +23,7 @@
 [data-theme="evergreen"] {
   --bg:#F3F6F4; --surface:#FFFFFF; --sunken:#F3F6F4; --border:#D3DDD7; --rule:#E7EEEA;
   --text:#17201B; --muted:#4F5D55; --accent:#1E6B4A; --accent-ink:#134A33; --accent-soft:#E1F0E8;
-  --on-accent:#FFFFFF; --hover:#EAF1ED; --control-border:#BCCAC2;
+  --on-accent:#FFFFFF; --hover:#EAF1ED; --control-border:#858F8A;
   --pass-bg:#E1F3E7; --pass:#17663A; --fail-bg:#FBE7E4; --fail:#A12318; --fail-line:#E6B3AB;
   --warn-bg:#FBF0D9; --warn:#784700; --neutral-bg:#ECF1EE; --neutral:#38443D;
   --banner-bg:#FBF0D9; --banner-line:#E2C385; --banner:#5A3A00;
@@ -79,9 +79,9 @@ section[data-screen] { display: flex; flex-direction: column; gap: 20px; }
 .head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .sub { margin-top: 6px; color: var(--muted); font-size: 14px; }
 .grid { display: grid; gap: 16px; }
-.g4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-.g3 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-.g2 { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); }
 .g21 { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); }
 .card { background: var(--surface); border: var(--line-w) solid var(--border); border-radius: 10px; padding: 20px;
   min-width: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -155,7 +155,7 @@ select.btn { appearance: auto; }
 .hbar .n { text-align: right; font-weight: 600; }
 .center { min-height: 100vh; display: flex; flex-direction: column; }
 .signin { flex: 1; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 24px; padding: 48px 32px; }
-.signin .card { width: 400px; }
+.signin .card { width: 400px; max-width: 100%; }
 [hidden] { display: none !important; }
 
 /* ---------- UI additions ---------- */
@@ -188,10 +188,10 @@ main:focus { outline: none; }
 }
 
 /* ---------- Dashboard (W01) ---------- */
-details.small summary { cursor: pointer; color: var(--accent); width: fit-content; }
+details.small summary { cursor: pointer; color: var(--accent); width: fit-content; padding: 4px 0; } /* 24 px target (2.5.8) */
 details.small p { margin-top: 6px; }
 .hbar .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.meter { width: 100%; height: 10px; appearance: none; border: 0; border-radius: 5px; background: var(--rule); }
-.meter::-webkit-meter-bar { background: var(--rule); border: 0; border-radius: 5px; height: 10px; }
+.meter { width: 100%; height: 10px; appearance: none; border: 0; border-radius: 5px; background: var(--neutral-bg); }
+.meter::-webkit-meter-bar { background: var(--neutral-bg); border: 0; border-radius: 5px; height: 10px; }
 .meter::-webkit-meter-optimum-value { background: var(--warn); border-radius: 5px; }
 .meter::-moz-meter-bar { background: var(--warn); border-radius: 5px; }
