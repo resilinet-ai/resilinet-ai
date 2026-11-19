@@ -68,6 +68,7 @@
 | — | Drift checks: PSI and KS between a pinned reference and the current data (FR-09.2; no backlog number recorded) | FR-09.2 | Done |
 | — | SandboxBank fraud model and model card (ADR-005), the model FR-09.1 evaluates | FR-09.1 | Done |
 | — | Model evaluation: the `tevv_metric` test type, every metric with its counts and confidence interval (FR-09.1; no backlog number recorded) | FR-09.1 | Done |
+| — | Safety limits mapped to their evidence: maximum duration, blast radius, rollback and the kill switch, built in B-23, B-25 and B-27 | NFR-SAF-2 | Done |
 | B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07). The sealing mechanism is done (`rai-bench chaos-plan`, `chaos-seal`); the S01–S20 registry it seals waits for the author | NFR-REP-1 | In progress |
 | B-29 | Append-only recovery measurements (threat T-03) | FR-08.1, FR-08.2, NFR-AUD-1 | Done |
 | B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |
@@ -82,7 +83,7 @@
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
-Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1, NFR-OPS-1, NFR-USE-2, FR-14.1, FR-09.2 and FR-09.1 (built, number not recorded), FR-09.3 and NFR-SAF-2.
+Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1, NFR-OPS-1, NFR-USE-2, FR-14.1, FR-09.2 and FR-09.1 (built, number not recorded), and FR-09.3.
 
 ## 5. First runnable slice: acceptance
 
