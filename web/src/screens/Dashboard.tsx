@@ -13,8 +13,9 @@ function message(caught: unknown): string {
   return caught instanceof ApiError ? caught.message : "The RAI API cannot be reached.";
 }
 
+/** The UTC date, ISO style: the same in every locale, and the window is stated in UTC. */
 function day(value: string): string {
-  return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  return new Date(value).toISOString().slice(0, 10);
 }
 
 /** "96.1%", or null when there is nothing to divide by. */

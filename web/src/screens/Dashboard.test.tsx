@@ -45,7 +45,7 @@ describe("Dashboard (FR-11.1, NFR-USE-1)", () => {
     for (const name of ["Validation pass rate", "RTO attainment", "RPO attainment", "Open critical findings"]) {
       expect(within(card(name)).getByText("Definition")).toBeInTheDocument();
     }
-    expect(screen.getByText(/20 Oct 2026 – 19 Nov 2026, UTC/)).toBeInTheDocument();
+    expect(screen.getByText(/2026-10-20 – 2026-11-19, UTC/)).toBeInTheDocument();
   });
 
   it("shows no number where there is nothing to divide by", async () => {
