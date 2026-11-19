@@ -129,6 +129,12 @@ def utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def utc_next_second() -> str:
+    """The next whole second: `docker logs --since` takes whole seconds, so a moment
+    rounded down would count lines logged earlier in that second."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(time.time()) + 1))
+
+
 def inject(body: dict[str, Any]) -> str:
     status, fault = http(f"{AGENT}/faults", "POST", signer().sign(fault_request(body)))
     if status != 201:
@@ -192,7 +198,7 @@ def stale() -> None:
     fault = inject({"type": "stale_upstream", "target": "etl-job",
                     "required_label": "rai.target=etl-job"})  # fmt: skip
     expect(inspect("etl-job", "{{.State.Paused}}") == "true", "etl-job is not paused")
-    paused_at = utc_now()
+    paused_at = utc_next_second()  # a cycle logged just before the pause is not "after"
     time.sleep(8)  # four ETL intervals
     expect(etl_cycles(paused_at) == 0, "the paused ETL still cycled")
     print("  no ETL cycle for 8 s while paused")
