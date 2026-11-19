@@ -70,7 +70,7 @@
 | B-36 | TLS through Caddy (NFR-SEC-2) | NFR-SEC-2 | Done |
 | B-37 | Persistent synthetic-data banner in the UI (FR-11.2), with the UI's first slice: sign-in, the shell and Runs | FR-11.2, FR-01.1 | Done |
 | B-38, B-39 | Not recoverable | — | — |
-| B-40 | Image hardening (SSDF: SBOM, signed images; NFR-SEC-3) | NFR-SEC-3 | Planned |
+| B-40 | Image hardening (SSDF: SBOM, signed images; NFR-SEC-3) | NFR-SEC-3 | Done |
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
