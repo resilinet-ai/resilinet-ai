@@ -150,7 +150,7 @@ A run executes one plan version. It **pins every input** when it is queued: the 
 **States:** `queued → preflight → running → evaluating → passed | failed`.
 - **`refused`:** preflight found something this worker cannot run. The reason lists every problem.
 - **`error`:** the platform failed three times.
-- **`aborted`:** reserved for the kill-switch.
+- **`aborted`:** a fault of a chaos scenario was cut short, by the kill switch or by the agent restarting, so the scenario did not run as reviewed. The run has no verdict, its reason says which fault ended and when, and nothing after it ran, recovery measurement included. `rai run` exits `2`, as for any run without a verdict.
 
 Finished runs never change; to try again, start a new run.
 

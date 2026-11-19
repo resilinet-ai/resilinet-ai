@@ -218,6 +218,18 @@ class AgentClient:
             )
         )
 
+    def open_fault_ids(self) -> set[str] | None:
+        """The ids of the faults the agent has open, or None if it did not answer.
+        The worker asks while it holds a fault, to notice one that ended early."""
+        status, body = self._send(
+            urllib.request.Request(  # noqa: S310 - an http(s) URL from configuration
+                f"{self.url}/faults", headers={"User-Agent": "rai-worker"}
+            )
+        )
+        if status != 200 or not isinstance(body, dict) or not isinstance(body.get("faults"), list):
+            return None
+        return {str(f.get("fault_id")) for f in body["faults"] if isinstance(f, dict)}
+
     def _send(self, request: urllib.request.Request) -> tuple[int, Any]:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
