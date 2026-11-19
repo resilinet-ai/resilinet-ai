@@ -1,7 +1,8 @@
 """``rai-bench``: run the arms, score a run, dry-run the whole chain (B-15), profile B2 (B-21).
 
-Exit codes: 0 done, 2 the command could not run (bad inputs, broken seal,
-evaluation fixtures without --allow-evaluation, results folder not empty).
+Exit codes: 0 done, 1 ``chaos-seal`` found a plan that does not match its seal,
+2 the command could not run (bad inputs, broken seal, evaluation fixtures without
+--allow-evaluation, results folder not empty).
 """
 
 from __future__ import annotations
@@ -16,6 +17,12 @@ import typer
 from rai.validation.contract import ContractError
 from rai_bench.arms import Arm, RaiArm
 from rai_bench.baselines import B2_DIR, B1Arm, B2Arm, effort, write_suites
+from rai_bench.chaos import (
+    DEFAULT_MAX_GAP_SECONDS,
+    DEFAULT_MIN_GAP_SECONDS,
+    build_plan,
+    check_plan,
+)
 from rai_bench.runner import HarnessError, run
 from rai_bench.scale import history_scale
 from rai_bench.scoring import score
@@ -151,6 +158,49 @@ def dry_run_command(
         _print_scores(score(out / "fixtures", out / "run"))
     except HarnessError as problem:
         raise _fail(problem) from None
+
+
+@app.command("chaos-plan")
+def chaos_plan_command(
+    registry: Annotated[Path, typer.Argument(help="The pre-registered scenarios (YAML or JSON)")],
+    out: Annotated[Path, typer.Option(help="Plan folder (must be new or empty)")],
+    seed: Annotated[int, typer.Option(help="Plan seed: 0-99,999 development, 100,000+ evaluation")],
+    min_gap: Annotated[int, typer.Option(help="Shortest gap between injections, s")] = (
+        DEFAULT_MIN_GAP_SECONDS
+    ),
+    max_gap: Annotated[int, typer.Option(help="Longest gap between injections, s")] = (
+        DEFAULT_MAX_GAP_SECONDS
+    ),
+) -> None:
+    """Write the chaos benchmark's sealed fault plan (B-28): the planned fault log and its SEAL."""
+    try:
+        manifest = build_plan(
+            registry, out, seed=seed, min_gap_seconds=min_gap, max_gap_seconds=max_gap
+        )
+    except HarnessError as problem:
+        raise _fail(problem) from None
+    typer.echo(
+        f"{manifest['injections']} injections of {manifest['scenarios']} scenarios planned "
+        f"in {out} ({manifest['seed_purpose']} seed)\n"
+        f"Fault log SEAL: {manifest['fault_log_sha256']}\n"
+        "Commit the SEAL publicly before any arm runs; keep answer_key/ away from the arms."
+    )
+
+
+@app.command("chaos-seal")
+def chaos_seal_command(
+    plan: Annotated[Path, typer.Argument(help="Plan folder")],
+    expect: Annotated[
+        str | None, typer.Option(help="Publicly committed SHA-256 to compare with")
+    ] = None,
+) -> None:
+    """Check a fault plan against its SEAL, manifest and registry (exit 1 if it does not match)."""
+    problems = check_plan(plan, expect)
+    if problems:
+        for problem in problems:
+            typer.echo(f"{plan}: {problem}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"{plan}: fault log matches its seal")
 
 
 @app.command("b2-profile")

@@ -75,7 +75,33 @@ uv run rai-bench effort          # rule counts and lines of code per arm (Protoc
 uv run rai-bench b2-profile --work data/b2-dev   # regenerate B2's suites (development seed only)
 ```
 
-Fault injections (scenarios S01 to S20) use the same alert format with `subject.kind = "injection"`; they are scored once the chaos agent writes its fault log.
+Fault injections (scenarios S01 to S20) use the same alert format with `subject.kind = "injection"` and the injection id from the fault plan below. Scoring them comes with the chaos benchmark runner.
+
+## Chaos benchmark: sealed fault plans (B-28)
+
+The chaos benchmark's answer key is its **planned fault log**: which registered scenario is injected in which order, and the earliest each may start. Like a defect answer key, its SHA-256 (the SEAL) is committed publicly before any arm runs (Protocol section 8, threat T-06).
+
+```bash
+uv run rai-bench chaos-plan scenarios.yaml --out data/chaos-plan --seed 3   # development seed
+uv run rai-bench chaos-seal data/chaos-plan --expect <publicly committed SEAL>
+```
+
+The registry (YAML or JSON) is written by the author: format `rai-bench-chaos-registry/1`, then for each scenario an `id` (`S01` to `S20`), a `title`, how many `repetitions`, and its `definition` in the same shape the RAI API takes for a scenario version (blast radius, faults in order, recovery plan). Every scenario must declare recovery probes and **both** RTO and RPO objectives, so no objective is chosen after the results.
+
+`chaos-plan` writes:
+
+| File | What |
+| --- | --- |
+| `registry.json` | The registry, canonical, with each scenario's SHA-256. Public: arms may read it |
+| `answer_key/fault_log.jsonl` | One line per injection (`rai-bench-fault/1`): injection id, scenario and its hash, repetition, earliest start (seconds from the run's start), faults, components touched, objectives |
+| `answer_key/SEAL` | SHA-256 of the fault log |
+| `manifest.json` | Seed, gaps, registry hash, SEAL and every file's hash |
+
+Repetitions are shuffled by the seed, and a seeded gap (60 to 600 s by default) follows each injection's faults and recovery window, so arms cannot predict when a fault lands. Seeds follow the protocol ranges; anything that later runs or scores a plan loads it with `rai_bench.chaos.load_sealed_plan`, which refuses a broken seal and an evaluation plan unless explicitly allowed.
+
+`chaos-seal` exits 1 if the fault log no longer matches its SEAL, the manifest or the public hash, or if a scenario in `registry.json` no longer matches the definition the log was planned from (a loosened RTO, say). Rewriting the log, its SEAL and the manifest together passes the local checks, which is why the SEAL must be committed publicly first.
+
+**Not here yet:** the S01–S20 registry itself (to be restored from v0.1 or written by the author; Protocol section 5), and the runner that injects a plan and scores the arms' injection alerts.
 
 ## Also in the harness
 
