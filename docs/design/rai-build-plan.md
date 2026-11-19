@@ -61,6 +61,7 @@
 | B-27 | Scenario-level blast radius; refusal suite | FR-07.2, NFR-SAF-1 | Done |
 | — | Post-recovery consistency checks (FR-08.3; no backlog number recorded) | FR-08.3 | Done |
 | — | Executive dashboard: the summary API and the UI's Dashboard screen (FR-11.1, NFR-USE-1; no backlog number recorded) | FR-11.1, NFR-USE-1 | Done |
+| — | Structured logs, W3C trace context and health endpoints (NFR-OPS-1; no backlog number recorded) | NFR-OPS-1 | Done |
 | B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07). The sealing mechanism is done (`rai-bench chaos-plan`, `chaos-seal`); the S01–S20 registry it seals waits for the author | NFR-REP-1 | In progress |
 | B-29 | Append-only recovery measurements (threat T-03) | FR-08.1, FR-08.2, NFR-AUD-1 | Done |
 | B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |
@@ -75,7 +76,7 @@
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
-Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3, FR-10.1, FR-11.1 and NFR-USE-1 (built, number not recorded), FR-09.1–09.3, FR-14.1, NFR-SAF-2, NFR-USE-2, NFR-OPS-1 and NFR-LIC-1.
+Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1 and NFR-OPS-1 (built, number not recorded), FR-09.1–09.3, FR-14.1, NFR-SAF-2, NFR-USE-2 and NFR-LIC-1.
 
 ## 5. First runnable slice: acceptance
 

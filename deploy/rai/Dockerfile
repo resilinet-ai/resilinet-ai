@@ -19,7 +19,9 @@ RUN pip install --no-deps --no-build-isolation . && rm -rf /app/src
 
 USER 10001
 EXPOSE 8000
+# Healthy = ready: the API answers and reaches its database (/readyz, NFR-OPS-1).
+# Caddy starts only then. /readyz is not routed through Caddy; /healthz is.
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2)"]
 # Plain HTTP on the private edge network only; Caddy terminates TLS in front of it.
 CMD ["rai", "serve", "--host", "0.0.0.0", "--port", "8000"]

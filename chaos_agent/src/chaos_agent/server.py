@@ -44,7 +44,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from chaos_agent import watchdog
+from chaos_agent import logs, watchdog
 from chaos_agent.agent import DEFAULT_MAX_FAULT_SECONDS, DEFAULT_MAX_OPEN_FAULTS, Agent, FaultReplay
 from chaos_agent.clients import BackendError, HttpDocker, HttpToxiproxy
 from chaos_agent.faults import FaultError, FaultRequest, StateFile, now
@@ -195,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("watchdog", help="revert overdue faults, whatever the agent does")
     commands.add_parser("watchdog-health", help="exit 0 if the watchdog swept recently")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    logs.configure("rai-chaos-watchdog" if args.command == "watchdog" else "rai-chaos-agent")
     if args.command == "watchdog-health":
         state = Path(os.environ.get("RAI_AGENT_STATE", "/var/lib/rai-chaos-agent/state.json"))
         return 0 if watchdog.healthy(state.parent) else 1

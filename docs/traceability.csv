@@ -45,5 +45,5 @@ NFR-PERF-1,Performance,M,"100k-row, 30-rule validation under 10 s",B-09;B-10;B-1
 NFR-PERF-2,Performance,M,RAI overhead measured and reported,B-15;B-21,,#19;#26,tests/unit/test_bench_harness.py;tests/unit/test_bench_baselines.py,wall and CPU seconds per arm and batch in deliveries.jsonl; P50/P95 in scores.json; peak memory with containerised arms;benchmarks/baselines/REVIEW.md,in progress
 NFR-USE-1,Usability,M,"Every metric shows definition, n and window",,,,tests/integration/test_summary.py;web/src/screens/Dashboard.test.tsx,docs/api.md;web/README.md,in progress
 NFR-USE-2,Accessibility,M,WCAG 2.2 AA,,,,,,planned
-NFR-OPS-1,Operability,M,"Structured logs, traces, health endpoints",,,,,,planned
+NFR-OPS-1,Operability,M,"Structured logs, traces, health endpoints",,,,tests/unit/test_telemetry.py;tests/integration/test_ops.py,docs/observability.md,in progress
 NFR-LIC-1,Licensing,M,Apache-2.0 with DCO sign-off,,,,,,planned
