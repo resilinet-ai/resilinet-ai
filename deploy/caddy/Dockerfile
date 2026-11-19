@@ -10,6 +10,6 @@ RUN npm ci --ignore-scripts --no-fund --no-audit
 COPY web/ ./
 RUN npm run check
 
-FROM caddy:2.10.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
+FROM caddy:2.11.8@sha256:4fcafa98afd1c2e642e353e3c5cf9ddbe892fcee14bc990e7ba2c5b78e51f9cf
 COPY deploy/caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=web /web/dist /srv

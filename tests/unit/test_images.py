@@ -159,3 +159,12 @@ def test_dependabot_keeps_the_digests_current() -> None:
     folders = {"/" + Path(d).parent.as_posix() for d in DOCKERFILES}
     assert set(by_ecosystem["docker"]["directories"]) == folders
     assert by_ecosystem["docker-compose"]["directory"] == "/"
+
+
+def test_dependabot_moves_the_vite_toolchain_together_and_keeps_pandas_below_3() -> None:
+    config = yaml.safe_load(read(".github/dependabot.yml"))
+    by_ecosystem = {u["package-ecosystem"]: u for u in config["updates"]}
+    patterns = by_ecosystem["npm"]["groups"]["vite-toolchain"]["patterns"]
+    assert {"vite", "vitest", "@vitejs/*"} <= set(patterns)
+    ignored = {i["dependency-name"] for i in by_ecosystem["uv"]["ignore"]}
+    assert "pandas" in ignored
