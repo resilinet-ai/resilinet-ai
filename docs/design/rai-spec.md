@@ -99,7 +99,7 @@ RAI is evaluated against **SandboxBank**, a synthetic payments system built for 
 
 - **Pipeline P1, payments.** `payments-api` (FastAPI) posts transactions into `ledger-db` (PostgreSQL 16). `txn_id` is the idempotency key, and the ledger is append-only.
 - **Pipeline P2, settlement.** `etl-job` copies the ledger into an analytics warehouse incrementally and rebuilds daily settlement tables. It is built to resume after a stop or restart without losing or doubling rows.
-- **Fraud model.** A gradient-boosted classifier trained on synthetic data, with a published model card and generator (ADR-005). Built: `sandboxbank model`, card in `sandboxbank/MODEL_CARD.md`; RAI's own model evaluation (FR-09.1) is planned.
+- **Fraud model.** A gradient-boosted classifier trained on synthetic data, with a published model card and generator (ADR-005). Built: `sandboxbank model`, card in `sandboxbank/MODEL_CARD.md`; RAI evaluates its scores with a `tevv_metric` test case (FR-09.1).
 
 **Reproducibility rules (NFR-REP-1).**
 - Every random stream is seeded by a SHA-256 derivation of the dataset seed.

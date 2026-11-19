@@ -103,6 +103,7 @@ from rai.recovery.consistency import (
 )
 from rai.recovery.measure import Head, Sample, rpo, rto
 from rai.tevv.drift import ColumnDrift, DriftDefinition, drift
+from rai.tevv.metrics import Evaluation, MetricDefinition, describe, evaluate
 from rai.validation.contract import Contract
 from rai.validation.engine import ValidationReport, validate
 from rai.validation.history import SqliteKeyStore
@@ -111,7 +112,7 @@ from rai.worker import probes
 from rai.worker.chaos import ChaosClient, FaultOutcome, fault_preflight, record_revert
 from rai.worker.queue import Job
 
-SUPPORTED_TYPES = ("contract_rule", "consistency_check", "drift_check")
+SUPPORTED_TYPES = ("contract_rule", "consistency_check", "drift_check", "tevv_metric")
 
 
 class LeaseLost(Exception):
@@ -181,6 +182,14 @@ class PreparedDrift:
     item: PinnedItem
     definition: DriftDefinition
     reference: PinnedAsset  # pinned when the run was queued
+
+
+@dataclass(frozen=True)
+class PreparedMetric:
+    """A model-evaluation step, checked in preflight (FR-09.1)."""
+
+    item: PinnedItem
+    definition: MetricDefinition
 
 
 @dataclass(frozen=True)
@@ -357,6 +366,29 @@ def _drift_problems(
     return PreparedDrift(item, definition, reference), []
 
 
+def _metric_problems(
+    conn: Connection, pins: Pins, config: WorkerConfig, item: PinnedItem
+) -> tuple[PreparedMetric | None, list[str]]:
+    """The worker's preflight for a model evaluation (FR-09.1): a valid definition, a
+    registered environment, its connector on this worker, and a locatable asset."""
+    assert item.test is not None  # noqa: S101 - the caller dispatches on it
+    try:
+        definition = MetricDefinition.model_validate(item.test.definition)
+    except ValidationError as error:
+        fields = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc']) or 'definition'}: {e['msg']}"
+            for e in error.errors()
+        )
+        return None, [f"the model evaluation's definition is not valid ({fields})"]
+    problems = _environment_problems(conn, pins, definition.environment)
+    problems += _connector_problems(config, definition.connector, definition.environment)
+    if item.asset is None or not item.asset.locator:
+        problems.append("the target asset has no locator")
+    if problems:
+        return None, problems
+    return PreparedMetric(item, definition), []
+
+
 def _health_urls(conn: Connection, pins: Pins, names: list[str]) -> dict[str, str]:
     """Allow-listed targets of the run's environment that have a health_url."""
     if pins.environment is None:
@@ -405,6 +437,12 @@ def preflight(
             problems.extend(f"{where}: {problem}" for problem in found)
             if compare is not None:
                 prepared[item.step_key] = compare
+            continue
+        if item.test.type == "tevv_metric":
+            metric, found = _metric_problems(conn, pins, config, item)
+            problems.extend(f"{where}: {problem}" for problem in found)
+            if metric is not None:
+                prepared[item.step_key] = metric
             continue
         try:
             definition = ContractRuleDefinition.model_validate(item.test.definition)
@@ -589,6 +627,8 @@ class Executor:
                 self._consistency(job, step)
             elif isinstance(step, PreparedDrift):
                 self._drift(job, step)
+            elif isinstance(step, PreparedMetric):
+                self._metric(job, step)
             else:
                 self._step(job, step)
 
@@ -1033,6 +1073,35 @@ class Executor:
             error="drift: " + " | ".join(problems) if problems else None,
         )  # fmt: skip
 
+    def _metric(self, job: Job, step: PreparedMetric) -> None:
+        """Evaluate a model's scores against their labels (FR-09.1). A missed target,
+        a metric that cannot be judged, or too little data fails the step."""
+        started = datetime.now(UTC)
+        definition = step.definition
+        assert step.item.asset is not None  # noqa: S101 - checked in preflight
+        assert step.item.asset.locator  # noqa: S101 - checked in preflight
+        try:
+            scores = connector(self.config.connectors[definition.connector]).read(
+                step.item.asset.locator, environment=definition.environment
+            )
+        except (ConnectorError, ValueError) as error:
+            message = f"could not read the scores: {error}"
+            note = {"kind": "note", "rule": "read", "outcome": "error", "rows": None,
+                    "failing": None, "observed": json.dumps({"message": message}),
+                    "expected": "{}"}  # fmt: skip
+            self._commit_step(job, step.item, started, [note], [],
+                              state="error", verdict=None, error=message)  # fmt: skip
+            return
+        result = evaluate(scores, definition)
+        problems = result.problems
+        read = {step.item.asset.asset_id: _digested(scores)}
+        self._commit_step(
+            job, step.item, started, _metric_observations(result, definition),
+            _edges(step.item, read, {}),
+            state="done", verdict="fail" if problems else "pass",
+            error="model evaluation: " + " | ".join(problems) if problems else None,
+        )  # fmt: skip
+
     def _ground_truth(
         self, job: Job, definition: ConsistencyDefinition, acked: pl.DataFrame,
         ledger: pl.DataFrame,
@@ -1097,7 +1166,7 @@ class Executor:
              verdict="pass" if passed else "fail")  # fmt: skip
 
 
-Step = Prepared | PreparedScenario | PreparedConsistency | PreparedDrift
+Step = Prepared | PreparedScenario | PreparedConsistency | PreparedDrift | PreparedMetric
 
 
 def _truth_problems(
@@ -1145,6 +1214,47 @@ def _drift_observations(
         }
         for r in results
     ]  # fmt: skip
+
+
+def _metric_observations(result: Evaluation, definition: MetricDefinition) -> list[dict[str, Any]]:
+    """``tevv.sample``, the confusion matrix and the rows behind it, then one metric
+    per target with its counts, interval and target (FR-09.1: n always)."""
+    confusion = result.confusion
+    sample = {
+        "kind": "metric", "rule": "tevv.sample", "outcome": "error" if result.error else "pass",
+        "rows": result.rows_read, "failing": None,
+        "observed": json.dumps({
+            "rows_read": result.rows_read, "null_rows": result.null_rows,
+            "rows_used": confusion.n if confusion else 0,
+            "positives": confusion.positives if confusion else None,
+            "negatives": confusion.negatives if confusion else None,
+            "flagged": confusion.flagged if confusion else None,
+            "confusion": confusion.as_dict() if confusion else None, "error": result.error,
+        }),
+        "expected": json.dumps({
+            "threshold": definition.threshold, "score_column": definition.score_column,
+            "label_column": definition.label_column, "min_rows": definition.min_rows,
+            "min_positives": definition.min_positives,
+            "min_negatives": definition.min_negatives,
+        }),
+    }  # fmt: skip
+    metrics = [
+        {
+            "kind": "metric", "rule": f"tevv.{r.name}", "outcome": r.outcome,
+            "rows": confusion.n if confusion else None, "failing": None,
+            "observed": json.dumps({
+                "value": r.value, "numerator": r.numerator, "denominator": r.denominator,
+                "low": r.low, "high": r.high, "confidence": definition.confidence,
+                "counts": describe(r.name), "problem": r.problem, "error": r.error,
+            }),
+            "expected": json.dumps({
+                "at_least": r.target.at_least, "at_most": r.target.at_most,
+                "judge_on": definition.judge_on, "threshold": definition.threshold,
+            }),
+        }
+        for r in result.results
+    ]  # fmt: skip
+    return [sample, *metrics]
 
 
 def _consistency_observations(
