@@ -60,7 +60,7 @@
 | B-26 | Chaos scenarios with separated review; B-26b RTO/RPO measurement | FR-07.1, FR-07.2, FR-08.1, FR-08.2 | Done |
 | B-27 | Scenario-level blast radius; refusal suite | FR-07.2, NFR-SAF-1 | Done |
 | — | Post-recovery consistency checks (FR-08.3; no backlog number recorded) | FR-08.3 | Done |
-| B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07) | — | Planned |
+| B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07). The sealing mechanism is done (`rai-bench chaos-plan`, `chaos-seal`); the S01–S20 registry it seals waits for the author | NFR-REP-1 | In progress |
 | B-29 | Append-only recovery measurements (threat T-03) | FR-08.1, FR-08.2, NFR-AUD-1 | Done |
 | B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |
 | B-31, B-32 | Not recoverable | — | — |
