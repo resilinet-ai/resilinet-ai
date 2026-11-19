@@ -30,3 +30,22 @@ updates:
     commit-message:
       prefix: build
     open-pull-requests-limit: 5
+  # Base images are pinned by tag and digest (B-40); these bump both, after the cooldown.
+  - package-ecosystem: docker
+    directories: [/chaos_agent, /deploy/caddy, /deploy/rai, /sandboxbank]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5

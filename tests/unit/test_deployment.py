@@ -66,7 +66,8 @@ def test_the_edge_containers_are_locked_down() -> None:
         assert "no-new-privileges:true" in service["security_opt"], name
     assert SERVICES["caddy"]["cap_add"] == ["NET_BIND_SERVICE"]
     caddy_image = (ROOT / "deploy" / "caddy" / "Dockerfile").read_text(encoding="utf-8")
-    assert re.search(r"^FROM caddy:\d+\.\d+\.\d+$", caddy_image, flags=re.MULTILINE)  # pinned
+    pinned = r"^FROM caddy:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$"  # a version and a digest (B-40)
+    assert re.search(pinned, caddy_image, flags=re.MULTILINE)
     assert "npm ci --ignore-scripts" in caddy_image  # the UI from its lockfile, no scripts
 
 
