@@ -3,7 +3,7 @@
 # Stage 1 builds web/ from its lockfile (npm ci, no install scripts) and runs its checks;
 # stage 2 is Caddy serving the static files and proxying /v1 to rai-api.
 # Both base images are pinned by digest (B-40: NFR-SEC-3).
-FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS web
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --ignore-scripts --no-fund --no-audit
