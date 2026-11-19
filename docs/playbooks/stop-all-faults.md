@@ -36,7 +36,13 @@ The payments API can answer `500` for a few seconds after a database fault ends,
 
 ## What happens to the run
 
-The run is not stopped. The worker waits out the fault's declared duration, then records `fault.reverted` with `reverted_by: "kill"` and the time you pulled the switch, and the step finishes. Evidence and observations show exactly when the fault really ended. Read a killed scenario's result with that in mind: its recovery started when you killed it, not when the scenario said.
+It ends **`aborted`**, within a few seconds. The worker checks every few seconds whether the fault it holds is still open; when it finds the fault gone, it records `fault.reverted` with `reverted_by: "kill"` and the time you pulled the switch, and ends the run without a verdict. The reason says so:
+
+```
+aborted: fault 1 (connection_drop on ledger-db-proxy) was stopped by the kill switch at 2026-11-19T12:29:05Z, before its declared end; the scenario did not run as reviewed, so its recovery was not measured and the run has no verdict
+```
+
+Later faults and steps are not run, and nothing is measured: a scenario cut short proves nothing about recovery, so it neither passes nor fails. `rai run` and the CI gate exit `2`. An agent restart that reverts an open fault (`reverted_by: "startup"`) aborts the run the same way. Start a new run when the sandbox is ready again.
 
 ## If the agent itself is down
 

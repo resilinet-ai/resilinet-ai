@@ -112,6 +112,7 @@ The run ends `passed` after about 25 s. Its observations, on the run's page or f
 | Run `refused` | Preflight found a problem before anything was injected: the scenario is not approved, a target is not on the allow-list or is the wrong kind, the duration exceeds the ceiling, or the worker has no signing key. The reason lists them all. |
 | Step `error`, `fault.refused` | The agent refused the request: an untrusted key, another environment, a target outside the radius. See the [refusal catalogue](../refusals.md). |
 | Step `error`, "could not read the ledger head" | The `payments-ledger` URL is wrong or SandboxBank is down. Nothing was injected. |
+| Run `aborted` | A fault was cut short: someone pulled the kill switch, or the agent restarted. The reason names the fault and the time. Nothing was measured; start a new run. |
 | Anything looks wrong while a fault is open | [Stop every fault now](stop-all-faults.md). |
 
 To prove the system comes back *correct* and not just healthy, add a consistency check after the scenario in the same plan (FR-08.3), and for RPO ground truth, SandboxBank's seeding log (B-30). Both are in the [API reference](../api.md#the-worker).

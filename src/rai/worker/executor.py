@@ -33,6 +33,16 @@ attempted. A worker that dies mid-scenario leaves the fault to the agent's expir
 the watchdog (B-25); the retry finds each fault the agent already injected (409 with
 its onset), waits out what remains, and records nothing twice.
 
+**Cut short (aborted).** While it holds a fault, the worker asks the agent every few
+seconds whether the fault is still open. A fault that ends before its declared time
+because someone pulled the kill switch (``reverted_by: kill``) or the agent restarted
+(``startup``) means the scenario did not run as reviewed, so nothing it measured can
+be judged: the step is recorded in ``error`` with what happened, and the run ends
+``aborted``, without a verdict, in the same transaction. Later faults and steps and
+the recovery measurement are not attempted, and a retry finds the run finished.
+Ordinary endings (the worker's own revert, the agent's expiry, the watchdog after the
+declared time) are not aborts.
+
 **Recovery (B-26b: FR-08.1, FR-08.2).** If the scenario has a recovery plan, the
 worker reads the ledger head before the first fault (kept as the observation
 ``recovery.ledger_before``, so a retry measures from the same point), then after
@@ -105,6 +115,18 @@ SUPPORTED_TYPES = ("contract_rule", "consistency_check")
 
 class LeaseLost(Exception):
     """Another worker took the job over; stop without touching the run."""
+
+
+class RunAborted(Exception):
+    """A fault was cut short (kill switch, agent restart); the run is already
+    recorded as ``aborted``, so stop without evaluating it."""
+
+
+# Who ended a fault early: the run cannot be judged (see "Cut short" above).
+CUT_SHORT = {
+    "kill": "stopped by the kill switch",
+    "startup": "reverted because the chaos agent restarted",
+}
 
 
 class ContractRuleDefinition(BaseModel):
@@ -465,11 +487,13 @@ class Executor:
         before_commit: Callable[[str], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         probe_interval: float = 1.0,
+        hold_check: float = 5.0,
     ) -> None:
         self.engine, self.config, self.renew = engine, config, renew
         self.before_commit = before_commit  # test hook: called inside a step's transaction
         self.sleep = sleep  # test hook: holding a fault for its duration
         self.probe_interval = probe_interval  # seconds between recovery probe rounds
+        self.hold_check = hold_check  # seconds between "is the fault still open?" checks
 
     def execute(self, job: Job) -> None:
         name = self.config.name
@@ -490,7 +514,10 @@ class Executor:
                 return
             move(self.engine, job, name, "running")
         if row.state in ("queued", "preflight", "running"):
-            self._steps(job, pins, prepared)
+            try:
+                self._steps(job, pins, prepared)
+            except RunAborted:
+                return  # recorded with the step; there is nothing to evaluate
             move(self.engine, job, name, "evaluating")
         self._decide(job, pins)
 
@@ -532,8 +559,9 @@ class Executor:
                 failure = f"recovery: could not read the ledger head before the faults: {error}"
         onset: datetime | None = None
         reverted: datetime | None = None
+        aborted: str | None = None
         for n, spec in enumerate(step.specs, start=1):
-            if failure:
+            if failure or aborted:
                 break
             if not self.renew(job):
                 raise LeaseLost(job.job_id)
@@ -556,21 +584,36 @@ class Executor:
                 failure = f"fault {n} ({spec.type} on {spec.target}) was not reverted: {body}"
                 break
             reverted = _moment(body.get("reverted_at")) or datetime.now(UTC)
+            why = CUT_SHORT.get(str(body.get("reverted_by")))
+            if why is not None:
+                aborted = (
+                    f"aborted: fault {n} ({spec.type} on {spec.target}) was {why} at "
+                    f"{_stamp(reverted)}, before its declared end; the scenario did not run "
+                    "as reviewed, so its recovery was not measured and the run has no verdict"
+                )
         missed: list[str] = []
         measurement: dict[str, Any] | None = None
-        if failure is None and step.recovery is not None and onset and reverted:
+        if failure is None and aborted is None and step.recovery is not None and onset and reverted:
             missed, measurement = self._measure(job, step, onset, reverted, before)
+        problem = failure or aborted
         with tenant_transaction(self.engine, job, self.config.name) as conn:
             self._record_step(
                 conn, job, step.item, started,
-                state="error" if failure else "done",
-                verdict=None if failure else ("fail" if missed else "pass"),
-                error=failure or ("; ".join(missed) if missed else None),
+                state="error" if problem else "done",
+                verdict=None if problem else ("fail" if missed else "pass"),
+                error=problem or ("; ".join(missed) if missed else None),
             )  # fmt: skip
             if measurement is not None:  # same transaction as the step (B-29)
                 _record_measurement(conn, job, step, measurement)
+            if aborted is not None:  # with the step, so a retry finds the run finished
+                conn.execute(
+                    text("UPDATE rai.runs SET state = 'aborted', reason = :r WHERE run_id = :run"),
+                    {"r": aborted[:2000], "run": job.run_id},
+                )
             if self.before_commit is not None:
                 self.before_commit(step.item.step_key)
+        if aborted is not None:
+            raise RunAborted(aborted)
 
     def _ledger_before(self, job: Job, step: PreparedScenario) -> Head:
         """The ledger head before the first fault, read once: a retry reads it back from
@@ -697,16 +740,24 @@ class Executor:
 
     def _hold(self, job: Job, outcome: FaultOutcome) -> None:
         """Wait until the fault's declared end, renewing the lease; returns at once for a
-        fault that has already ended (an instant restart, or a retry after the expiry)."""
+        fault that has already ended (an instant restart, or a retry after the expiry),
+        and early if the agent no longer has it open (the revert then says who ended it).
+        An agent that does not answer is waited out: its expiry and the watchdog still
+        end the fault."""
         assert outcome.fault is not None  # noqa: S101 - an injected fault has its record
         ends = outcome.fault.get("expires_at")
         if not ends or outcome.fault.get("status") != "active":
             return
+        chaos = self.config.chaos
+        fault_id = str(outcome.fault.get("fault_id"))
         until = datetime.fromisoformat(str(ends).replace("Z", "+00:00"))
         while (left := (until - datetime.now(UTC)).total_seconds()) > 0:
             if not self.renew(job):
                 raise LeaseLost(job.job_id)
-            self.sleep(min(left, 10.0))
+            self.sleep(min(left, self.hold_check))
+            still = None if chaos is None else chaos.agent.open_fault_ids()
+            if still is not None and fault_id not in still:
+                return
 
     def _record_step(
         self,
