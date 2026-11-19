@@ -145,6 +145,7 @@ A run executes one plan version. It **pins every input** when it is queued: the 
 | `GET /v1/assurance/runs/{id}/observations` | | One per rule; `?outcome=fail` |
 | `GET /v1/assurance/runs/{id}/lineage` | | Every hop with the SHA-256 of the data read (see [Lineage](#lineage)) |
 | `GET /v1/assurance/recovery` | | Recovery measurements and attainment for `?project_id=` (see [Recovery measurements](#recovery-measurements)) |
+| `GET /v1/assurance/summary` | | The dashboard's numbers for `?project_id=`, each with its denominator and definition (see [Dashboard summary](#dashboard-summary)) |
 
 **States:** `queued → preflight → running → evaluating → passed | failed`.
 - **`refused`:** preflight found something this worker cannot run. The reason lists every problem.
@@ -176,6 +177,35 @@ curl -s "$API/v1/assurance/recovery?project_id=$PROJECT&since=2026-10-19T00:00:0
 - **Window:** onset in `[since, until)`. The default is the last 30 days; at most 366 days.
 - **Filters:** `?scenario_id=` narrows the measurements; `?limit=` caps the items (at most 200; the counts always cover the whole window).
 - **Denominators:** `with_objective` counts the measurements whose scenario set that objective. A run that was never restored, or whose ledger could not be read after recovery, counts as a miss, not as missing.
+- **API keys:** a key with `runs:read` sees its own project only.
+
+### Dashboard summary
+
+Every number on the executive dashboard (FR-11.1), from one call. Each comes with its numerator, its denominator and a definition, and the window is in the answer (NFR-USE-1). There is deliberately no composite score: it would have no denominator.
+
+```bash
+curl -s "$API/v1/assurance/summary?project_id=$PROJECT&since=2026-10-19T00:00:00Z" -H "$AUTH"
+# {"since": "...", "until": "...", "window_definition": "Runs and steps that finished ...",
+#  "validation": {"numerator": 1153, "denominator": 1200, "definition": "Rule checks ..."},
+#  "issues": {"total": 42, "rules": [{"rule": "txn_id.unique", "failing_checks": 26}, ...]},
+#  "runs": {"finished": 12, "by_state": {"passed": 9, "failed": 2, "refused": 1}},
+#  "refused": {"numerator": 1, "denominator": 12, ...}, "chaos": {"numerator": 3, "denominator": 4, ...},
+#  "scenarios": [{"name": "etl-stale-feed", "version": 2, "run_id": "...", "verdict": "fail",
+#                 "rto_met": false, "rpo_met": true, ...}],
+#  "rto": {"met": 14, "with_objective": 16, ...}, "rpo": {...}, "recovery_measurements": 16,
+#  "findings": {"open": {"critical": 2, "high": 1, "medium": 0, "low": 0}, "opened_in_window": 5}}
+```
+
+| Field | Counts |
+| --- | --- |
+| `validation` | Rule checks that passed, over those that passed, failed or errored (skipped left out), in runs that finished in the window. Rule checks, not rows |
+| `issues` | Failing or errored rule checks by rule, most frequent first (top 10; `total` covers every rule) |
+| `runs`, `refused` | Runs that finished in the window, by final state; refused means stopped in preflight, over runs finished |
+| `chaos`, `scenarios` | Scenario steps that passed, over scenario steps that finished or errored; and each scenario's latest step (up to 10) with its RTO and RPO result |
+| `rto`, `rpo` | The same attainment as `/v1/assurance/recovery`, by fault onset |
+| `findings` | Open findings now by severity, whatever the window; and findings opened in the window |
+
+- **Window:** `[since, until)`, the last 30 days by default, at most 366 days; runs and steps count by when they finished.
 - **API keys:** a key with `runs:read` sees its own project only.
 
 ### The worker

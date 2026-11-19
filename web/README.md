@@ -9,8 +9,9 @@ The RAI web UI: React and TypeScript (ADR-004), built with Vite. Its design is t
 | Screen | Status | API |
 | --- | --- | --- |
 | Sign-in and tenant choice (W10) | Built | `POST /v1/auth/login`, `GET /v1/me` |
+| Dashboard (W01) | Built, and the landing screen: validation pass rate, RTO and RPO attainment, open critical findings and the gate, issues by rule, each scenario's latest result, runs by outcome, open findings and recent runs, over a 7, 30 or 90-day window. Every number shows its denominator and a definition (NFR-USE-1). Not yet: the benchmark panels (from `rai-bench`), the RTO chart and model drift | `/v1/assurance/summary`, `/v1/projects/{id}/gate`, `/v1/assurance/runs` |
 | Runs (W02) | Built: a project's runs, a run's steps and failing rules, the release gate, and the evidence download | `/v1/assurance/runs`, `/observations`, `/v1/projects/{id}/gate`, `/evidence` |
-| Dashboard, Chaos scenarios, Contracts & data, Approvals & gates, Evidence, Environments, Recovery, Models & drift | In the navigation, marked *planned*, with their requirements | — |
+| Chaos scenarios, Contracts & data, Approvals & gates, Evidence, Environments, Recovery, Models & drift | In the navigation, marked *planned*, with their requirements | — |
 
 - **Synthetic-data banner (FR-11.2, B-37).** On every screen, sign-in included, and it cannot be dismissed. When the selected project is an authorised snapshot, the banner names it.
 - **Read-only.** This slice only reads; actions (approving, waiving, starting runs) come with their screens.

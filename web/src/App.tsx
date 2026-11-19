@@ -4,6 +4,7 @@ import { Banner } from "./components/Banner";
 import { Shell } from "./components/Shell";
 import { ThemePicker } from "./components/ThemePicker";
 import { SCREENS, useRoute } from "./routes";
+import { Dashboard } from "./screens/Dashboard";
 import { Planned } from "./screens/Planned";
 import { Runs } from "./screens/Runs";
 import { SignIn } from "./screens/SignIn";
@@ -71,11 +72,17 @@ export function App({ api: given }: { api?: Api }) {
   }
 
   const project = projects.find((p) => p.project_id === projectId) ?? null;
-  const screen = SCREENS.find((s) => s.id === route.screen) ?? SCREENS[1]!;
+  const screen = SCREENS.find((s) => s.id === route.screen) ?? SCREENS[0]!;
   return (
     <Shell me={session.me} tenant={session.tenant} route={route} projects={projects} project={project}
       onProject={setProjectId} theme={theme} onTheme={setTheme} onSignOut={() => void signOut()}>
-      {screen.id === "runs" ? <Runs api={api} project={project} runId={route.id} /> : <Planned screen={screen} />}
+      {screen.id === "dashboard" ? (
+        <Dashboard api={api} project={project} />
+      ) : screen.id === "runs" ? (
+        <Runs api={api} project={project} runId={route.id} />
+      ) : (
+        <Planned screen={screen} />
+      )}
     </Shell>
   );
 }

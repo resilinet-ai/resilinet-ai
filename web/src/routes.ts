@@ -11,7 +11,7 @@ export interface Screen {
 }
 
 export const SCREENS: Screen[] = [
-  { id: "dashboard", label: "Dashboard", built: false, requirements: "FR-11.1",
+  { id: "dashboard", label: "Dashboard", built: true, requirements: "FR-11.1, NFR-USE-1",
     purpose: "Pass rates, recovery attainment and open findings, each with its denominator." },
   { id: "runs", label: "Runs", built: true, requirements: "FR-06.1, FR-12.2, FR-13.1",
     purpose: "Runs of a project, their steps and failing rules, the release gate and evidence." },
@@ -39,7 +39,7 @@ export interface Route {
 export function parseHash(hash: string): Route {
   const [screen = "", id = null] = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const known = SCREENS.some((s) => s.id === screen);
-  return { screen: known ? screen : "runs", id: known ? id : null };
+  return { screen: known ? screen : "dashboard", id: known ? id : null };
 }
 
 export function useRoute(): Route {
