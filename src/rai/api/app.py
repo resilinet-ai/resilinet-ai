@@ -7,11 +7,14 @@ refuses to serve otherwise (threat I-02).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
-from sqlalchemy import Engine, create_engine
+from fastapi.responses import JSONResponse
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from rai import __version__
 from rai.api import (
@@ -34,7 +37,9 @@ from rai.api.context import check_login_role
 from rai.api.problems import Problem, problem_response
 from rai.api.ratelimit import FailureLimiter, RequestLimiter
 from rai.api.settings import Settings
+from rai.core.telemetry import span
 
+log = logging.getLogger("rai.api")
 ADDRESS_FACTOR = 10  # an address may fail this many times more than one email
 
 
@@ -68,18 +73,43 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
     async def limits_and_headers(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        length = request.headers.get("content-length")
-        if length is not None and (not length.isdigit() or int(length) > settings.max_body_bytes):
-            too_big = Problem(413, "request.too_large", "The request body is too large")
-            return problem_response(request, too_big)
-        response = await call_next(request)
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        return response
+        # NFR-OPS-1: every request is a span, continuing the caller's traceparent.
+        with span("http.request", traceparent=request.headers.get("traceparent"),
+                  method=request.method) as current:  # fmt: skip
+            length = request.headers.get("content-length")
+            if length is not None and (
+                not length.isdigit() or int(length) > settings.max_body_bytes
+            ):
+                too_big = Problem(413, "request.too_large", "The request body is too large")
+                response: Response = problem_response(request, too_big)
+            else:
+                response = await call_next(request)
+            route = request.scope.get("route")
+            current.attributes["route"] = getattr(route, "path", None) or "unmatched"
+            current.attributes["status_code"] = response.status_code
+            if response.status_code >= 500:
+                current.status = "error"
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["traceparent"] = current.traceparent
+            return response
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:
+        """Liveness: the process answers. Never touches the database."""
         return {"status": "ok"}
+
+    @app.get("/readyz", include_in_schema=False, response_model=None)
+    def readyz() -> dict[str, str] | JSONResponse:
+        """Readiness: the database answers as the API's role (NFR-OPS-1)."""
+        try:
+            with db.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except SQLAlchemyError as error:
+            log.warning("not ready: database unavailable",
+                        extra={"fields": {"error_type": type(error).__name__}})  # fmt: skip
+            return JSONResponse({"status": "unavailable", "database": "unavailable"}, 503)
+        return {"status": "ready", "database": "ok"}
 
     app.include_router(routes_auth.router)
     app.include_router(routes_members.router)
@@ -93,7 +123,6 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
     app.include_router(routes_summary.router)
     app.include_router(routes_evidence.router)
     app.include_router(routes_findings.router)
-    app.include_router(routes_waivers.router)
     app.include_router(routes_waivers.router)
     return app
 

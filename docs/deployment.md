@@ -46,6 +46,10 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./rai-root.cr
 SSL_CERT_FILE=./rai-root.crt RAI_API_URL=https://localhost:8443 uv run rai run --plan ci-contracts
 ```
 
+## Logs and health
+
+Every container logs JSON lines (`docker compose logs rai-api`), and each API request and worker run is a span with a W3C trace id; the API's Docker healthcheck is its database-aware `/readyz`. See [observability.md](observability.md).
+
 ## Not covered yet
 
 - Traffic inside the host (Caddy to the API, the API to the database) is not encrypted: one host, private Docker networks (threat model, assumptions). Mutual TLS is the upgrade path.

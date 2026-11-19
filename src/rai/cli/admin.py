@@ -24,6 +24,18 @@ admin_app = typer.Typer(
 console = Console(soft_wrap=True)
 errors = Console(stderr=True, soft_wrap=True)
 
+
+def _logging(service: str) -> None:
+    """JSON logs on stderr (NFR-OPS-1); RAI_LOG_FORMAT=text for a terminal."""
+    from rai.core.telemetry import configure_logging
+
+    try:
+        configure_logging(service)
+    except ValueError as error:
+        errors.print(f"error: {error}")
+        raise typer.Exit(2) from None
+
+
 NEW_PASSWORD_ENV = "RAI_NEW_PASSWORD"  # noqa: S105 - a variable name, not a secret
 API_DB_PASSWORD_ENV = "RAI_API_DB_PASSWORD"  # noqa: S105 - a variable name
 WORKER_DB_PASSWORD_ENV = "RAI_WORKER_DB_PASSWORD"  # noqa: S105 - a variable name
@@ -191,15 +203,18 @@ def evidence_keygen_command(
 def worker_command(
     once: Annotated[bool, typer.Option(help="Process at most one job, then exit")] = False,
     poll: Annotated[float, typer.Option(help="Seconds between polls when idle")] = 2.0,
+    health_port: Annotated[
+        int | None, typer.Option(help="Serve /healthz and /readyz on this port (NFR-OPS-1)")
+    ] = None,
+    health_host: Annotated[str, typer.Option(help="Address for the health port")] = "127.0.0.1",
 ) -> None:
     """Run the worker: claim queued runs and execute them (needs RAI_WORKER_DATABASE_URL)."""
-    import logging
     import signal
     import threading
 
-    from rai.worker.service import WorkerSettings, WorkerSetupError, build
+    from rai.worker.service import WorkerSettings, WorkerSetupError, build, serve_health
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    _logging("rai-worker")
     try:
         worker = build(WorkerSettings.from_env())
     except WorkerSetupError as error:
@@ -209,6 +224,9 @@ def worker_command(
         processed = worker.run_once()
         console.print("processed one job" if processed else "no job waiting")
         return
+    if health_port is not None:
+        serve_health(worker, health_host, health_port)
+        console.print(f"health on http://{health_host}:{health_port}/healthz and /readyz")
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -238,6 +256,7 @@ def serve_command(
     from rai.api.app import create_app
     from rai.api.settings import Settings, SettingsError
 
+    _logging("rai-api")
     try:
         application = create_app(Settings.from_env())
     except SettingsError as error:
@@ -250,4 +269,7 @@ def serve_command(
     uvicorn.run(
         application, host=host, port=port, server_header=False,
         proxy_headers=bool(trusted), forwarded_allow_ips=trusted or None,
+        # Request spans replace uvicorn's access log, and its own handlers stay off so
+        # every line is the JSON format above (NFR-OPS-1).
+        access_log=False, log_config=None,
     )  # fmt: skip

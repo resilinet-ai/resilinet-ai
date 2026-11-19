@@ -53,7 +53,7 @@ services:
         ipv4_address: 172.31.236.3 # fixed too, so it never takes Caddy's .2 first
   caddy:
     # B-36 (NFR-SEC-2, threat I-06): the only way in. HTTPS only; see deploy/caddy/Caddyfile.
-    # The image is caddy:2.10.2 with the web UI built in (deploy/caddy/Dockerfile).
+    # The image is caddy:2.11.8 with the web UI built in (deploy/caddy/Dockerfile).
     profiles: ["core"]
     build:
       context: .
