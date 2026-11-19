@@ -149,7 +149,7 @@ select.btn { appearance: auto; }
 .chart .target span { position: absolute; right: 4px; top: -18px; font-size: 11px; color: var(--target); }
 .xlab { display: flex; gap: 12px; padding: 4px 12px 0; font-size: 11px; color: var(--muted); }
 .xlab span { flex: 1; text-align: center; }
-.hbar { display: grid; grid-template-columns: 130px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; }
+.hbar { display: grid; grid-template-columns: minmax(130px, 2fr) 3fr 40px; align-items: center; gap: 8px; font-size: 12px; }
 .hbar .track { height: 10px; background: var(--rule); border-radius: 5px; overflow: hidden; }
 .hbar .fill { height: 100%; background: var(--warn); }
 .hbar .n { text-align: right; font-weight: 600; }

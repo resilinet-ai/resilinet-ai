@@ -208,7 +208,8 @@ jobs:
     # tests and a production build. The Caddy image runs the same `npm run check`.
     name: Web UI
     runs-on: ubuntu-latest
-    container: node:24-bookworm-slim # TODO B-40: pin by digest
+    # The same image, by digest, as the Caddy image's UI build (deploy/caddy/Dockerfile).
+    container: node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
     defaults:
       run:
         working-directory: web
@@ -220,6 +221,41 @@ jobs:
         run: npm run check
       - name: Known vulnerabilities in runtime dependencies
         run: npm audit --omit=dev --audit-level=high
+
+  docs:
+    # FR-14.1: the documentation site. --strict fails on any warning: a broken link
+    # inside the site, a link to a missing #heading, or (scripts/docs_links.py) a link
+    # to a file outside docs/ that does not exist.
+    name: Docs site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Build
+        run: uv run --locked --only-group docs mkdocs build --strict
+      - name: Keep the site for GitHub Pages
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  docs-publish:
+    # Publishing is the owner's choice: it runs only once Pages is enabled for this
+    # repository (Settings > Pages > Source: GitHub Actions) and the repository
+    # variable RAI_DOCS_PAGES is "true". Only this job may write to Pages.
+    name: Publish docs site
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.RAI_DOCS_PAGES == 'true'
+    needs: docs
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   tls:
     # B-36 (NFR-SEC-2, threat I-06): the core profile behind Caddy. HTTPS with Caddy's

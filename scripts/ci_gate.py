@@ -48,49 +48,49 @@ def data(out: Path) -> None:
     (connectors / "feed.yaml").write_text(config, encoding="utf-8")
 
 
-def _call(http: UrllibHttp, method: str, path: str, body: Any = None) -> Any:
+def call(http: UrllibHttp, method: str, path: str, body: Any = None) -> Any:
     reply = http.request(method, path, body=body)
     if reply.status not in (200, 201, 202):
         raise SystemExit(f"{method} {path}: HTTP {reply.status} {reply.body}")
     return reply.body
 
 
-def _sign_in(api_url: str, email: str, password: str) -> UrllibHttp:
-    tokens = _call(UrllibHttp(api_url, ""), "POST", "/v1/auth/login",
+def sign_in(api_url: str, email: str, password: str) -> UrllibHttp:
+    tokens = call(UrllibHttp(api_url, ""), "POST", "/v1/auth/login",
                    {"email": email, "password": password})  # fmt: skip
     return UrllibHttp(api_url, tokens["access_token"])
 
 
 def seed(api_url: str) -> str:
     password = os.environ["RAI_NEW_PASSWORD"]
-    admin = _sign_in(api_url, os.environ["RAI_GATE_EMAIL"], password)
+    admin = sign_in(api_url, os.environ["RAI_GATE_EMAIL"], password)
     # Tests run only in a registered environment (B-22, deny by default).
-    _call(admin, "POST", "/v1/environments", {"name": "SANDBOX-01", "type": "SANDBOX"})
+    call(admin, "POST", "/v1/environments", {"name": "SANDBOX-01", "type": "SANDBOX"})
     invite = {"email": ENGINEER, "display_name": "Gate Engineer", "role": "engineer"}
-    _call(admin, "POST", "/v1/members", invite)
+    call(admin, "POST", "/v1/members", invite)
     with create_engine(database_url()).begin() as conn:
         set_password(conn, email=ENGINEER, password_hash=hash_password(password))
-    engineer = _sign_in(api_url, ENGINEER, password)
+    engineer = sign_in(api_url, ENGINEER, password)
 
-    project = _call(engineer, "POST", "/v1/projects", {"name": "CI gate"})["project_id"]
+    project = call(engineer, "POST", "/v1/projects", {"name": "CI gate"})["project_id"]
     tests = {}
     for name, batch in (("batch_0", "B000000"), ("batch_1", "B000001")):
         locator = f"transactions_raw/{batch}.csv"
         asset_body = {"kind": "table", "name": name, "locator": locator}
-        asset = _call(engineer, "POST", f"/v1/projects/{project}/assets", asset_body)["asset_id"]
+        asset = call(engineer, "POST", f"/v1/projects/{project}/assets", asset_body)["asset_id"]
         source = {"source": CONTRACT.read_text(encoding="utf-8")}
-        _call(engineer, "POST", f"/v1/assets/{asset}/contracts", source)
+        call(engineer, "POST", f"/v1/assets/{asset}/contracts", source)
         test = {
             "name": f"contract.{name}", "type": "contract_rule", "target_asset_id": asset,
             "definition": {"connector": "feed", "environment": "SANDBOX-01",
                            "references": REFERENCES},
         }  # fmt: skip
-        tests[name] = _call(engineer, "POST", f"/v1/projects/{project}/test-cases", test)["test_id"]
+        tests[name] = call(engineer, "POST", f"/v1/projects/{project}/test-cases", test)["test_id"]
     for plan, names in PLANS.items():
         items = [{"test_id": tests[n]} for n in names]
-        _call(engineer, "POST", f"/v1/projects/{project}/plans", {"name": plan, "items": items})
+        call(engineer, "POST", f"/v1/projects/{project}/plans", {"name": plan, "items": items})
     key_body = {"project_id": project, "name": "ci-gate", "expires_in_days": 1}
-    token: str = _call(engineer, "POST", "/v1/api-keys", key_body)["key"]
+    token: str = call(engineer, "POST", "/v1/api-keys", key_body)["key"]
     return token
 
 
