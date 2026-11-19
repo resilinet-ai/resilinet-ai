@@ -165,9 +165,9 @@ def test_preflight_refuses_what_this_worker_cannot_run(
     no_definition = lab.post(f"/v1/projects/{lab.project}/test-cases",
                              {"name": "contract.bare", "type": "contract_rule",
                               "target_asset_id": asset_id})["test_id"]  # fmt: skip
-    drift = lab.post(f"/v1/projects/{lab.project}/test-cases",
-                     {"name": "drift.amount", "type": "drift_check"})["test_id"]  # fmt: skip
-    run = lab.start(lab.plan(lab.tests["batch_0"], unknown, other_env, no_definition, drift))
+    tevv = lab.post(f"/v1/projects/{lab.project}/test-cases",
+                    {"name": "tevv.auc", "type": "tevv_metric"})["test_id"]  # fmt: skip
+    run = lab.start(lab.plan(lab.tests["batch_0"], unknown, other_env, no_definition, tevv))
     drain(Worker(worker_engine, config(feed, tmp_path)))
     refused = lab.run(run["run_id"])
     assert (refused["state"], refused["verdict"], refused["steps"]) == ("refused", None, [])
@@ -175,7 +175,7 @@ def test_preflight_refuses_what_this_worker_cannot_run(
     assert "connector 'warehouse' is not on this worker" in reason
     assert "is not in environment 'STAGING-01'" in reason
     assert "the definition needs connector and environment" in reason
-    assert "test type drift_check is not supported yet" in reason
+    assert "test type tevv_metric is not supported yet" in reason
 
 
 def test_unreadable_data_fails_the_step_not_the_platform(

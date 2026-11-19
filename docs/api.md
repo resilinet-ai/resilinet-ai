@@ -235,7 +235,7 @@ uv run rai worker            # or: rai worker --once
 - **`upstream`** (optional) maps upstream asset names to worker connectors, so their data is read and digested for lineage.
 - **Cross-batch duplicates** are checked against a key history kept per tenant in `RAI_WORKER_STATE`.
 - **`environment`** must be a registered, active environment (see [Environments and targets](#environments-and-targets)); otherwise the run is refused.
-- **Not yet supported:** recovery assertions, TEVV metrics and drift checks. A plan containing them is refused with a reason, never passed silently.
+- **Not yet supported:** recovery assertions and TEVV metrics. A plan containing them is refused with a reason, never passed silently.
 
 **A chaos scenario item** needs a worker set up for faults: `RAI_WORKER_SIGNING_KEY` and `RAI_WORKER_CHAOS_AGENT_URL` (see the [chaos agent](chaos-agent.md)). Otherwise the run is refused.
 
@@ -291,6 +291,23 @@ uv run rai worker            # or: rai worker --once
 - **Declare the seeding log upstream of the ledger** (the seeder feeds it), and give the worker a connector to the log's folder.
 - **`recovery.rpo_truth`** is the run's first fault onset minus the earliest *acknowledged* write that the ledger no longer holds. It's 0 s if nothing was lost, and never negative. Without a fault in the run, a loss can't be dated (`seconds: null`).
 - **The step fails** if any acknowledged write was lost, if the RPO exceeds `objective_seconds`, or if the ledger's own account in the same run (`recovery.rpo`) disagrees about whether anything was lost. The observation shows both (`measured`), so a system that reports a healthy ledger head while dropping writes is caught.
+
+**Drift checks (FR-09.2).** A `drift_check` test case compares columns of its target asset (the *current* data: this week's batch, or a model's scores) with a *reference* asset of the same project (the batch it was approved on), both read through worker connectors:
+
+```json
+{"name": "amount.drift", "type": "drift_check", "target_asset_id": "<this week's batch>",
+ "definition": {"connector": "feed", "environment": "SANDBOX-01",
+                "reference": {"asset": "batch_0", "connector": "feed"},
+                "columns": [{"name": "amount"},
+                            {"name": "channel", "kind": "categorical", "psi_alert": 0.1}],
+                "bins": 10, "min_rows": 100}}
+```
+
+- **PSI** (population stability index) for every column: numeric columns are binned at the reference's quantiles (deciles by default; fewer bins when the column has few distinct values), categorical columns by category. Below 0.1 is stable, 0.1 to 0.25 a moderate shift, above 0.25 a significant one; `psi_alert` (default 0.25) is where the column fails.
+- **KS** for numeric columns: the two-sample Kolmogorov-Smirnov statistic `D`, the largest gap between the two distributions (0 identical, 1 disjoint), with its asymptotic p-value. The alert is on `D` (`ks_alert`, default 0.1; `null` for PSI alone), because with 100,000 rows almost any difference has a tiny p-value; the p-value is reported, not judged.
+- **Sample sizes always.** Each column is an observation `drift.<column>` (kind `metric`) with PSI, its band, `D`, the p-value, both row counts, the share of nulls on each side (nulls are left out), and the bins with their shares. Fewer than `min_rows` values on either side is an error, not a pass.
+- **Pinned.** The reference asset is pinned with the run, like the target (`pins.items[].reference`); an unknown name refuses the run (`422 runs.drift_reference_unknown`). Lineage records both datasets with the digest of what was read.
+- **Verdict.** Any alert, or a column that cannot be judged, fails the step, and so the run, like any test. To watch drift without gating a release, keep drift checks in a plan of their own.
 
 ## Findings
 
