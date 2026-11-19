@@ -60,7 +60,7 @@ jobs:
           output-format: table
 
   publish:
-    name: Publish ${{ matrix.name }} (signed)
+    name: Publish signed images
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
