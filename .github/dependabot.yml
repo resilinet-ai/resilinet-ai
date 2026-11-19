@@ -21,8 +21,36 @@ updates:
     commit-message:
       prefix: build
     open-pull-requests-limit: 5
+    ignore:
+      # benchmarks/pyproject.toml caps pandas below 3: GX 1.x misreads pandas 3's string
+      # dtype, so the B2 baseline would report false defects. Lift with that cap.
+      - dependency-name: pandas
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /web
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5
+    groups:
+      # Vite, its React plugin and Vitest peer-depend on each other's majors: one PR.
+      vite-toolchain:
+        patterns: ["vite", "vitest", "@vitejs/*", "@vitest/*"]
+  # Base images are pinned by tag and digest (B-40); these bump both, after the cooldown.
+  - package-ecosystem: docker
+    directories: [/chaos_agent, /deploy/caddy, /deploy/rai, /sandboxbank]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker-compose
+    directory: /
     schedule:
       interval: weekly
     cooldown:

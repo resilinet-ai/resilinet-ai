@@ -29,6 +29,7 @@ curl --cacert <(docker compose cp caddy:/data/caddy/pki/authorities/local/root.c
 - **Headers.** HSTS (one year), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; no `Server` header. Request bodies are limited to 2 MB at the edge (the API's own limit is 1 MiB).
 - **Real client addresses.** Caddy replaces any `X-Forwarded-For` a client sends with the address it sees. `rai serve --forwarded-allow-ips` trusts that header only from Caddy's fixed address on `edge_net` (`172.31.236.2`), so the per-address login limit counts clients, not the proxy. `rai serve` refuses `*`.
 - **Locked-down containers.** Both are read-only, drop every capability (Caddy keeps only `NET_BIND_SERVICE`), and cannot gain privileges. The API image installs exactly the versions in `uv.lock`, with hashes, and runs as a non-root user.
+- **Pinned, scanned and signed images.** Every base image is pinned by digest; CI records an SBOM for each image, fails on a fixable critical vulnerability, and signs the images it publishes from `main` ([`supply-chain.md`](supply-chain.md)).
 - **Host-only by default.** Caddy publishes `127.0.0.1:8443`. To serve a network, set `RAI_HTTPS_BIND=0.0.0.0` and `RAI_HTTPS_PORT=443`.
 
 ## Certificates
@@ -49,4 +50,4 @@ SSL_CERT_FILE=./rai-root.crt RAI_API_URL=https://localhost:8443 uv run rai run -
 
 - Traffic inside the host (Caddy to the API, the API to the database) is not encrypted: one host, private Docker networks (threat model, assumptions). Mutual TLS is the upgrade path.
 - The worker is not a compose service yet (B-18).
-- Base images are pinned by tag, not digest (B-40).
+- Compose builds the images locally rather than pulling the signed ones from GHCR, so it does not verify signatures ([`supply-chain.md`](supply-chain.md)).

@@ -1,9 +1,9 @@
 # rai-api (B-36). Build from the repository root:
 #   docker build -f deploy/rai/Dockerfile .
 # Installs requirements.txt with every hash pinned (exported from uv.lock; kept in step by
-# tests/unit/test_tooling.py), then the rai package itself without dependencies.
-# TODO B-40: pin the base image by digest (NFR-SEC-3).
-FROM python:3.12-slim
+# tests/unit/test_tooling.py), then the rai package itself without dependencies. The base
+# image is pinned by digest and the build backend by hash (B-40: NFR-SEC-3).
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -11,11 +11,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
-COPY deploy/rai/requirements.txt ./requirements.txt
-RUN pip install --require-hashes --only-binary=:all: -r requirements.txt
+COPY deploy/build-requirements.txt deploy/rai/requirements.txt ./
+RUN pip install --require-hashes --only-binary=:all: -r build-requirements.txt -r requirements.txt
 COPY pyproject.toml README.md LICENSE NOTICE ./
 COPY src ./src
-RUN pip install --no-deps . && rm -rf /app/src
+RUN pip install --no-deps --no-build-isolation . && rm -rf /app/src
 
 USER 10001
 EXPOSE 8000

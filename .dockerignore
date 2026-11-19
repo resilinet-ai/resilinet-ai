@@ -1,5 +1,4 @@
-# Build context for deploy/rai/Dockerfile and deploy/caddy/Dockerfile (the repository
-# root): only what the images copy. sandboxbank/ and chaos_agent/ have their own contexts.
+# Build context for every image (the repository root): only what the images copy.
 *
 !pyproject.toml
 !README.md
@@ -8,6 +7,12 @@
 !src/
 !deploy/
 !web/
+!sandboxbank/pyproject.toml
+!sandboxbank/requirements.txt
+!sandboxbank/src/
+!chaos_agent/pyproject.toml
+!chaos_agent/requirements.txt
+!chaos_agent/src/
 web/node_modules/
 web/dist/
 **/__pycache__/

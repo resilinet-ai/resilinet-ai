@@ -9,7 +9,7 @@ services:
   # ---- core profile: control plane ----
   rai-db:
     profiles: ["core"]
-    image: postgres:16
+    image: postgres:16@sha256:23fdb7b8156ad34bc663ed911f360764c5a5e237d6d70d1e379e025f63439a2f
     environment:
       POSTGRES_DB: rai
       POSTGRES_USER: rai
@@ -84,7 +84,7 @@ services:
   # ---- sandbox profile: SandboxBank (synthetic data only) ----
   ledger-db:
     profiles: ["sandbox"]
-    image: postgres:16
+    image: postgres:16@sha256:23fdb7b8156ad34bc663ed911f360764c5a5e237d6d70d1e379e025f63439a2f
     labels:
       rai.sandbox: "true"
       rai.target: ledger-db
@@ -103,7 +103,9 @@ services:
       retries: 10
   payments-api:
     profiles: ["sandbox"]
-    build: ./sandboxbank
+    build:
+      context: .
+      dockerfile: sandboxbank/Dockerfile
     labels:
       rai.sandbox: "true"
       rai.target: payments-api
@@ -115,12 +117,15 @@ services:
         condition: service_healthy
       toxiproxy:
         condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     networks: [sandbox_net]
     ports:
       - "127.0.0.1:18080:8080" # host-only, for `sandboxbank post`
   analytics-db:
     profiles: ["sandbox"]
-    image: postgres:16
+    image: postgres:16@sha256:23fdb7b8156ad34bc663ed911f360764c5a5e237d6d70d1e379e025f63439a2f
     labels:
       rai.sandbox: "true"
       rai.target: analytics-db
@@ -139,7 +144,9 @@ services:
       retries: 10
   etl-job:
     profiles: ["sandbox"]
-    build: ./sandboxbank
+    build:
+      context: .
+      dockerfile: sandboxbank/Dockerfile
     command: ["sandboxbank", "etl", "--interval", "${ETL_INTERVAL_SECONDS:-60}"]
     restart: unless-stopped # S12/S16: stopped or restarted mid-load, it resumes from the watermark
     healthcheck:
@@ -157,10 +164,13 @@ services:
         condition: service_healthy
       toxiproxy:
         condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     networks: [sandbox_net]
   toxiproxy:
     profiles: ["sandbox"]
-    image: ghcr.io/shopify/toxiproxy:2.9.0
+    image: ghcr.io/shopify/toxiproxy:2.9.0@sha256:b44c283298cea49e2defaba1b3028783798346f2a926684e3a345fd8441af3b8
     command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
     labels:
       rai.sandbox: "true"
@@ -174,7 +184,7 @@ services:
   # ---- chaos profile: fault injection (opt in: --profile sandbox --profile chaos) ----
   socket-proxy:
     profiles: ["chaos"]
-    image: wollomatic/socket-proxy:1.13.2
+    image: wollomatic/socket-proxy:1.13.2@sha256:ff95d6ff6c27853005ef85eb8f4ab5923dc3d2f1e055f98fb6aeeaceec3fe848
     # Exactly the verbs the chaos agent needs (threat E-01): list and inspect containers;
     # stop, start, restart, pause, unpause; network connect and disconnect. No exec, no
     # images, no volumes, no create. Only the agent and its watchdog (B-25) may connect.
@@ -194,7 +204,9 @@ services:
     networks: [chaos_net]
   rai-chaos-agent:
     profiles: ["chaos"]
-    build: ./chaos_agent
+    build:
+      context: .
+      dockerfile: chaos_agent/Dockerfile
     # No rai.sandbox label: the agent can never target itself or the socket proxy.
     environment:
       RAI_AGENT_TOXIPROXY_URL: http://toxiproxy:8474
@@ -217,7 +229,9 @@ services:
     # agent. Same image, its own process and container; no HTTP interface and no
     # bridge_net, so nothing can ask it to inject. Shares only the state volume.
     profiles: ["chaos"]
-    build: ./chaos_agent
+    build:
+      context: .
+      dockerfile: chaos_agent/Dockerfile
     command: ["rai-chaos-agent", "watchdog"]
     environment:
       RAI_AGENT_TOXIPROXY_URL: http://toxiproxy:8474

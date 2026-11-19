@@ -6,6 +6,7 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,15 +41,21 @@ def test_every_dependabot_update_waits_at_least_14_days() -> None:
         assert days >= 14, f"{update['package-ecosystem']}: set cooldown default-days: 14"
 
 
-def test_the_chaos_agent_image_installs_exactly_the_locked_versions() -> None:
-    # B-24: the agent image installs requirements.txt with --require-hashes; it must pin
+@pytest.mark.parametrize(
+    ("folder", "package"),
+    [("chaos_agent", "rai-chaos-agent"), ("sandboxbank", "rai-sandboxbank")],
+)
+def test_the_workspace_images_install_exactly_the_locked_versions(
+    folder: str, package: str
+) -> None:
+    # B-24, B-40: these images install requirements.txt with --require-hashes; it must pin
     # the versions uv.lock resolved (regenerate with the uv export command in its header).
     lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     locked = {p["name"]: p["version"] for p in lock["package"]}
-    agent = next(p for p in lock["package"] if p["name"] == "rai-chaos-agent")
-    text = (ROOT / "chaos_agent" / "requirements.txt").read_text(encoding="utf-8")
+    member = next(p for p in lock["package"] if p["name"] == package)
+    text = (ROOT / folder / "requirements.txt").read_text(encoding="utf-8")
     pinned = dict(re.findall(r"^([a-z0-9_.-]+)==([^\s;]+)", text, flags=re.MULTILINE))
-    assert {d["name"] for d in agent["dependencies"]} <= set(pinned)
+    assert {d["name"] for d in member["dependencies"]} <= set(pinned)
     for name, version in pinned.items():
         assert locked.get(name) == version, f"{name}: run the uv export in requirements.txt"
     assert "--hash=sha256:" in text
