@@ -25,6 +25,12 @@ export function App({ api: given }: { api?: Api }) {
 
   useEffect(() => applyTheme(theme), [theme]);
 
+  // WCAG 2.4.2: each screen has its own page title.
+  const label = session ? (SCREENS.find((s) => s.id === route.screen) ?? SCREENS[0]!).label : "Sign in";
+  useEffect(() => {
+    document.title = `${label} · Resilinet-AI`;
+  }, [label]);
+
   const signedIn = useCallback(
     (me: Me, tenant: Tenant) => {
       api.tenantId = tenant.tenant_id;

@@ -16,6 +16,17 @@ The RAI web UI: React and TypeScript (ADR-004), built with Vite. Its design is t
 - **Synthetic-data banner (FR-11.2, B-37).** On every screen, sign-in included, and it cannot be dismissed. When the selected project is an authorised snapshot, the banner names it.
 - **Read-only.** This slice only reads; actions (approving, waiving, starting runs) come with their screens.
 
+## Accessibility (WCAG 2.2 AA, NFR-USE-2)
+
+Checked on every pull request, in two halves:
+
+- **`src/a11y.test.tsx`** runs axe-core over every built screen (sign-in, Dashboard, Runs with a run open, a planned screen) and every theme, against the WCAG 2.0 to 2.2 A and AA rules, and checks that each screen sets its own page title. A first test proves axe does catch a violation, so a clean run means something.
+- **`tests/unit/test_web_contrast.py`** checks colour contrast from the theme tokens in `src/styles.css`, because jsdom has no computed colours: text at least 4.5:1 and controls and focus outlines at least 3:1, for every pair the UI draws, in all four themes.
+
+By design: a visible 3 px focus outline; a skip link; native controls only, each with a label, so everything works from the keyboard; status in words and symbols, never colour alone; `role="alert"` for errors and `role="status"` while loading; targets at least 24 px; card grids that reflow to a 320 px viewport with no sideways scrolling (tables scroll inside their card). The sign-in form names its fields (`username`, `current-password`), so password managers and pasting work.
+
+Not automated: a screen-reader pass (NVDA or VoiceOver) and a manual keyboard pass; both are due with each new screen.
+
 ## Develop
 
 ```bash

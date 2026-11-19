@@ -93,7 +93,7 @@ export function Runs({ api, project, runId }: { api: Api; project: Project | nul
       <div className={runId ? "grid split" : "grid"}>
         <div className="card">
           {runs === null ? (
-            <p className="note">Loading…</p>
+            <p className="note" role="status">Loading…</p>
           ) : runs.length === 0 ? (
             <p className="note">No runs yet. Start one with <span className="mono">rai run</span> or the API.</p>
           ) : (
@@ -168,7 +168,7 @@ function RunPanel({ api, runId }: { api: Api; runId: string }) {
   }
 
   if (error) return <div className="card alert" role="alert">{error}</div>;
-  if (!run) return <div className="card"><p className="note">Loading run…</p></div>;
+  if (!run) return <div className="card"><p className="note" role="status">Loading run…</p></div>;
   const finished = FINISHED.has(run.state);
   return (
     <article className="card" aria-labelledby="run-h">
