@@ -170,7 +170,7 @@ services:
     networks: [sandbox_net]
   toxiproxy:
     profiles: ["sandbox"]
-    image: ghcr.io/shopify/toxiproxy:2.9.0@sha256:b44c283298cea49e2defaba1b3028783798346f2a926684e3a345fd8441af3b8
+    image: ghcr.io/shopify/toxiproxy:2.13.0@sha256:5d3dae09bc185dcc5ff6cf43abf6062a4a720aff0c4306a471e773acdcd107aa
     command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
     labels:
       rai.sandbox: "true"
