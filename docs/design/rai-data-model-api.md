@@ -4,7 +4,7 @@
 | --- | --- |
 | **Version** | v0.2 (reconstructed draft), 2026-11-17 |
 | **Status** | Draft. **Pending review and approval by the author of record**, Trevor Kauyu (ADR-007) |
-| **Supersedes** | Nothing. The v0.1 original (2026-11-13) has not been found; if it is, it takes precedence over this draft |
+| **Baseline** | This document, as built (decision DESIGN-V03). The 2026-11-13 v0.1 drafts, found on 2026-11-20, are not adopted |
 
 > **How this document was made.** Reconstructed on 2026-11-17 by an AI assistant (Claude Code) from the migrations (`src/rai/migrations/versions/0001`–`0009`), the API routes and `docs/api.md`, because the v0.1 PDF was never exported. Section numbers follow the ones the code cites ("Data Model section 3" and so on). It describes the schema and API **as built**; where the build departed from v0.1, the decision log records why. The operational reference for API callers is `docs/api.md`.
 
@@ -141,8 +141,3 @@ severity_default: critical
 - **Rules expand from the contract:** required, type, `min`/`max`, `allowed`, `pattern`, `references` (a reference table's column), `max_lookup` (a per-row bound from a reference table), freshness, the primary key within the batch, uniqueness across batches (against a per-tenant key history), and schema drift under `schema_change_policy`.
 - **Severity and thresholds:** each rule has a severity (`info`, `warn`, `critical`; `severity_default` otherwise) and an optional `threshold`, a row count or a percentage such as `"0.1%"`. A critical failure beyond its threshold fails the batch (FR-03.4).
 - **Strict parsing:** duplicate YAML keys are refused. The exact format is the JSON Schema committed in the repository. The reference contract expands to 36 rules and catches every Protocol section 4 defect class.
-
-## Not recoverable from the repository
-
-- v0.1's entity names that the build renamed, if any, beyond those the decision log records.
-- v0.1's planned endpoints for findings, reviews and evidence beyond the requirement IDs.

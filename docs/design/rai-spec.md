@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Version** | v0.2 (reconstructed draft), 2026-11-17; aligned with `docs/traceability.csv` 2026-11-18 |
+| **Version** | v0.3 (draft), 2026-11-20; v0.2 reconstructed 2026-11-17 and aligned with `docs/traceability.csv` 2026-11-18 |
 | **Status** | Draft. **Pending review and approval by the author of record**, Trevor Kauyu (ADR-007) |
-| **Supersedes** | Nothing. The v0.1 original (2026-11-13) was written outside this repository and has not been found; if it is, it takes precedence over this draft |
+| **Baseline** | This document (decision DESIGN-V03). The 2026-11-13 v0.1 drafts, found on 2026-11-20, are not adopted; v0.3 takes from them the acceptance criteria (section 3), the glossary (section 12) and the user journeys (section 13) |
 
 > **How this document was made.** The v0.1 design set was written on 2026-11-13 (build journal, entry 1) but never exported to `docs/design/`. This v0.2 was reconstructed on 2026-11-17 by an AI assistant (Claude Code) from the repository's own records: the ADRs, the decision log, the threat model, the traceability matrix, the build journal, the code and the tests. It is not the original text. Section numbers follow the ones the code cites (for example "Spec section 5"). Where the repository does not record what v0.1 said, this draft says so instead of guessing.
 
@@ -35,42 +35,42 @@ These rules are part of the requirements. A change that breaks one is a defect, 
 
 ## 3. Functional requirements
 
-Priorities: **M** must (MVP), **S** should, **L** later. Each row's ID, priority and wording are identical to `docs/traceability.csv`; status, backlog items, pull requests, tests and evidence are kept only there, because the matrix is the live record.
+Priorities: **M** must (MVP), **S** should, **L** later. Each row's ID, priority and wording are identical to `docs/traceability.csv`; status, backlog items, pull requests, tests and evidence are kept only there, because the matrix is the live record. The **acceptance** column says what a requirement's tests must show; a requirement is done only when a test in the matrix demonstrates it.
 
-| ID | Module | Pri. | Requirement |
-| --- | --- | --- | --- |
-| FR-01.1 | M01 Tenancy | M | Tenants, users and roles; cross-tenant isolation |
-| FR-01.2 | M01 | M | Hash-chained audit entry for every state change |
-| FR-01.3 | M01 | L | SSO via OIDC |
-| FR-02.1 | M02 Connectors | M | PostgreSQL and CSV/Parquet connectors scoped to one environment |
-| FR-02.2 | M02 | S | Redshift connector |
-| FR-02.3 | M02 | M | Credentials only as secret references |
-| FR-03.1 | M03 Contracts | M | Declarative data contracts (YAML) |
-| FR-03.2 | M03 | M | Schema drift detection, breaking vs non-breaking |
-| FR-03.3 | M03 | M | Duplicate transaction IDs within and across batches |
-| FR-03.4 | M03 | M | Rule severity and thresholds; critical fails the run |
-| FR-04.1 | M04 Lineage | M | Lineage edges with content digests |
-| FR-04.2 | M04 | L | OpenLineage ingest |
-| FR-05.1 | M05 Privacy | S | Synthetic canary privacy sentinel |
-| FR-06.1 | M06 Orchestration | M | CLI and GitHub Action; non-zero exit on gate failure |
-| FR-06.2 | M06 | S | Idempotent, resumable runs |
-| FR-07.1 | M07 Fault injection | M | Fault types (first five families in MVP) |
-| FR-07.2 | M07 | M | Preflight: allow-list, not production, approved, blast radius |
-| FR-07.3 | M07 | M | Automatic fault removal and kill-switch |
-| FR-08.1 | M08 Recovery | M | RTO from onset to validated restoration |
-| FR-08.2 | M08 | M | RPO from last committed ledger record |
-| FR-08.3 | M08 | M | Post-recovery consistency checks |
-| FR-09.1 | M09 TEVV | S | Model evaluation with sample sizes |
-| FR-09.2 | M09 | S | Drift detection (PSI/KS) |
-| FR-09.3 | M09 | L | Robustness tests |
-| FR-10.1 | M10 Findings | M | Findings with severity, owner, fix and retest |
-| FR-11.1 | M11 Dashboard | M | Executive dashboard with denominators |
-| FR-11.2 | M11 | M | Persistent synthetic-data banner |
-| FR-12.1 | M12 Approvals | M | Named reviewer approvals; no self-approval |
-| FR-12.2 | M12 | M | Critical finding blocks gate unless waived with expiry |
-| FR-13.1 | M13 Evidence | M | Deterministic evidence bundle with SHA-256 manifest |
-| FR-13.2 | M13 | S | Signed manifest and `rai verify` |
-| FR-14.1 | M14 Dissemination | M | Docs site, quick-start and playbooks |
+| ID | Module | Pri. | Requirement | Acceptance |
+| --- | --- | --- | --- | --- |
+| FR-01.1 | M01 Tenancy | M | Tenants, users and roles; cross-tenant isolation | A user in tenant A cannot read any tenant B object (API and RLS tests) |
+| FR-01.2 | M01 | M | Hash-chained audit entry for every state change | Altering any past entry breaks chain verification |
+| FR-01.3 | M01 | L | SSO via OIDC | Sign-in through an external identity provider |
+| FR-02.1 | M02 Connectors | M | PostgreSQL and CSV/Parquet connectors scoped to one environment | A connector refuses use outside its environment |
+| FR-02.2 | M02 | S | Redshift connector | Validates a Redshift table snapshot like the same data in PostgreSQL |
+| FR-02.3 | M02 | M | Credentials only as secret references | A secret scan of the database, logs and bundles finds no credential |
+| FR-03.1 | M03 Contracts | M | Declarative data contracts (YAML) | Every rule type detects its seeded defect |
+| FR-03.2 | M03 | M | Schema drift detection, breaking vs non-breaking | A renamed column is flagged breaking |
+| FR-03.3 | M03 | M | Duplicate transaction IDs within and across batches | A seeded duplicate is found, with repeatable output |
+| FR-03.4 | M03 | M | Rule severity and thresholds; critical fails the run | A critical failure beyond its threshold fails the run |
+| FR-04.1 | M04 Lineage | M | Lineage edges with content digests | A run's lineage shows every hop with the SHA-256 of its inputs |
+| FR-04.2 | M04 | L | OpenLineage ingest | An external orchestrator's job appears in the lineage graph |
+| FR-05.1 | M05 Privacy | S | Synthetic canary privacy sentinel | A canary value in a data asset, log or bundle raises a finding |
+| FR-06.1 | M06 Orchestration | M | CLI and GitHub Action; non-zero exit on gate failure | A failing contract blocks a pull request |
+| FR-06.2 | M06 | S | Idempotent, resumable runs | Killing the worker mid-run duplicates no observation |
+| FR-07.1 | M07 Fault injection | M | Fault types (first five families in MVP) | Each fault type is observable on SandboxBank |
+| FR-07.2 | M07 | M | Preflight: allow-list, not production, approved, blast radius | An unapproved, unlisted or production run is refused with a reason; nothing is injected |
+| FR-07.3 | M07 | M | Automatic fault removal and kill-switch | Every fault is removed within 10 s of the kill-switch |
+| FR-08.1 | M08 Recovery | M | RTO from onset to validated restoration | RTO agrees with an independent observer within ± 2 s (Protocol H3) |
+| FR-08.2 | M08 | M | RPO from last committed ledger record | A seeded loss window is reproduced exactly |
+| FR-08.3 | M08 | M | Post-recovery consistency checks | A seeded inconsistency fails the run |
+| FR-09.1 | M09 TEVV | S | Model evaluation with sample sizes | The report shows every metric with its sample size |
+| FR-09.2 | M09 | S | Drift detection (PSI/KS) | A seeded shift is detected; no alert on an unshifted control |
+| FR-09.3 | M09 | L | Robustness tests | Perturbed and missing-feature inputs are scored and reported |
+| FR-10.1 | M10 Findings | M | Findings with severity, owner, fix and retest | A retest closes a finding only on a pass |
+| FR-11.1 | M11 Dashboard | M | Executive dashboard with denominators | Every metric shows n, date range and definition |
+| FR-11.2 | M11 | M | Persistent synthetic-data banner | The banner cannot be hidden |
+| FR-12.1 | M12 Approvals | M | Named reviewer approvals; no self-approval | Self-approval is refused, by the API and the database |
+| FR-12.2 | M12 | M | Critical finding blocks gate unless waived with expiry | The gate shows blocked until a waiver is in force |
+| FR-13.1 | M13 Evidence | M | Deterministic evidence bundle with SHA-256 manifest | Exporting the same run twice gives the same manifest hash |
+| FR-13.2 | M13 | S | Signed manifest and `rai verify` | A tampered file fails `rai verify` |
+| FR-14.1 | M14 Dissemination | M | Docs site, quick-start and playbooks | A new user reaches a first evidence bundle from the docs alone |
 
 ## 4. Non-functional requirements
 
@@ -158,7 +158,53 @@ D1–D9 were accepted as ADR-001 to ADR-009 on 2026-11-13; see `docs/adr/` and A
 | D9 | Self-hosted only for the MVP; public read-only demo later (ADR-009) |
 | D10 | Midnight (dark) default UI theme; Clarity, Evergreen and High contrast selectable; all meet WCAG 2.2 AA |
 
-## Not recoverable from the repository
+## 12. Glossary
 
-- The v0.1 wording of the problem statement, personas and success criteria.
-- Any requirement that v0.1 listed but the traceability matrix does not.
+These terms have exactly these meanings in the schema, API, UI and reports.
+
+| Term | Meaning |
+| --- | --- |
+| Tenant | One institution; the hard data-isolation boundary |
+| Assurance project | A scoped body of testing for one system under test, with a data classification and an owner |
+| Environment | A registered target, `SANDBOX` or `STAGING`. Anything else is refused |
+| Pipeline asset | A dataset, table, transformation, feature set or model a project tracks |
+| Data contract | The expected columns, types, ranges, uniqueness, freshness and allowed schema changes for an asset |
+| Test case | One check (a contract rule, a recovery assertion, a consistency check, a model metric, a drift check or a privacy canary) with an expected result |
+| Chaos scenario | Declared faults (type, target, duration), a blast radius, and recovery objectives |
+| Test plan | An ordered set of test cases and scenarios |
+| Run | One execution of a plan version from its pins; it never changes once finished |
+| Observation | One recorded outcome within a run |
+| Onset (t0) | When a fault took effect, recorded by the chaos agent |
+| RTO (measured) | Validated restoration minus onset (Architecture section 4) |
+| RPO (measured) | 0 s if no committed ledger row was lost, otherwise onset minus the commit time of the last surviving row |
+| Finding | A reproducible defect with severity, owner, fix and retest |
+| Waiver | A named reviewer's time-limited acceptance of an open critical finding |
+| Release decision | A named reviewer's approve or reject for a labelled release, recorded against the gate's state at that moment (B-42) |
+| Evidence bundle | The deterministic, signed export of a finished run |
+
+## 13. User journeys
+
+Each journey is an end-to-end acceptance test (B-46) and a path through the wireframes.
+
+| Journey | Who | Steps | Ends with |
+| --- | --- | --- | --- |
+| J1 Onboard a sandbox | admin | Invite members with roles; register `SANDBOX-01` and its allow-list; configure a connector with a secret reference; create a project classified `synthetic` | A project ready for tests, every step in the audit chain |
+| J2 Validate in CI | engineer | Publish a contract for `transactions_raw`; push a change; the GitHub Action runs `rai run`; a critical failure blocks the merge | A run with observations and lineage; a failing pull request |
+| J3 Controlled chaos | engineer, then reviewer | Define "ledger DB connection loss" with RTO/RPO objectives and a blast radius; another reviewer approves; the run passes both preflights and injects | RTO, RPO and consistency verdicts; the fault removed at its duration or by the kill-switch |
+| J4 Decide a release | reviewer | Open the project's gate; see blocking findings; waive with expiry or have them fixed; approve or reject the release | A release decision in the audit chain |
+| J5 Reproduce evidence | reviewer, then outside researcher | Export a run's bundle; the researcher checks it offline with `rai verify` and re-runs the plan on their own SandboxBank | Matching verdicts and manifest |
+
+## 14. Success measures
+
+Reported as comparisons with denominators and intervals, never as a headline number chosen in advance. G1–G3 and G5 are measured by the benchmark (Protocol sections 1 and 6).
+
+| ID | Goal | Measure |
+| --- | --- | --- |
+| G1 | Catch bad data | Recall and precision on seeded defects, against two baselines |
+| G2 | Detect sooner | Detection lead time, paired against the baselines |
+| G3 | Measure recovery honestly | RTO/RPO attainment with numerator and denominator; measurement error against ground truth |
+| G4 | Keep noise low | False alarms on clean controls; non-actionable alerts after adjudication |
+| G5 | Stay lightweight | Validation P50/P95, CPU and memory |
+| G6 | Be reproducible | An independent rerun reproduces verdicts and hashes (Protocol section 10) |
+| G7 | Be adoptable | Time from clone to first evidence bundle; target under 60 minutes (`scripts/quickstart.py`) |
+| G8 | Show real interest | A signed letter from a U.S. institution or lab naming a planned test (ADR-008) |

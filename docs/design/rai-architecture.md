@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Version** | v0.2 (reconstructed draft), 2026-11-17 |
+| **Version** | v0.3 (draft), 2026-11-20; v0.2 reconstructed 2026-11-17 |
 | **Status** | Draft. **Pending review and approval by the author of record**, Trevor Kauyu (ADR-007) |
-| **Supersedes** | Nothing. The v0.1 original (2026-11-13) has not been found; if it is, it takes precedence over this draft |
+| **Baseline** | This document (decision DESIGN-V03). The 2026-11-13 v0.1 drafts, found on 2026-11-20, are not adopted; v0.3 takes from them the risk register (section 11) |
 
 > **How this document was made.** Reconstructed on 2026-11-17 by an AI assistant (Claude Code) from the repository's records (ADR-001 to ADR-010, decision log, threat model v1, code and tests), because the v0.1 PDF was never exported. Section numbers follow the ones the code cites ("Architecture section 5" and so on). It describes the system as built on 2026-11-17, marking planned parts as planned.
 
@@ -113,7 +113,16 @@ One Docker Compose file (`compose.yaml`) with profiles: `core` (the RAI database
 
 Later decisions are in `docs/decision-log.md`.
 
-## Not recoverable from the repository
+## 11. Risks
 
-- v0.1's names for its three planes. The repository records three networks (control, bridge, sandbox), used above.
-- v0.1's sections 1 and 6, and its original diagrams.
+The biggest technical risk is measurement credibility: if someone else cannot reproduce the RTO and RPO numbers, the rest of the evidence weakens.
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| RTO timing noise on a laptop | Results unstable across machines | Monotonic clocks, 1 s probes, repeated runs, spread reported rather than single values; an independent observer measures the same injections (B-44) |
+| Health checks pass while data is damaged | RTO looks good on a broken ledger | Post-recovery consistency checks (FR-08.3) reported beside RTO; Protocol H4 measures what health-only monitoring misses |
+| SandboxBank too simple to convince | Reviewers discount the results | Built on published core-banking patterns (idempotent API, append-only ledger, resumable ETL); reviewer critique invited |
+| Docker socket access is powerful | A fault escapes the sandbox | Socket proxy with allow-listed verbs; agent isolated on `bridge_net`; two preflights; watchdog; threat model |
+| A stale approval runs a scenario long after review | The reviewer's judgement no longer applies | Approvals expire (B-43) |
+| Runs not reproducible because images moved | Replication fails | Image digests pinned in every run (B-45) |
+| One-person scope | The day-90 release slips | Gate-driven pace; MoSCoW cuts; capacity levers (Build Plan section 8) |

@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Version** | v0.2 (reconstructed draft), 2026-11-17; aligned with `docs/traceability.csv` 2026-11-18 |
+| **Version** | v0.3 (draft), 2026-11-20; v0.2 reconstructed 2026-11-17 and aligned with `docs/traceability.csv` 2026-11-18 |
 | **Status** | Draft. **Pending review and approval by the author of record**, Trevor Kauyu (ADR-007) |
-| **Supersedes** | Nothing. The v0.1 original (2026-11-13) has not been found; if it is, it takes precedence over this draft |
+| **Baseline** | This document (decision DESIGN-V03). The 2026-11-13 v0.1 drafts, found on 2026-11-20, are not adopted; v0.3 takes from them B-41, the capacity levers, the test targets and the gate dates, and adds B-42 to B-46 |
 
 > **How this document was made.** Reconstructed on 2026-11-17 by an AI assistant (Claude Code) from the build journal, the decision log, the threat model's backlog references, the traceability matrix and the git history, because the v0.1 PDF was never exported. Section numbers follow the ones the repository cites (section 5 for the first runnable slice, section 8 for capacity levers, section 9 for the schedule). **The backlog in section 4 is incomplete:** items the repository never mentions are marked as gaps, and the order after B-27 was chosen during the build, not taken from v0.1.
 
@@ -26,7 +26,7 @@
 | --- | --- | --- | --- |
 | 1 | B-01 to B-07: repository, SandboxBank generator, P1 and P2, core schema, threat model, defect injector | SandboxBank generates, posts and settles; sealed fixture sets exist | Done (journal entries 6–11) |
 | 2 | B-08 to B-15: contracts, rule engine, duplicates, drift, verdicts, connectors, `rai validate`, benchmark harness | The first runnable slice passes (section 5); `make benchmark` runs | Done (journal entries 12–19) |
-| Later | B-16 onwards | Not recoverable: v0.1's later sprint boundaries and gates are not recorded in the repository | In progress |
+| Later | B-16 onwards | Gated by the dates in section 9 | In progress |
 
 ## 4. Backlog
 
@@ -76,14 +76,20 @@
 | B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07). The sealing mechanism is done (`rai-bench chaos-plan`, `chaos-seal`); the S01–S20 registry it seals waits for the author | NFR-REP-1 | In progress |
 | B-29 | Append-only recovery measurements (threat T-03) | FR-08.1, FR-08.2, NFR-AUD-1 | Done |
 | B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |
-| B-31, B-32 | Not recoverable | — | — |
+| B-31, B-32 | Not used (section 9) | — | — |
 | B-33 | Waivers with expiry on blocking findings, and the release gate (FR-12.2) | FR-12.1, FR-12.2 | Done |
 | B-34 | Evidence bundle with SHA-256 manifest and audit-chain head (FR-13.1) | FR-13.1 | Done |
 | B-35 | Signed manifest and `rai verify` (FR-13.2) | FR-13.2 | Done |
 | B-36 | TLS through Caddy (NFR-SEC-2) | NFR-SEC-2 | Done |
 | B-37 | Persistent synthetic-data banner in the UI (FR-11.2), with the UI's first slice: sign-in, the shell and Runs | FR-11.2, FR-01.1 | Done |
-| B-38, B-39 | Not recoverable | — | — |
+| B-38, B-39 | Not used (section 9) | — | — |
 | B-40 | Image hardening (SSDF: SBOM, signed images; NFR-SEC-3) | NFR-SEC-3 | Done |
+| B-41 | RAI v1.0 release: tag, signed images, release notes, and a reproduction on a clean 8 GB laptop | NFR-REP-2 | Planned |
+| B-42 | Release decisions: a named reviewer approves or rejects a labelled release against the gate's state; refused while the gate is blocked; never by its requester | FR-12.1, FR-12.2 | Planned |
+| B-43 | Scenario approvals expire; an expired approval is refused by both preflights | FR-07.2, NFR-SAF-1 | Planned |
+| B-44 | Independent recovery observer: ground-truth RTO for Protocol H3, outside every arm | FR-08.1 | Planned |
+| B-45 | Human-readable run report with the limitations statement in every bundle; container image digests pinned in every run | FR-13.1, NFR-REP-1, NFR-AUD-2 | Planned |
+| B-46 | End-to-end tests for journeys J1–J5 (Spec section 13), nightly | NFR-REP-2 | Planned |
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
@@ -120,7 +126,23 @@ Accepted by `tests/unit/test_cli_validate.py::test_first_runnable_slice` (B-14).
 
 ## 8. Capacity levers
 
-Journal entry 3 records that capacity is the main risk, and that the levers are listed in this section of v0.1. **The list itself is not recoverable from the repository.** It must be restored from v0.1 or written by the author.
+Capacity is the main risk (journal entry 3). When a gate is at risk, use these levers in order, and record the choice in the decision log:
+
+1. **AI-assisted coding** for boilerplate (endpoints, migrations, tests, UI components), with the author directing the design and reviewing every change.
+2. **Cut UI scope** to the dashboard, runs and run detail; approvals, evidence and environments work through the API and CLI in v1.0.
+3. **Add hours** in the heaviest stretch.
+4. **Move the v1.0 release** by up to 15 days and shift the benchmark with it. This is the last resort, because the protocol's order (section 9) must still hold.
+
+## 8a. Test targets
+
+| Layer | Target |
+| --- | --- |
+| Unit | Line coverage reported in CI; branch coverage of the recovery arithmetic and both preflights kept at 100% |
+| Property-based | Hypothesis: rules never miss a seeded defect; manifests stable under file order; the run state machine never leaves a terminal state |
+| Safety | The refusal catalogue (`docs/refusals.md`) 100% green on every change to the chaos path |
+| Measurement validity | RTO within ± 2 s of the independent observer on five scenarios (B-44) |
+| End-to-end | One test per journey J1–J5 (B-46) |
+| Accessibility | axe-core on every screen in all four themes, no serious or critical issue |
 
 ## 9. Schedule and working assumptions
 
@@ -129,7 +151,18 @@ Journal entry 3 records that capacity is the main risk, and that the levers are 
 - Dates are latest-by dates (section 1). Fixed points recorded so far: baseline B1 frozen on day 45 and B2 on day 50, after external review.
 - Pilot outreach (3–5 U.S. credit unions, a fintech and a university lab) starts after the v1.0 release (ADR-008).
 
-## Not recoverable from the repository
+**Gates and latest-by dates** (day 1 = 2026-11-16):
 
-- Sprint boundaries and gates after Sprint 2; B-31, B-32, B-38 and B-39.
-- The capacity levers (section 8) and v0.1's milestone dates beyond day 1, day 45 and day 50.
+| Day | Date | Gate |
+| --- | --- | --- |
+| 45 | 2026-12-30 | Baseline B1 frozen after external review |
+| 50 | 2027-01-04 | Baseline B2 frozen |
+| 60 | 2027-01-14 | Protocol approved, frozen and registered on OSF; the S01–S20 registry sealed (B-28) |
+| 75 | 2027-01-29 | RTO within ± 2 s of the independent observer on five scenarios (B-44) |
+| 90 | 2027-02-13 | RAI v1.0 tagged and reproduced on a clean laptop (B-41); frozen before any benchmark run |
+
+The protocol's order never changes, whatever the pace: baselines frozen, then the protocol registered, then RAI v1.0 frozen, then the benchmark.
+
+## Not recorded
+
+- B-31, B-32, B-38 and B-39 have no recorded scope; their work was done without those numbers (section 4).
