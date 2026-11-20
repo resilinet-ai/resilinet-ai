@@ -183,6 +183,7 @@ def test_a_run_keeps_the_blast_radius_it_declared(agent: Agent) -> None:
 
 
 SCENARIO = "0190aaaa-0000-7000-8000-000000000001@1"
+LATER = "2999-01-01T00:00:00.000000Z"  # an approval that has not expired (B-43)
 WIDE = ["analytics-db-proxy", "ledger-db-proxy"]
 
 
@@ -192,7 +193,7 @@ def step(n: int, item: int = 1) -> str:
 
 def scenario_fault(target: str, n: int, radius: list[str], **extra: Any) -> FaultRequest:
     return proxy(target, step_key=step(n), blast_radius=radius, scenario=SCENARIO,
-                 **extra)  # fmt: skip
+                 **({"approval_expires_at": LATER} | extra))  # fmt: skip
 
 
 def test_a_scenario_keeps_its_radius_after_its_first_fault_is_reverted(agent: Agent) -> None:
@@ -205,7 +206,8 @@ def test_a_scenario_keeps_its_radius_after_its_first_fault_is_reverted(agent: Ag
         agent.inject(scenario_fault("analytics-db-proxy", 2, WIDE))
     with pytest.raises(FaultError, match="already ran scenario"):
         agent.inject(proxy(step_key=step(2), blast_radius=["ledger-db-proxy"],
-                           scenario=SCENARIO.replace("1@1", "2@1")))  # fmt: skip
+                           scenario=SCENARIO.replace("1@1", "2@1"),
+                           approval_expires_at=LATER))  # fmt: skip
     assert agent.inject(scenario_fault("ledger-db-proxy", 2, ["ledger-db-proxy"]))
 
 
@@ -214,7 +216,7 @@ def test_each_scenario_step_of_a_run_has_its_own_radius(agent: Agent) -> None:
     first = agent.inject(scenario_fault("ledger-db-proxy", 1, ["ledger-db-proxy"]))
     agent.revert(first.fault_id)
     other = proxy("analytics-db-proxy", step_key=step(1, item=2), blast_radius=WIDE,
-                  scenario=SCENARIO.replace("1@1", "2@1"))  # fmt: skip
+                  scenario=SCENARIO.replace("1@1", "2@1"), approval_expires_at=LATER)  # fmt: skip
     assert agent.inject(other).request.scenario_step == ("r1", "item-2")
 
 
@@ -225,6 +227,23 @@ def test_each_scenario_step_of_a_run_has_its_own_radius(agent: Agent) -> None:
 def test_a_scenario_fault_names_its_run_and_step(extra: dict[str, Any]) -> None:
     with pytest.raises(FaultError, match=r"needs run_id and a step_key like item-1.fault-2"):
         proxy(scenario=SCENARIO, **({"step_key": step(1)} | extra))
+
+
+@pytest.mark.parametrize("expiry", [None, "next tuesday", "2999-01-01T00:00:00"])
+def test_a_scenario_fault_names_when_its_approval_expires(expiry: str | None) -> None:
+    """B-43: without a readable expiry, with a zone, the agent cannot check it."""
+    with pytest.raises(FaultError, match="names when its approval expires"):
+        scenario_fault("ledger-db-proxy", 1, ["ledger-db-proxy"], approval_expires_at=expiry)
+
+
+def test_the_agent_refuses_a_fault_whose_approval_has_expired(agent: Agent) -> None:
+    """B-43 (T-05): checked by the agent's own clock, whatever the worker decided."""
+    lapsed = scenario_fault("ledger-db-proxy", 1, ["ledger-db-proxy"],
+                            approval_expires_at="2020-01-01T00:00:00Z")  # fmt: skip
+    with pytest.raises(FaultError, match="approval expired at 2020-01-01"):
+        agent.inject(lapsed)
+    assert agent.open_faults() == []  # nothing was injected
+    assert agent.inject(scenario_fault("ledger-db-proxy", 1, ["ledger-db-proxy"]))
 
 
 def test_the_replay_guard_survives_a_restart(agent: Agent) -> None:
@@ -289,9 +308,13 @@ def test_the_signed_request_names_the_scenario_version() -> None:
                     "duration_seconds": 5}],
     })  # fmt: skip
     (only,) = definition.specs(scenario_ref(sid, 3))
-    fault = PreparedFault(only, uuid4(), uuid4(), "item-1.fault-1", ENV, 900, "rai.target=x")
+    expires = datetime(2026, 12, 20, 9, 30, tzinfo=UTC)
+    fault = PreparedFault(only, uuid4(), uuid4(), "item-1.fault-1", ENV, 900, "rai.target=x",
+                          expires)  # fmt: skip
     request = FaultRequest.parse(fault.request())
     assert (request.scenario, request.scenario_step) == (f"{sid}@3", (str(fault.run_id), "item-1"))
+    assert request.approval_expires_at == "2026-12-20T09:30:00.000000Z"  # B-43: signed with it
+    assert request.approval_expiry == expires
     assert prepared().request()["scenario"] is None  # a fault outside a scenario
 
 

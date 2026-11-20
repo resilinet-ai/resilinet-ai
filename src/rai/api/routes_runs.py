@@ -318,12 +318,20 @@ def _scenario_item(conn: Connection, position: int, scenario_id: UUID) -> Pinned
         ),
         {"s": scenario_id},
     ).one()
-    approval_id = runnable_decision(conn, scenario_id)
-    if approval_id is None:
+    decision = runnable_decision(conn, scenario_id)
+    if decision is None or decision.decision != "approve":
         raise Problem(
             409, "runs.scenario_not_approved", "A chaos scenario in the plan is not approved",
             detail=f"plan item {position}: {row.name} v{row.version} needs a reviewer's approval",
         )  # fmt: skip
+    if not decision.in_force:  # B-43
+        raise Problem(
+            409, "runs.scenario_approval_expired",
+            "A chaos scenario's approval has expired",
+            detail=f"plan item {position}: {row.name} v{row.version}: {decision.refusal()}; "
+                   "a reviewer must approve it again",
+        )  # fmt: skip
+    approval_id = decision.approval_id
     scenario = PinnedScenario(
         scenario_id=row.scenario_id, name=row.name, version=row.version,
         blast_radius=tuple(row.blast_radius), faults=tuple(row.faults), approval_id=approval_id,

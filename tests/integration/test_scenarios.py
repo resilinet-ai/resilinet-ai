@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import dataclasses
 import threading
+import time
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,7 @@ from rai.worker.executor import Executor
 from rai.worker.service import Worker
 from tests.integration.apikit import needs_db, signed_in_member
 from tests.integration.runkit import Lab, config, drain
+from tests.integration.test_waivers import as_app
 from tests.unit.test_chaos_agent import FakeDocker, FakeToxiproxy
 
 pytestmark = needs_db
@@ -178,6 +181,70 @@ def test_a_run_starts_only_with_an_approved_scenario_and_an_environment(chaos: C
     assert pinned["state"] == "queued"
 
 
+def lapse(chaos: Chaos, scenario_id: str, *, created: str, expires: str) -> None:
+    """An approval written straight to the database with chosen times: through the API
+    an approval cannot be dated in the past or expire within seconds."""
+    with as_app(chaos.owner, chaos.lab) as conn:
+        conn.execute(
+            text("INSERT INTO rai.scenario_approvals (scenario_id, reviewer_id, decision, "
+                 f"created_at, expires_at) VALUES (:s, :u, 'approve', {created}, {expires})"),
+            {"s": scenario_id, "u": chaos.lab.tenant.admin_id},
+        )  # fmt: skip
+
+
+def test_an_approval_expires_and_must_be_given_again(chaos: Chaos) -> None:
+    """B-43 (FR-07.2, NFR-SAF-1): 30 days by default, at most 90; then nothing runs."""
+    sid = chaos.scenario()["scenario_id"]
+    soon = datetime.now(UTC) + timedelta(days=91)
+    for body, code in [
+        ({"decision": "approve", "expires_at": soon.isoformat()}, "scenarios.expiry_out_of_range"),
+        ({"decision": "approve", "expires_at": "2026-12-01T00:00:00"},
+         "scenarios.expiry_without_zone"),
+        ({"decision": "reject", "expires_at": soon.isoformat()}, "scenarios.expiry_on_reject"),
+    ]:  # fmt: skip
+        refused = chaos.client.post(f"/v1/scenarios/{sid}/approvals", json=body,
+                                    headers=chaos.reviewer)  # fmt: skip
+        assert (refused.status_code, refused.json()["code"]) == (422, code), body
+    lapse(chaos, sid, created="clock_timestamp() - interval '10 days'",
+          expires="clock_timestamp() - interval '1 day'")  # fmt: skip
+    detail = chaos.client.get(f"/v1/scenarios/{sid}", headers=chaos.lab.viewer).json()
+    assert (detail["status"], detail["approvals"][-1]["expired"]) == ("expired", True)
+    late = chaos.client.post("/v1/assurance/runs", json={"plan_id": chaos.plan(sid)},
+                             headers=chaos.lab.engineer)  # fmt: skip
+    assert (late.status_code, late.json()["code"]) == (409, "runs.scenario_approval_expired")
+
+    with (
+        pytest.raises(DBAPIError, match="scenario_approvals_expiry"),
+        as_app(chaos.owner, chaos.lab) as conn,
+    ):  # an approval without an expiry cannot be written any more
+        conn.execute(
+            text("INSERT INTO rai.scenario_approvals (scenario_id, reviewer_id, decision) "
+                 "VALUES (:s, :u, 'approve')"), {"s": sid, "u": chaos.lab.tenant.admin_id},
+        )  # fmt: skip
+    approved = chaos.review(sid).json()  # a fresh review makes it runnable again
+    term = datetime.fromisoformat(approved["expires_at"]) - datetime.now(UTC)
+    assert timedelta(days=29, hours=23) < term <= timedelta(days=30)  # the default term
+    assert approved["expired"] is False
+    assert chaos.lab.start(chaos.plan(sid))["state"] == "queued"
+
+
+def test_the_worker_refuses_a_scenario_whose_approval_expired_after_queueing(
+    chaos: Chaos, worker_engine: Engine, feed: Path, tmp_path: Path
+) -> None:
+    drain(Worker(worker_engine, config(feed, tmp_path / "earlier")))  # leftovers: refused
+    sid = chaos.scenario()["scenario_id"]
+    chaos.review(sid)
+    run = chaos.lab.start(chaos.plan(sid))
+    lapse(chaos, sid, created="clock_timestamp()",
+          expires="clock_timestamp() + interval '1 second'")  # fmt: skip
+    time.sleep(1.2)
+    assert chaos.worker(worker_engine, feed, tmp_path).run_once()
+    refused = chaos.lab.run(run["run_id"])
+    assert refused["state"] == "refused"
+    assert "approval expired at" in refused["reason"]
+    assert chaos.agent.state.load() == {}  # nothing reached the agent
+
+
 @pytest.mark.parametrize(
     ("item", "code"),
     [
@@ -224,6 +291,7 @@ def test_the_worker_runs_an_approved_scenario(
     assert {f.request.step_key for f in faults} == {"item-1.fault-1", "item-1.fault-2"}
     assert all(f.request.run_id == run["run_id"] for f in faults)
     assert {f.request.scenario for f in faults} == {f"{sid}@1"}  # B-27: signed identity
+    assert all(f.request.approval_expiry for f in faults)  # B-43: signed with its expiry
 
 
 def test_a_retry_after_a_crash_injects_nothing_twice(

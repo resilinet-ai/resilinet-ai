@@ -9,6 +9,7 @@ target must be in the radius.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -131,21 +132,46 @@ def _is_name(name: str) -> bool:
     return re.fullmatch(TARGET_NAME, name) is not None
 
 
+# B-43: how long a reviewer's approval lets a scenario run.
+APPROVAL_TERM = timedelta(days=30)  # the default
+MAX_APPROVAL_TERM = timedelta(days=90)
+
+
 class Decision(BaseModel):
-    """The latest review decision on a scenario version (B-26: R-02)."""
+    """The latest review decision on a scenario version (B-26: R-02; B-43)."""
 
     model_config = ConfigDict(frozen=True)
     approval_id: UUID
     decision: Literal["approve", "reject"]
     reviewer_id: UUID
+    expires_at: datetime | None = None  # an approval's expiry; None before B-43
+    expired: bool = False  # by the database's clock when read
+
+    @property
+    def in_force(self) -> bool:
+        """An approval that has not expired. One without an expiry (given before B-43)
+        counts as expired, so it fails closed."""
+        return self.decision == "approve" and self.expires_at is not None and not self.expired
+
+    def refusal(self) -> str | None:
+        """Why this decision does not let the scenario run, or None if it does."""
+        if self.decision != "approve":
+            return "the scenario's approval was withdrawn"
+        if self.expires_at is None:
+            return "the scenario's approval predates approval expiry (B-43); review it again"
+        if self.expired:
+            return f"the scenario's approval expired at {self.expires_at.isoformat()}"
+        return None
 
 
 def latest_decision(conn: Connection, scenario_id: UUID) -> Decision | None:
     """The newest decision on the version, or None if nobody has reviewed it. Only an
-    ``approve`` here makes the version runnable; a later ``reject`` withdraws it."""
+    ``approve`` in force here makes the version runnable; a later ``reject`` withdraws
+    it, and it lapses by itself when it expires (B-43)."""
     row = conn.execute(
         text(
-            "SELECT approval_id, decision::text AS decision, reviewer_id "
+            "SELECT approval_id, decision::text AS decision, reviewer_id, expires_at, "
+            "coalesce(expires_at <= clock_timestamp(), false) AS expired "
             "FROM rai.scenario_approvals WHERE scenario_id = :s "
             "ORDER BY created_at DESC, approval_id DESC LIMIT 1"
         ),

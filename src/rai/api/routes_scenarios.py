@@ -24,7 +24,15 @@ from rai.api.context import ROLES, TenantSession, require
 from rai.api.listing import Page, PageOut, after_uuid, page, paged
 from rai.api.problems import Problem
 from rai.api.routes_projects import find_project, is_unique_violation
-from rai.core.scenarios import RecoveryPlan, ScenarioDefinition, ScenarioFault, latest_decision
+from rai.core.scenarios import (
+    APPROVAL_TERM,
+    MAX_APPROVAL_TERM,
+    Decision,
+    RecoveryPlan,
+    ScenarioDefinition,
+    ScenarioFault,
+    latest_decision,
+)
 
 router = APIRouter(prefix="/v1", tags=["scenarios"])
 
@@ -34,7 +42,7 @@ reviewer = require("reviewer", "admin")
 
 NAME = r"^[a-z][a-z0-9_.-]{0,99}$"
 CHECK_VIOLATION = "23514"
-Status = Literal["pending", "approved", "rejected"]
+Status = Literal["pending", "approved", "rejected", "expired"]
 
 
 class ScenarioIn(BaseModel):
@@ -68,6 +76,10 @@ class ApprovalIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     decision: Literal["approve", "reject"]
     comment: str | None = Field(default=None, max_length=2000)
+    expires_at: datetime | None = Field(
+        default=None,
+        description="approve only: when the approval lapses; default 30 days, at most 90 (B-43)",
+    )
 
 
 class ApprovalOut(BaseModel):
@@ -77,6 +89,8 @@ class ApprovalOut(BaseModel):
     decision: Literal["approve", "reject"]
     comment: str | None
     created_at: datetime
+    expires_at: datetime | None  # approvals only; None on approvals given before B-43
+    expired: bool  # an approval past its expiry, or one without an expiry
 
 
 class ScenarioDetail(ScenarioOut):
@@ -86,14 +100,17 @@ class ScenarioDetail(ScenarioOut):
 _SCENARIO = (
     "SELECT s.scenario_id, s.project_id, s.name, s.version, s.description, s.blast_radius, "
     "s.faults, s.recovery, s.created_by, s.created_at, COALESCE(("
-    "  SELECT CASE a.decision WHEN 'approve' THEN 'approved' ELSE 'rejected' END "
+    "  SELECT CASE WHEN a.decision = 'reject' THEN 'rejected' "
+    "    WHEN a.expires_at IS NULL OR a.expires_at <= clock_timestamp() THEN 'expired' "
+    "    ELSE 'approved' END "
     "  FROM rai.scenario_approvals a WHERE a.scenario_id = s.scenario_id "
     "  ORDER BY a.created_at DESC, a.approval_id DESC LIMIT 1), 'pending') AS status "
     "FROM rai.chaos_scenarios s"
 )
 _APPROVAL = (
-    "SELECT approval_id, scenario_id, reviewer_id, decision::text, comment, created_at "
-    "FROM rai.scenario_approvals"
+    "SELECT approval_id, scenario_id, reviewer_id, decision::text, comment, created_at, "
+    "expires_at, (decision = 'approve' AND coalesce(expires_at <= clock_timestamp(), true)) "
+    "AS expired FROM rai.scenario_approvals"
 )
 
 
@@ -198,16 +215,18 @@ def review_scenario(
     if scenario.created_by == session.user_id:
         raise _self_review()
     find_project(session.conn, scenario.project_id, for_change=True)
+    expires_at = _expiry(session.conn, body)
     try:
         with session.conn.begin_nested():
             approval_id = session.conn.execute(
                 text(
                     "INSERT INTO rai.scenario_approvals (scenario_id, reviewer_id, decision, "
-                    "comment) VALUES (:s, :u, CAST(:d AS rai.approval_decision), :c) "
-                    "RETURNING approval_id"
+                    "comment, expires_at) VALUES (:s, :u, CAST(:d AS rai.approval_decision), "
+                    ":c, :e) RETURNING approval_id"
                 ),
-                {"s": scenario_id, "u": session.user_id, "d": body.decision, "c": body.comment},
-            ).scalar_one()
+                {"s": scenario_id, "u": session.user_id, "d": body.decision,
+                 "c": body.comment, "e": expires_at},
+            ).scalar_one()  # fmt: skip
     except IntegrityError as error:  # the database's own separation-of-duties check
         if getattr(error.orig, "sqlstate", None) == CHECK_VIOLATION:
             raise _self_review() from None
@@ -217,6 +236,23 @@ def review_scenario(
     return ApprovalOut.model_validate(row.one()._asdict())
 
 
+def _expiry(conn: Connection, body: ApprovalIn) -> datetime | None:
+    """An approval's expiry (B-43): the one asked for, or 30 days; a rejection has none."""
+    if body.decision == "reject":
+        if body.expires_at is not None:
+            raise Problem(422, "scenarios.expiry_on_reject", "Only an approval has an expiry")
+        return None
+    now: datetime = conn.execute(text("SELECT clock_timestamp()")).scalar_one()
+    if body.expires_at is None:
+        return now + APPROVAL_TERM
+    if body.expires_at.tzinfo is None:
+        raise Problem(422, "scenarios.expiry_without_zone", "expires_at needs a time zone")
+    if not now < body.expires_at <= now + MAX_APPROVAL_TERM:
+        raise Problem(422, "scenarios.expiry_out_of_range",
+                      "expires_at must be in the future and at most 90 days ahead")  # fmt: skip
+    return body.expires_at
+
+
 def _self_review() -> Problem:
     return Problem(
         403, "scenarios.self_review", "You cannot review your own scenario",
@@ -224,7 +260,6 @@ def _self_review() -> Problem:
     )  # fmt: skip
 
 
-def runnable_decision(conn: Connection, scenario_id: UUID) -> UUID | None:
-    """The approval a run may pin, or None if the latest decision is not an approval."""
-    decision = latest_decision(conn, scenario_id)
-    return decision.approval_id if decision and decision.decision == "approve" else None
+def runnable_decision(conn: Connection, scenario_id: UUID) -> Decision | None:
+    """The latest decision on the version, which a run may pin only if it is in force."""
+    return latest_decision(conn, scenario_id)

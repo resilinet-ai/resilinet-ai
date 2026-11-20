@@ -124,6 +124,10 @@ class Agent:
                     raise FaultReplay(other)
         if self.environment is not None and request.environment != self.environment:
             raise FaultError(f"this agent serves environment {self.environment!r} only")
+        expiry = request.approval_expiry
+        if expiry is not None and now() >= expiry:  # B-43, by the agent's own clock
+            raise FaultError(f"the scenario's approval expired at {request.approval_expires_at}; "
+                             "a reviewer must approve it again")  # fmt: skip
         if request.duration_seconds > self.max_fault_seconds:
             raise FaultError(
                 f"duration_seconds exceeds this agent's ceiling of {self.max_fault_seconds} s"
