@@ -184,7 +184,7 @@ These terms have exactly these meanings in the schema, API, UI and reports.
 
 ## 13. User journeys
 
-Each journey is an end-to-end acceptance test (B-46) and a path through the wireframes.
+Each journey is an end-to-end acceptance test (B-46: `tests/e2e/test_journeys.py`, run every night; see [User journeys, end to end](../journeys.md)) and a path through the wireframes.
 
 | Journey | Who | Steps | Ends with |
 | --- | --- | --- | --- |

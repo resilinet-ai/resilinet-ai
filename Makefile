@@ -1,4 +1,4 @@
-.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e tls-e2e
+.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e tls-e2e journeys
 
 setup:
 	uv sync --all-packages
@@ -63,3 +63,18 @@ tls-e2e:
 	&& uv run python scripts/tls_e2e.py || status=$$?; \
 	[ $$status -eq 0 ] || docker compose --profile core logs --tail 40 rai-api caddy; \
 	docker compose --profile core down -v; exit $$status
+
+# B-46 (NFR-REP-2): journeys J1-J5 end to end, as the nightly job runs them. rai-db,
+# SandboxBank and the chaos agent in Docker with throwaway credentials; the tests start
+# the API and a worker themselves (tests/e2e/stack.py).
+JOURNEY_SERVICES = rai-db ledger-db payments-api analytics-db etl-job toxiproxy socket-proxy rai-chaos-agent rai-chaos-watchdog
+journeys:
+	secret() { uv run python -c 'import secrets; print(secrets.token_urlsafe(36))'; }; \
+	key="$$(mktemp -d)/worker.pem"; \
+	export COMPOSE_PROJECT_NAME=rai-journeys RAI_E2E_WORKER_KEY="$$key" RAI_AGENT_ENVIRONMENT=SANDBOX-01 ETL_INTERVAL_SECONDS=2; \
+	export RAI_DB_PASSWORD="$$(secret)" LEDGER_DB_PASSWORD="$$(secret)" ANALYTICS_DB_PASSWORD="$$(secret)" RAI_API_DB_PASSWORD=unused RAI_JWT_SECRET=unused; \
+	export RAI_AGENT_WORKER_KEYS="$$(uv run rai admin chaos-keygen --out "$$key")"; \
+	export RAI_E2E_DATABASE_URL="postgresql://rai:$$RAI_DB_PASSWORD@127.0.0.1:55431/rai"; \
+	status=0; docker compose --profile core --profile sandbox --profile chaos up -d --build --wait $(JOURNEY_SERVICES) \
+	&& uv run pytest tests/e2e -v || status=$$?; \
+	docker compose --profile core --profile sandbox --profile chaos down -v; exit $$status

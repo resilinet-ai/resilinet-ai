@@ -1,0 +1,71 @@
+name: Journeys
+
+# B-46 (NFR-REP-2): the five user journeys of Spec section 13, end to end, every night.
+# rai-db, SandboxBank and the chaos agent run in Docker; the tests start the API and a
+# worker as processes and drive them only through HTTP and the rai CLI
+# (tests/e2e/stack.py). Also on pull requests that change the journeys or the stack.
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tests/e2e/**"
+      - "compose.yaml"
+      - ".github/workflows/journeys.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: journeys-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  journeys:
+    name: Journeys J1-J5 (end to end)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: rai-journeys
+      RAI_AGENT_ENVIRONMENT: SANDBOX-01 # the environment J1 registers
+      ETL_INTERVAL_SECONDS: "2" # J3's consistency check waits for the warehouse
+      # Compose interpolates every service; rai-api and Caddy are not started here.
+      RAI_API_DB_PASSWORD: unused-here
+      RAI_JWT_SECRET: unused-here
+      RAI_E2E_REQUIRED: "1" # a missing stack fails the job instead of skipping
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install (RAI and SandboxBank)
+        run: uv sync --all-packages --locked
+      - name: Generated credentials (masked)
+        run: |
+          for name in RAI_DB_PASSWORD LEDGER_DB_PASSWORD ANALYTICS_DB_PASSWORD; do
+            value="$(uv run python -c 'import secrets; print(secrets.token_urlsafe(36))')"
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+      - name: Start rai-db, SandboxBank and the chaos agent
+        run: |
+          DOCKER_GID="$(stat -c %g /var/run/docker.sock)"
+          RAI_AGENT_WORKER_KEYS="$(uv run rai admin chaos-keygen --out "$RUNNER_TEMP/worker.pem")"
+          export DOCKER_GID RAI_AGENT_WORKER_KEYS
+          docker compose --profile core --profile sandbox --profile chaos up -d --build --wait \
+            rai-db ledger-db payments-api analytics-db etl-job toxiproxy socket-proxy \
+            rai-chaos-agent rai-chaos-watchdog
+      - name: Journeys J1-J5
+        env:
+          RAI_E2E_WORKER_KEY: ${{ runner.temp }}/worker.pem
+        run: |
+          export RAI_E2E_DATABASE_URL="postgresql://rai:${RAI_DB_PASSWORD}@127.0.0.1:55431/rai"
+          uv run pytest tests/e2e -v --basetemp "$RUNNER_TEMP/journeys"
+      - name: RAI and service logs
+        if: failure()
+        run: |
+          tail -n 60 "$RUNNER_TEMP"/journeys/journeys*/logs/*.log || true
+          docker compose --profile core --profile sandbox --profile chaos logs --tail 40 \
+            payments-api etl-job rai-chaos-agent rai-chaos-watchdog
+      - name: Stop
+        if: always()
+        run: docker compose --profile core --profile sandbox --profile chaos down -v
