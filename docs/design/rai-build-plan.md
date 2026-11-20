@@ -89,7 +89,7 @@
 | B-43 | Scenario approvals expire (30 days by default, at most 90); an expired approval is refused when a run is queued, by the worker before each fault and by the agent | FR-07.2, NFR-SAF-1 | Done |
 | B-44 | Independent recovery observer: ground-truth RTO for Protocol H3, outside every arm (`sandboxbank observe`, `rai-bench h3`) | FR-08.1 | Done |
 | B-45 | Human-readable run report with the limitations statement in every bundle (`report.md`, `bundle.json` `limitations`); container image digests pinned in every run and enforced by the worker and the agent | FR-13.1, NFR-REP-1, NFR-AUD-2 | Done |
-| B-46 | End-to-end tests for journeys J1–J5 (Spec section 13), nightly | NFR-REP-2 | Planned |
+| B-46 | End-to-end tests for journeys J1–J5 (Spec section 13), nightly (`tests/e2e/test_journeys.py`, workflow "Journeys", `make journeys`) | NFR-REP-2 | Done |
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
@@ -141,7 +141,7 @@ Capacity is the main risk (journal entry 3). When a gate is at risk, use these l
 | Property-based | Hypothesis: rules never miss a seeded defect; manifests stable under file order; the run state machine never leaves a terminal state |
 | Safety | The refusal catalogue (`docs/refusals.md`) 100% green on every change to the chaos path |
 | Measurement validity | RTO within ± 2 s of the independent observer on five scenarios (B-44) |
-| End-to-end | One test per journey J1–J5 (B-46) |
+| End-to-end | One test per journey J1–J5 (B-46): against a live API, worker, SandboxBank and chaos agent, every night |
 | Accessibility | axe-core on every screen in all four themes, no serious or critical issue |
 
 ## 9. Schedule and working assumptions
