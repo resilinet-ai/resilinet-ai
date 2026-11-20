@@ -46,7 +46,7 @@ A contract version's identity is the **SHA-256 of its canonical JSON** form. Run
 | `pipeline_assets` | kind (`source`, `table`, `transform`, `feature_set`, `model`), name, locator | Insert; locator set by engineers |
 | `data_contracts` | asset, version, spec (JSON), `spec_sha256` | Immutable versions |
 | `asset_inputs` | asset ← input asset, optional `transform_ref` | Insert/delete; a trigger refuses cycles and cross-project links |
-| `test_cases` | type (`contract_rule`, `recovery_assertion`, `consistency_check`, `tevv_metric`, `drift_check`), target asset, definition (≤ 64 KiB JSON), severity, expected result | Immutable versions |
+| `test_cases` | type (`contract_rule`, `recovery_assertion`, `consistency_check`, `tevv_metric`, `drift_check`, `privacy_canary`), target asset, definition (≤ 64 KiB JSON), severity, expected result | Immutable versions |
 | `test_plans`, `plan_items` | ordered items: a test case (optionally with a pinned contract) or a scenario; optional environment; trigger (`manual`, `ci`, `schedule`) | Immutable versions |
 
 ## 4. Runs, jobs, observations and lineage

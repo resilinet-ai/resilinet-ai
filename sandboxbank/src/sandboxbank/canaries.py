@@ -41,6 +41,7 @@ from sandboxbank.generator import stream
 FORMAT = "sandboxbank-canaries/1"
 CUSTOMERS_FILE = "customers.csv"
 KEY_FILE = "canaries.json"
+NEEDLES_FILE = "needles.csv"  # the same key as a table: canary, kind, value
 COLUMNS = ("customer_id", "full_name", "email", "phone", "card_number", "date_of_birth",
            "marker")  # fmt: skip
 MAX_CANARIES = 50
@@ -159,6 +160,11 @@ def write_canaries(canaries: list[Canary], seed: int, out_dir: Path) -> dict[str
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(COLUMNS)
         writer.writerows(c.as_row() for c in canaries)
+    with (out_dir / NEEDLES_FILE).open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(("canary", "kind", "value"))
+        for c in canaries:
+            writer.writerows((c.customer_id, kind, value) for kind, value in c.needles().items())
     answer = key(canaries, seed)
     answer["customers_sha256"] = hashlib.sha256((out_dir / CUSTOMERS_FILE).read_bytes()).hexdigest()
     (out_dir / KEY_FILE).write_text(json.dumps(answer, indent=2, sort_keys=True) + "\n",

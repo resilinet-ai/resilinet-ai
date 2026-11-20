@@ -191,5 +191,5 @@ uv run sandboxbank canaries load --dir data/canaries          # needs SANDBOXBAN
 ```
 
 - **Impossible by construction.** Emails end in `@example.invalid` (a reserved domain that never resolves; the table refuses any other), phones are in the `555 01xx` range reserved for fiction, and card numbers are in the `400000` test range with a valid Luhn digit, so card detectors still match them. Surnames are built from syllables, never taken from a list of people.
-- **`canaries.json` is the answer key**: every canary's needles (marker, email, name, card number with and without spaces, phone with and without punctuation), the values RAI searches for. Keep it with the run's inputs, like any answer key.
+- **`canaries.json` is the answer key**: every canary's needles (marker, email, name, card number with and without spaces, phone with and without punctuation), the values RAI searches for. `needles.csv` holds the same key as a table (`canary, kind, value`), which a RAI `privacy_canary` test reads through a connector. Keep both with the run's inputs, like any answer key.
 - **Nothing else changes.** Canaries come from their own random stream of the seed, so a dataset and its fixtures stay byte-identical.
