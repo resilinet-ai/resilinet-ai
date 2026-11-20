@@ -23,7 +23,7 @@ import polars as pl
 import psycopg
 from psycopg import sql
 
-from rai.connectors.base import Connector, ConnectorError, PostgresConfig
+from rai.connectors.base import Connector, ConnectorError, SqlConfig
 from rai.connectors.secrets import Secret, SecretError, SecretRef
 
 _TIMESTAMPTZ = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
@@ -31,7 +31,7 @@ _TIMESTAMP = 'YYYY-MM-DD"T"HH24:MI:SS.US'
 
 
 class PostgresConnector(Connector):
-    config: PostgresConfig
+    config: SqlConfig
 
     def _secret(self) -> Secret:
         try:

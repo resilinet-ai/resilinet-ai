@@ -63,14 +63,11 @@ class FileConfig(_Config):
     root: str = Field(min_length=1)
 
 
-class PostgresConfig(_Config):
-    type: Literal["postgres"]
+class _SqlConfig(_Config):
     host: str
-    port: int = Field(default=5432, ge=1, le=65535)
     database: str = Field(min_length=1)
     user: str = Field(min_length=1)
     secret_ref: str
-    sslmode: Literal["disable", "prefer", "require", "verify-ca", "verify-full"] = "prefer"
     schema_name: str = Field(default="public", pattern=NAME)
     statement_timeout_seconds: int = Field(default=60, ge=1, le=3600)
 
@@ -81,14 +78,33 @@ class PostgresConfig(_Config):
         return value
 
 
-ConnectorConfig = Annotated[FileConfig | PostgresConfig, Field(discriminator="type")]
+class PostgresConfig(_SqlConfig):
+    type: Literal["postgres"]
+    port: int = Field(default=5432, ge=1, le=65535)
+    sslmode: Literal["disable", "prefer", "require", "verify-ca", "verify-full"] = "prefer"
+
+
+class RedshiftConfig(_SqlConfig):
+    """Amazon Redshift (FR-02.2). TLS by default; ``prefer`` and ``allow`` are refused,
+    because they fall back to plain text without saying so. ``disable`` is for a
+    local stand-in only."""
+
+    type: Literal["redshift"]
+    port: int = Field(default=5439, ge=1, le=65535)
+    sslmode: Literal["disable", "require", "verify-ca", "verify-full"] = "require"
+
+
+SqlConfig = PostgresConfig | RedshiftConfig
+ConnectorConfig = Annotated[
+    FileConfig | PostgresConfig | RedshiftConfig, Field(discriminator="type")
+]
 
 
 class _Holder(BaseModel):
     config: ConnectorConfig
 
 
-def parse_config(data: dict[str, Any]) -> FileConfig | PostgresConfig:
+def parse_config(data: dict[str, Any]) -> FileConfig | PostgresConfig | RedshiftConfig:
     try:
         return _Holder.model_validate({"config": data}).config
     except ValidationError as error:
@@ -103,7 +119,7 @@ def parse_config(data: dict[str, Any]) -> FileConfig | PostgresConfig:
 class Connector(ABC):
     """Reads assets from one source within one environment."""
 
-    def __init__(self, config: FileConfig | PostgresConfig) -> None:
+    def __init__(self, config: FileConfig | PostgresConfig | RedshiftConfig) -> None:
         self.config = config
 
     def read(self, asset: str, *, environment: str, limit: int | None = None) -> pl.DataFrame:

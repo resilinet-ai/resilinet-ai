@@ -72,6 +72,7 @@
 | — | Privacy sentinel, part 1: SandboxBank's canary customers and their answer key | FR-05.1 | Done |
 | — | Privacy sentinel, part 2: the `privacy_canary` test type searches data assets, every hit masked | FR-05.1 | Done |
 | — | Privacy sentinel, part 3: `rai canary scan` sweeps logs and evidence bundles; CI sweeps RAI's logs, the gate runs' bundles and the sandbox services' logs | FR-05.1 | Done |
+| — | Redshift connector: read-only sessions set after connecting, a server-side cursor instead of `COPY`, TLS required. Tested on PostgreSQL 16; a run against a live cluster is still owed | FR-02.2 | In progress |
 | B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07). The sealing mechanism is done (`rai-bench chaos-plan`, `chaos-seal`); the S01–S20 registry it seals waits for the author | NFR-REP-1 | In progress |
 | B-29 | Append-only recovery measurements (threat T-03) | FR-08.1, FR-08.2, NFR-AUD-1 | Done |
 | B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |
@@ -86,7 +87,7 @@
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
-Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2, FR-04.2, FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1, NFR-OPS-1, NFR-USE-2, FR-14.1, FR-09.2 and FR-09.1 (built, number not recorded), and FR-09.3.
+Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2 (built, not yet run on a live cluster), FR-04.2, FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1, NFR-OPS-1, NFR-USE-2, FR-14.1, FR-09.2 and FR-09.1 (built, number not recorded), and FR-09.3.
 
 ## 5. First runnable slice: acceptance
 
