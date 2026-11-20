@@ -22,6 +22,7 @@ over polars frames.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 
 import polars as pl
@@ -146,6 +147,25 @@ def _outermost(values: list[str], starts: list[int]) -> list[str]:
     return [value for _, _, value in kept]
 
 
+def find(
+    frame: pl.DataFrame, column: str, found: list[Needle], *, case_sensitive: bool = False
+) -> Iterator[tuple[int, list[str]]]:
+    """The 0-based rows of ``column`` that hold a needle, each with its outermost matches
+    as written in the frame. Every needle at once (Aho-Corasick), as substrings."""
+    patterns = [n.value for n in found]
+    text = pl.col(column).cast(pl.String)
+    insensitive = not case_sensitive
+    matched = frame.select(
+        pl.int_range(pl.len()).alias("row"),
+        text.str.extract_many(patterns, ascii_case_insensitive=insensitive,
+                              overlapping=True).alias("found"),
+        text.str.find_many(patterns, ascii_case_insensitive=insensitive,
+                           overlapping=True).alias("at"),
+    ).filter(pl.col("found").list.len() > 0)  # fmt: skip
+    for row, values, starts in matched.iter_rows():
+        yield row, _outermost(values, starts)
+
+
 def scan(target: pl.DataFrame, found: list[Needle], definition: CanaryDefinition) -> Scan:
     """Every needle in every searched column of the target, as masked hits."""
     columns = definition.columns or tuple(
@@ -157,7 +177,6 @@ def scan(target: pl.DataFrame, found: list[Needle], definition: CanaryDefinition
         return replace(base, error=f"column(s) {', '.join(map(repr, missing))} not in the target")
     fold = (lambda v: v) if definition.case_sensitive else str.lower
     lookup = {fold(n.value): n for n in found}
-    patterns = [n.value for n in found]
     hits: list[Hit] = []
     rows_hit: set[int] = set()
     by_kind: Counter[str] = Counter()
@@ -165,18 +184,9 @@ def scan(target: pl.DataFrame, found: list[Needle], definition: CanaryDefinition
     by_canary: Counter[str] = Counter()
     total = 0
     for column in columns:
-        text = pl.col(column).cast(pl.String)
-        insensitive = not definition.case_sensitive
-        matched = target.select(
-            pl.int_range(pl.len()).alias("row"),
-            text.str.extract_many(patterns, ascii_case_insensitive=insensitive,
-                                  overlapping=True).alias("found"),
-            text.str.find_many(patterns, ascii_case_insensitive=insensitive,
-                               overlapping=True).alias("at"),
-        ).filter(pl.col("found").list.len() > 0)  # fmt: skip
-        for row, values, starts in matched.iter_rows():
+        for row, values in find(target, column, found, case_sensitive=definition.case_sensitive):
             rows_hit.add(row)
-            for value in _outermost(values, starts):
+            for value in values:
                 needle = lookup[fold(value)]
                 total += 1
                 by_kind[needle.kind] += 1

@@ -83,6 +83,8 @@ jobs:
   gate:
     # FR-06.1 acceptance: the RAI gate action against a live API and worker. A clean
     # plan must pass; a plan whose batch re-sends rows must fail the step.
+    # FR-05.1: a plan over a CRM export holding canary values must fail too, and a
+    # canary sweep of RAI's logs and the three runs' evidence bundles must find none.
     name: CI gate (rai run action)
     runs-on: ubuntu-latest
     services:
@@ -132,10 +134,11 @@ jobs:
             curl -fsS http://127.0.0.1:8000/healthz && break
             sleep 1
           done
-      - name: Seed a project, two plans and an API key
+      - name: Seed a project, three plans and an API key
         id: seed
         run: uv run python scripts/ci_gate.py seed
       - name: Gate on a clean batch (must pass)
+        id: clean
         uses: ./
         with:
           api-url: http://127.0.0.1:8000
@@ -159,6 +162,42 @@ jobs:
           echo "outcome=$OUTCOME verdict=$VERDICT"
           test "$OUTCOME" = failure
           test "$VERDICT" = fail
+      - name: Gate on a CRM export with canary values (must fail)
+        id: leak
+        continue-on-error: true
+        uses: ./
+        with:
+          api-url: http://127.0.0.1:8000
+          api-key: ${{ steps.seed.outputs.api-key }}
+          plan: ci-leak
+          timeout: "300"
+      - name: The canary check blocked the gate
+        env:
+          OUTCOME: ${{ steps.leak.outcome }}
+          VERDICT: ${{ steps.leak.outputs.verdict }}
+        run: |
+          echo "outcome=$OUTCOME verdict=$VERDICT"
+          test "$OUTCOME" = failure
+          test "$VERDICT" = fail
+      - name: Canary sweep of RAI's logs and the runs' evidence bundles (FR-05.1)
+        # Every run above, the leaking one included, must leave no canary value in
+        # RAI's logs or bundles: hits are recorded masked. The sweep must still find
+        # the leak in the export itself, so a clean result is not a blind one.
+        env:
+          RAI_API_KEY: ${{ steps.seed.outputs.api-key }}
+          CLEAN_RUN: ${{ steps.clean.outputs.run-id }}
+          RESENT_RUN: ${{ steps.blocked.outputs.run-id }}
+          LEAK_RUN: ${{ steps.leak.outputs.run-id }}
+        run: |
+          KEY="$RUNNER_TEMP/gate/slice/feed/canaries/needles.csv"
+          uv run python scripts/ci_gate.py bundles "$RUNNER_TEMP/bundles" "$CLEAN_RUN" "$RESENT_RUN" "$LEAK_RUN"
+          test "$(ls "$RUNNER_TEMP/bundles" | wc -l)" = 3
+          set +e
+          uv run rai canary scan --key "$KEY" "$RUNNER_TEMP/gate/slice/feed/crm_export.csv"
+          found=$?
+          set -e
+          test "$found" = 1
+          uv run rai canary scan --key "$KEY" "$RUNNER_TEMP/serve.log" "$RUNNER_TEMP/worker.log" "$RUNNER_TEMP/bundles"
       - name: Service logs
         if: always()
         run: tail -n 50 "$RUNNER_TEMP/serve.log" "$RUNNER_TEMP/worker.log"
@@ -184,18 +223,38 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      - name: Install
-        run: uv sync --locked
+      - name: Install (RAI and SandboxBank)
+        run: uv sync --all-packages --locked
       - name: Start SandboxBank and the chaos agent
         run: |
           DOCKER_GID="$(stat -c %g /var/run/docker.sock)"
           RAI_AGENT_WORKER_KEYS="$(uv run rai admin chaos-keygen --out "$RUNNER_TEMP/worker.pem")"
           export DOCKER_GID RAI_AGENT_WORKER_KEYS
           docker compose --profile sandbox --profile chaos up -d --build --wait
+      - name: Plant canary customers in ledger-db (FR-05.1)
+        env:
+          SANDBOXBANK_LEDGER_DSN: postgresql://ledger:ci-only-not-secret@127.0.0.1:55432/ledger
+        run: |
+          { echo customer_id; seq -f 'CUS-%07g' 1 50; } > "$RUNNER_TEMP/accounts.csv"
+          uv run sandboxbank canaries write --accounts "$RUNNER_TEMP/accounts.csv" --seed 7 --out "$RUNNER_TEMP/canaries"
+          uv run sandboxbank canaries load --dir "$RUNNER_TEMP/canaries"
       - name: Inject and observe every fault type, with signed requests only
         run: uv run python scripts/chaos_e2e.py
         env:
           RAI_CHAOS_E2E_KEY: ${{ runner.temp }}/worker.pem
+      - name: Canary sweep of the services' logs (FR-05.1)
+        # Every SandboxBank and chaos service ran the whole fault suite with the
+        # canaries in ledger-db; none may have logged a canary value.
+        run: |
+          docker compose --profile sandbox --profile chaos logs --no-color > "$RUNNER_TEMP/services.log"
+          wc -l "$RUNNER_TEMP/services.log"
+          # Not blind: the same sweep finds every canary in the table that was loaded.
+          set +e
+          uv run rai canary scan --key "$RUNNER_TEMP/canaries/needles.csv" "$RUNNER_TEMP/canaries/customers.csv"
+          found=$?
+          set -e
+          test "$found" = 1
+          uv run rai canary scan --key "$RUNNER_TEMP/canaries/needles.csv" "$RUNNER_TEMP/services.log"
       - name: Service logs
         if: always()
         run: docker compose --profile sandbox --profile chaos logs --tail 40 rai-chaos-agent rai-chaos-watchdog socket-proxy payments-api etl-job

@@ -344,6 +344,20 @@ uv run rai worker            # or: rai worker --once
 - **Pinned.** The key is pinned with the run (`pins.items[].reference`); an unknown name refuses the run (`422 runs.canary_key_unknown`). Lineage records the digests of the target and the key.
 - **Verdict.** Any hit fails the step, and so the run.
 
+**Canary sweeps of logs and evidence bundles (FR-05.1).** What a run leaves behind is searched offline, with the same key and the same search, by `rai canary scan`. It needs no API or database:
+
+```bash
+uv run rai canary scan --key data/canaries/needles.csv serve.log worker.log bundles/
+docker compose logs --no-color | uv run rai canary scan --key data/canaries/needles.csv -
+# FAIL    worker.log line 812: email of CUS-0000003 (av…id, 41 chars)
+# FOUND   1 canary value(s) of 1 canary(ies) found in 1 source(s); ...
+```
+
+- **Sources.** Text files and logs are searched line by line (`line 12`), `.gz` files decompressed. In `.json` files and in the members of a `.zip` (an evidence bundle, `bundle.zip!rai-evidence-<run>/steps.json`), every key, string and number is searched and a hit is placed by its JSON path (`$[0].error`), so a card number stored as a number still counts. A folder is searched recursively; `-` reads standard input. The key is `needles.csv` or SandboxBank's `canaries.json`, and is skipped if it is among the sources.
+- **Masked.** Like the test type, a hit names its source, place, canary and kind, never the value in full. `--json` prints the whole result.
+- **Fail closed.** Exit 0 no canary value, 1 a value was found, 2 the key cannot be used or a source could not be read.
+- **In CI.** The gate job runs a plan whose canary check catches a planted leak, then sweeps RAI's API and worker logs and the evidence bundles of all its runs: they must hold no canary value, while the same sweep must find the leak in the export itself. The chaos job plants canaries in ledger-db, runs the whole fault suite, and sweeps every sandbox service's logs.
+
 ## Findings
 
 A finding records a defect a run observed (FR-10.1). It cites the failing or errored observation it came from (run, step, rule), and has a severity, an owner and, once someone works on it, a fix reference.
