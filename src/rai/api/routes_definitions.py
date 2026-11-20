@@ -42,7 +42,12 @@ MAX_SOURCE = 256 * 1024
 MAX_DEFINITION = 64 * 1024
 MAX_PLAN_ITEMS = 200
 TestType = Literal[
-    "contract_rule", "recovery_assertion", "consistency_check", "tevv_metric", "drift_check"
+    "contract_rule",
+    "recovery_assertion",
+    "consistency_check",
+    "tevv_metric",
+    "drift_check",
+    "privacy_canary",
 ]
 Severity = Literal["info", "warn", "critical"]
 NAME = r"^[a-z][a-z0-9_.-]{0,99}$"

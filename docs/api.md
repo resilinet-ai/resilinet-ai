@@ -329,6 +329,21 @@ uv run rai worker            # or: rai worker --once
 - **Rows.** A null score or label leaves the row out and is counted (`null_rows`). A score that is not a finite number, or a label other than true/false or 1/0, is an error: the data is not what the test says it is.
 - **Verdict and lineage.** A missed target, a metric that cannot be judged, or too little data fails the step, and so the run. Lineage records the digest of the scores that were judged.
 
+**Canary privacy checks (FR-05.1).** A `privacy_canary` test case searches its target asset (a warehouse table, an export) for canary values: fake personal details planted in a source system's table that nothing downstream should copy. The values come from an answer key, another asset of the project with the columns `canary, kind, value`; SandboxBank's `sandboxbank canaries write` writes one as `needles.csv`. Both are read through worker connectors:
+
+```json
+{"name": "warehouse.no-pii", "type": "privacy_canary", "target_asset_id": "<dim_account>",
+ "definition": {"connector": "warehouse", "environment": "SANDBOX-01",
+                "key": {"asset": "canary-key", "connector": "feed"},
+                "columns": null, "case_sensitive": false}}
+```
+
+- **Search.** Every text column (or the `columns` listed) is searched for every value at once, as a substring and ignoring case by default, so an email inside a note or upper-cased by a transform still counts. Overlapping matches are reported once, as the longest: a leaked email is an email, not also the marker it contains.
+- **Never repeated in full.** The observation `privacy.canary` (kind `rule_result`) holds the hit count, the rows with a hit (`failing_count`), counts by kind, column and canary, and up to 50 hits, each with its column, 0-based row, canary and kind, and the value masked (`av…id, 41 chars`). Nothing RAI records or returns holds a canary value in full.
+- **A key that cannot work is an error.** No values, a value shorter than 6 characters (it would match by chance), a value listed twice, or a listed column missing from the target: the step is an error, never a pass.
+- **Pinned.** The key is pinned with the run (`pins.items[].reference`); an unknown name refuses the run (`422 runs.canary_key_unknown`). Lineage records the digests of the target and the key.
+- **Verdict.** Any hit fails the step, and so the run.
+
 ## Findings
 
 A finding records a defect a run observed (FR-10.1). It cites the failing or errored observation it came from (run, step, rule), and has a severity, an owner and, once someone works on it, a fix reference.

@@ -235,6 +235,8 @@ def _pins(session: TenantSession, plan_id: UUID) -> tuple[UUID, Pins]:
         reference = None
         if row.type == "drift_check":
             reference = _drift_reference(conn, plan.project_id, row.position, row.definition)
+        elif row.type == "privacy_canary":
+            reference = _canary_key(conn, plan.project_id, row.position, row.definition)
         test = PinnedTest(
             test_id=row.test_id, name=row.name, version=row.version, type=row.type,
             severity=row.severity, definition=row.definition,
@@ -279,6 +281,28 @@ def _drift_reference(
     if found is None:
         raise Problem(
             422, "runs.drift_reference_unknown", "A drift check's reference asset is unknown",
+            detail=f"plan item {position}: this project has no asset named {name!r}",
+        )  # fmt: skip
+    return PinnedAsset.model_validate(found._asdict())
+
+
+def _canary_key(
+    conn: Connection, project_id: UUID, position: int, definition: dict[str, Any]
+) -> PinnedAsset | None:
+    """A canary check's answer key, named in its definition, pinned like the target
+    (FR-05.1, NFR-REP-1). A definition without one is left to the worker to refuse."""
+    named = definition.get("key")
+    name = named.get("asset") if isinstance(named, dict) else None
+    if not isinstance(name, str):
+        return None
+    found = conn.execute(
+        text("SELECT asset_id, name, locator, kind::text FROM rai.pipeline_assets "
+             "WHERE project_id = :p AND name = :n"),
+        {"p": project_id, "n": name},
+    ).first()  # fmt: skip
+    if found is None:
+        raise Problem(
+            422, "runs.canary_key_unknown", "A canary check's answer key is unknown",
             detail=f"plan item {position}: this project has no asset named {name!r}",
         )  # fmt: skip
     return PinnedAsset.model_validate(found._asdict())

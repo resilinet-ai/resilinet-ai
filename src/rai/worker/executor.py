@@ -92,6 +92,7 @@ from rai.core.scenarios import (
 )
 from rai.core.tenancy import set_context
 from rai.lineage.digest import frame_digest
+from rai.privacy.canary import CanaryDefinition, Scan, needles, scan
 from rai.recovery.consistency import (
     ConsistencyDefinition,
     GroundTruth,
@@ -112,7 +113,13 @@ from rai.worker import probes
 from rai.worker.chaos import ChaosClient, FaultOutcome, fault_preflight, record_revert
 from rai.worker.queue import Job
 
-SUPPORTED_TYPES = ("contract_rule", "consistency_check", "drift_check", "tevv_metric")
+SUPPORTED_TYPES = (
+    "contract_rule",
+    "consistency_check",
+    "drift_check",
+    "tevv_metric",
+    "privacy_canary",
+)
 
 
 class LeaseLost(Exception):
@@ -190,6 +197,15 @@ class PreparedMetric:
 
     item: PinnedItem
     definition: MetricDefinition
+
+
+@dataclass(frozen=True)
+class PreparedCanary:
+    """A canary privacy check, checked in preflight (FR-05.1)."""
+
+    item: PinnedItem
+    definition: CanaryDefinition
+    key: PinnedAsset  # the answer key, pinned when the run was queued
 
 
 @dataclass(frozen=True)
@@ -389,6 +405,35 @@ def _metric_problems(
     return PreparedMetric(item, definition), []
 
 
+def _canary_problems(
+    conn: Connection, pins: Pins, config: WorkerConfig, item: PinnedItem
+) -> tuple[PreparedCanary | None, list[str]]:
+    """The worker's preflight for a canary check (FR-05.1): a valid definition, a
+    registered environment, connectors on this worker, and both assets locatable."""
+    assert item.test is not None  # noqa: S101 - the caller dispatches on it
+    try:
+        definition = CanaryDefinition.model_validate(item.test.definition)
+    except ValidationError as error:
+        fields = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc']) or 'definition'}: {e['msg']}"
+            for e in error.errors()
+        )
+        return None, [f"the canary check's definition is not valid ({fields})"]
+    problems = _environment_problems(conn, pins, definition.environment)
+    for name in dict.fromkeys((definition.connector, definition.key.connector)):
+        problems += _connector_problems(config, name, definition.environment)
+    if item.asset is None or not item.asset.locator:
+        problems.append("the target asset has no locator")
+    key = item.reference
+    if key is None:
+        problems.append(f"the canary key {definition.key.asset!r} was not pinned with the run")
+    elif not key.locator:
+        problems.append(f"the canary key {key.name!r} has no locator")
+    if problems or key is None:
+        return None, problems
+    return PreparedCanary(item, definition, key), []
+
+
 def _health_urls(conn: Connection, pins: Pins, names: list[str]) -> dict[str, str]:
     """Allow-listed targets of the run's environment that have a health_url."""
     if pins.environment is None:
@@ -437,6 +482,12 @@ def preflight(
             problems.extend(f"{where}: {problem}" for problem in found)
             if compare is not None:
                 prepared[item.step_key] = compare
+            continue
+        if item.test.type == "privacy_canary":
+            sentinel, found = _canary_problems(conn, pins, config, item)
+            problems.extend(f"{where}: {problem}" for problem in found)
+            if sentinel is not None:
+                prepared[item.step_key] = sentinel
             continue
         if item.test.type == "tevv_metric":
             metric, found = _metric_problems(conn, pins, config, item)
@@ -629,6 +680,8 @@ class Executor:
                 self._drift(job, step)
             elif isinstance(step, PreparedMetric):
                 self._metric(job, step)
+            elif isinstance(step, PreparedCanary):
+                self._canary(job, step)
             else:
                 self._step(job, step)
 
@@ -1102,6 +1155,43 @@ class Executor:
             error="model evaluation: " + " | ".join(problems) if problems else None,
         )  # fmt: skip
 
+    def _canary(self, job: Job, step: PreparedCanary) -> None:
+        """Search the target for every canary value of the pinned key (FR-05.1). Any
+        hit fails the step; a key that cannot work is an error. No value is ever
+        recorded in full: hits are masked."""
+        started = datetime.now(UTC)
+        definition = step.definition
+        environment = definition.environment
+        assert step.item.asset is not None  # noqa: S101 - checked in preflight
+        assert step.item.asset.locator  # noqa: S101 - checked in preflight
+        assert step.key.locator  # noqa: S101 - checked in preflight
+        try:
+            target = connector(self.config.connectors[definition.connector]).read(
+                step.item.asset.locator, environment=environment
+            )
+            key = connector(self.config.connectors[definition.key.connector]).read(
+                step.key.locator, environment=environment
+            )
+        except (ConnectorError, ValueError) as error:
+            message = f"could not read the data to search: {error}"
+            note = {"kind": "note", "rule": "read", "outcome": "error", "rows": None,
+                    "failing": None, "observed": json.dumps({"message": message}),
+                    "expected": "{}"}  # fmt: skip
+            self._commit_step(job, step.item, started, [note], [],
+                              state="error", verdict=None, error=message)  # fmt: skip
+            return
+        found, problem = needles(key)
+        result = (Scan(target.height, (), 0, 0, error=problem) if problem
+                  else scan(target, found, definition))  # fmt: skip
+        read = {step.item.asset.asset_id: _digested(target)}
+        keys = {step.key.name: _digested(key)}
+        self._commit_step(
+            job, step.item, started, [_canary_observation(result, definition)],
+            _edges(step.item, read, keys),
+            state="done", verdict="pass" if result.outcome == "pass" else "fail",
+            error=None if result.outcome == "pass" else f"privacy: {result.summary()}",
+        )  # fmt: skip
+
     def _ground_truth(
         self, job: Job, definition: ConsistencyDefinition, acked: pl.DataFrame,
         ledger: pl.DataFrame,
@@ -1166,7 +1256,14 @@ class Executor:
              verdict="pass" if passed else "fail")  # fmt: skip
 
 
-Step = Prepared | PreparedScenario | PreparedConsistency | PreparedDrift | PreparedMetric
+Step = (
+    Prepared
+    | PreparedScenario
+    | PreparedConsistency
+    | PreparedDrift
+    | PreparedMetric
+    | PreparedCanary
+)
 
 
 def _truth_problems(
@@ -1255,6 +1352,26 @@ def _metric_observations(result: Evaluation, definition: MetricDefinition) -> li
         for r in result.results
     ]  # fmt: skip
     return [sample, *metrics]
+
+
+def _canary_observation(result: Scan, definition: CanaryDefinition) -> dict[str, Any]:
+    """``privacy.canary``: what was searched, how many hits by kind, column and canary,
+    and a sample of masked hits. Never a needle in full."""
+    return {
+        "kind": "rule_result", "rule": "privacy.canary", "outcome": result.outcome,
+        "rows": result.rows, "failing": result.hit_rows,
+        "observed": json.dumps({
+            "hits": result.hits, "hit_rows": result.hit_rows,
+            "columns_searched": list(result.columns), "needles": result.needles,
+            "canaries": result.canaries, "by_kind": result.by_kind,
+            "by_column": result.by_column, "by_canary": result.by_canary,
+            "sample": [h.as_dict() for h in result.sample], "error": result.error,
+        }),
+        "expected": json.dumps({
+            "hits": 0, "key_asset": definition.key.asset,
+            "case_sensitive": definition.case_sensitive,
+        }),
+    }  # fmt: skip
 
 
 def _consistency_observations(
