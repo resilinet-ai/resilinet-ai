@@ -84,7 +84,7 @@
 | B-37 | Persistent synthetic-data banner in the UI (FR-11.2), with the UI's first slice: sign-in, the shell and Runs | FR-11.2, FR-01.1 | Done |
 | B-38, B-39 | Not used (section 9) | — | — |
 | B-40 | Image hardening (SSDF: SBOM, signed images; NFR-SEC-3) | NFR-SEC-3 | Done |
-| B-41 | RAI v1.0 release: tag, signed images, release notes, and a reproduction on a clean 8 GB laptop | NFR-REP-2 | Planned |
+| B-41 | RAI v1.0 release: tag, signed images, release notes, and a reproduction on a clean 8 GB laptop. The machinery is done (workflow "Release", `scripts/release.py`, `make reproduce`, draft notes `docs/releases/v1.0.0.md`); the tag and the laptop reproduction wait for day 90, after the protocol is registered | NFR-REP-2 | In progress |
 | B-42 | Release decisions: a named reviewer approves or rejects a labelled release, recorded with the gate's state; approval refused while the gate is blocked and from anyone whose waiver or finding it relies on | FR-12.1, FR-12.2 | Done |
 | B-43 | Scenario approvals expire (30 days by default, at most 90); an expired approval is refused when a run is queued, by the worker before each fault and by the agent | FR-07.2, NFR-SAF-1 | Done |
 | B-44 | Independent recovery observer: ground-truth RTO for Protocol H3, outside every arm (`sandboxbank observe`, `rai-bench h3`) | FR-08.1 | Done |

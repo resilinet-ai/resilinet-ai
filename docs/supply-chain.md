@@ -49,7 +49,7 @@ cosign verify-attestation "$IMAGE" --type spdxjson \
   | jq -r '.payload | @base64d | fromjson | .predicate.packages[].name' | sort -u
 ```
 
-A signature from any other workflow, branch or repository fails the identity check.
+A signature from any other workflow, branch or repository fails the identity check. Released images (`ghcr.io/resilinet-ai/<image>:v1.0.0`) are signed by the workflow "Release" on their tag instead: see [releasing](releasing.md).
 
 ## Updating a pin
 

@@ -53,6 +53,8 @@ nav:
       - Supply chain: supply-chain.md
       - Audit chain: audit-chain.md
       - User journeys, end to end: journeys.md
+      - Releasing: releasing.md
+      - Release notes v1.0.0: releases/v1.0.0.md
   - Design and decisions:
       - Design documents: design/README.md
       - Threat model: threat-model.md
