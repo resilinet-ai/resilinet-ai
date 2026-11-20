@@ -5,14 +5,19 @@ masked, and lineage records the digests of both."""
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import polars as pl
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 
+from rai.core.telemetry import JsonFormatter
+from rai.privacy.canary import Needle
+from rai.privacy.sweep import sweep
 from rai.worker.service import Worker
 from sandboxbank.canaries import NEEDLES_FILE, generate_canaries, write_canaries
 from tests.integration.apikit import needs_db
@@ -135,3 +140,32 @@ def test_a_bad_definition_is_refused_in_preflight(
                canary_test(lab, "batch_0", key, columns=["a", "a"]))  # fmt: skip
     assert done["state"] == "refused"
     assert "the canary check's definition is not valid" in done["reason"]
+
+
+def test_a_caught_leak_leaves_no_value_in_logs_or_the_evidence_bundle(
+    lab: Lab, client: TestClient, feed: Path, worker_engine: Engine, tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:  # fmt: skip
+    """Part 3: a sweep of what the run leaves behind (RAI's logs, its evidence bundle)
+    finds nothing, while the same sweep finds the leak in the export itself."""
+    key, needles = canary_key(lab, feed, tmp_path)
+    card = needles.filter(pl.col("kind") == "card_number_spaced")["value"][0]
+    leaky = pl.DataFrame({"customer_id": ["CUS-0000003"], "notes": [f"paid by {card}"]})
+    target = asset(lab, feed, leaky, "crm")
+    with caplog.at_level(logging.DEBUG):
+        done = run(lab, worker_engine, feed, tmp_path, canary_test(lab, target, key))
+        bundle = client.get(f"/v1/assurance/runs/{done['run_id']}/evidence", headers=lab.viewer)
+    assert done["verdict"] == "fail"
+    assert bundle.status_code == 200, bundle.text
+    left = tmp_path / "left-behind"
+    left.mkdir()
+    (left / f"rai-evidence-{done['run_id']}.zip").write_bytes(bundle.content)
+    formatter = JsonFormatter("rai-test")
+    (left / "rai.log").write_text(
+        "\n".join(formatter.format(r) for r in caplog.records) + "\n", encoding="utf-8"
+    )
+    assert len(caplog.records) > 0
+    found = [Needle(*row) for row in needles.iter_rows()]
+    after = sweep([str(left)], found)
+    assert (after.outcome, after.hits, after.sources) == ("pass", 0, 2), after.as_dict()
+    assert sweep([str(feed / "feed" / f"{target}.csv")], found).hits == 1  # not blind

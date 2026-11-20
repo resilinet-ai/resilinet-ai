@@ -2,7 +2,7 @@
 
 Commands are added backlog item by backlog item: ``validate`` (B-14), ``contract`` (B-08),
 ``db`` and ``audit`` (B-05), ``admin`` and ``serve`` (B-16), ``worker`` (B-18),
-``run`` (B-20), ``verify`` (B-35).
+``run`` (B-20), ``verify`` (B-35), ``canary`` (FR-05.1).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from rai.cli.admin import (
     set_worker_password_command,
     worker_command,
 )
+from rai.cli.canary import canary_app
 from rai.cli.run import run_command
 from rai.cli.validate import validate_command
 from rai.cli.verify import verify_command
@@ -44,6 +45,7 @@ app.add_typer(db_app, name="db")
 app.add_typer(contract_app, name="contract")
 app.add_typer(audit_app, name="audit")
 app.add_typer(admin_app, name="admin")
+app.add_typer(canary_app, name="canary")
 app.command("serve")(serve_command)
 db_app.command("set-api-password")(set_api_password_command)
 db_app.command("set-worker-password")(set_worker_password_command)

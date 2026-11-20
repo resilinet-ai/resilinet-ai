@@ -26,6 +26,15 @@ curl -s -OJ "$API/v1/assurance/runs/<run id>/evidence" -H "$AUTH"
 
 The bundle holds the run with everything it was pinned to, every step and observation, lineage with data digests, recovery measurements, the approvals it ran under and its audit entries, plus a SHA-256 manifest and, with a key, a signature. It holds no data, only digests, and no secrets. Two exports of the same run are byte-identical.
 
+## Check it holds no personal data (FR-05.1)
+
+Before a bundle leaves the team, sweep it for the canary values of your sandbox (SandboxBank's `needles.csv`). Exit 0 means none was found; every hit is printed masked:
+
+```bash
+uv run rai canary scan --key data/canaries/needles.csv rai-evidence-<run id>.zip
+# CLEAN   no canary value: ... lines and values in 1 source(s) searched ...
+```
+
 ## Verify (the receiver)
 
 ```bash
