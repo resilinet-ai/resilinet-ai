@@ -14,6 +14,7 @@ Every way RAI refuses to inject a fault, which layer refuses, and the test that 
 | A scenario fault whose target is outside the scenario's declared blast radius is refused when the scenario is published (422) | D-02 | `tests/integration/test_scenarios.py::test_scenarios_are_versioned_and_checked` |
 | Nobody reviews their own scenario (API 403 and a database trigger); engineers cannot review; decisions are append-only | E-03, R-02 | `tests/integration/test_scenarios.py::test_review_is_append_only_and_never_by_the_author` |
 | A run with an unapproved scenario (409), or without an environment (422), does not start | T-05 | `tests/integration/test_scenarios.py::test_a_run_starts_only_with_an_approved_scenario_and_an_environment` |
+| **Approvals expire (B-43):** a run whose scenario's approval has expired, or predates expiry, does not start (409); an approval without an expiry, or more than 90 days ahead, cannot be written | T-05 | `tests/integration/test_scenarios.py::test_an_approval_expires_and_must_be_given_again` |
 
 ## 2. Worker preflight: checked against the registry before anything is signed
 
@@ -22,6 +23,7 @@ Every way RAI refuses to inject a fault, which layer refuses, and the test that 
 | A target that is not allow-listed, a target of the wrong kind, a duration above the environment's ceiling, a target without a required label | S-05, D-02 | `tests/integration/test_chaos_worker.py::test_the_worker_preflight_refuses_before_anything_is_signed` |
 | A retired environment takes no faults | D-02 | `tests/integration/test_chaos_worker.py::test_a_retired_environment_takes_no_faults` |
 | A scenario whose approval was withdrawn after the run was queued; a worker with no signing key | T-05 | `tests/integration/test_scenarios.py::test_the_worker_refuses_what_it_cannot_run_safely` |
+| A scenario whose approval expired after the run was queued; the worker checks again before each fault and signs the approval's expiry into the request | T-05 | `tests/integration/test_scenarios.py::test_the_worker_refuses_a_scenario_whose_approval_expired_after_queueing` |
 | Recovery probes and the ledger must be allow-listed targets with a `health_url`; a scenario never names an address | S-05 | `tests/integration/test_scenario_recovery.py::test_probes_must_be_allow_listed` |
 
 ## 3. Chaos agent: the signature
@@ -42,6 +44,7 @@ Every way RAI refuses to inject a fault, which layer refuses, and the test that 
 | A run keeps the radius of its open faults | D-02 | `tests/unit/test_chaos_signing.py::test_a_run_keeps_the_blast_radius_it_declared` |
 | **Scenario-level radius (B-27):** every fault of a scenario step must name the same scenario version and the same radius as the faults already recorded for it, open *or reverted* | D-02 | `tests/unit/test_chaos_signing.py::test_a_scenario_keeps_its_radius_after_its_first_fault_is_reverted`, `tests/unit/test_chaos_signing.py::test_each_scenario_step_of_a_run_has_its_own_radius` |
 | A scenario fault must name its run and a step key like `item-1.fault-2` | D-02 | `tests/unit/test_chaos_signing.py::test_a_scenario_fault_names_its_run_and_step` |
+| **Expired approvals (B-43):** a scenario fault must carry its approval's expiry, and the agent refuses it once that time has passed by its own clock, whatever the worker decided | T-05 | `tests/unit/test_chaos_signing.py::test_a_scenario_fault_names_when_its_approval_expires`, `tests/unit/test_chaos_signing.py::test_the_agent_refuses_a_fault_whose_approval_has_expired` |
 
 ## 5. Chaos agent: the sandbox
 

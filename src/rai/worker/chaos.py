@@ -46,7 +46,7 @@ from sqlalchemy import Connection, text
 
 from rai.connectors.secrets import SecretRef
 from rai.core.runs import Pins
-from rai.core.scenarios import PROXY_FAULTS, FaultSpec
+from rai.core.scenarios import PROXY_FAULTS, FaultSpec, latest_decision
 
 SIGNING_KEY_ENV = "RAI_WORKER_SIGNING_KEY"
 AGENT_URL_ENV = "RAI_WORKER_CHAOS_AGENT_URL"
@@ -71,6 +71,8 @@ class PreparedFault:
     environment: str
     ceiling_seconds: int
     required_label: str
+    # B-43: when the scenario's approval lapses; the agent refuses the fault after it.
+    approval_expires_at: datetime | None = None
 
     def request(self) -> dict[str, Any]:
         spec = self.spec
@@ -81,6 +83,9 @@ class PreparedFault:
             "step_key": self.step_key, "tenant_id": str(self.tenant_id),
             "environment": self.environment, "max_duration_seconds": self.ceiling_seconds,
             "blast_radius": sorted(spec.blast_radius), "scenario": spec.scenario,
+            "approval_expires_at": (
+                _stamp(self.approval_expires_at) if self.approval_expires_at else None
+            ),
         }  # fmt: skip
 
 
@@ -104,6 +109,14 @@ def fault_preflight(
     if env is None:
         return None, [f"environment {pins.environment.name!r} is not registered"]
     problems: list[str] = []
+    approval_expires_at: datetime | None = None
+    if spec.scenario is not None:  # B-43: the approval must still be in force, fault by fault
+        decision = latest_decision(conn, UUID(spec.scenario.partition("@")[0]))
+        refusal = "the scenario is not approved" if decision is None else decision.refusal()
+        if refusal is not None:
+            problems.append(refusal)
+        elif decision is not None:
+            approval_expires_at = decision.expires_at
     if env.status != "active":
         problems.append(f"environment {env.name!r} is retired")
     if spec.duration_seconds > env.ceiling:
@@ -132,7 +145,7 @@ def fault_preflight(
         return None, problems
     return (
         PreparedFault(spec, run_id, tenant_id, step_key, env.name, env.ceiling,
-                      target.required_label),
+                      target.required_label, approval_expires_at),
         [],
     )  # fmt: skip
 

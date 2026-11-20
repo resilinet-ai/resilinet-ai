@@ -131,7 +131,8 @@ The fault types and their fields are those of the [chaos agent](chaos-agent.md):
 
 - **New versions start `pending`.** A reviewer or an admin approves or rejects them. Decisions are kept, and the latest one counts, so a later `reject` withdraws an approval.
 - **Separation of duties.** Nobody reviews their own scenario (`403 scenarios.self_review`). The database refuses it too.
-- **Starting a run.** Every scenario in the plan must be approved (`409 runs.scenario_not_approved`), and the plan or its project must have an environment (`422 runs.scenario_needs_environment`). The run pins the scenario version and the approval it runs under.
+- **Approvals expire (B-43).** An approval carries `expires_at`: 30 days after it is given by default, or a time the reviewer chooses, in the future and at most 90 days ahead (`422 scenarios.expiry_out_of_range`, `scenarios.expiry_without_zone`). A rejection has none (`422 scenarios.expiry_on_reject`). Once it passes, the scenario's status reads `expired` and it runs only after a fresh review. Approvals given before B-43 have no expiry and count as expired.
+- **Starting a run.** Every scenario in the plan must be approved (`409 runs.scenario_not_approved`) and its approval in force (`409 runs.scenario_approval_expired`), and the plan or its project must have an environment (`422 runs.scenario_needs_environment`). The run pins the scenario version and the approval it runs under. The worker checks the approval again before each fault, and the chaos agent checks its expiry once more from the signed request.
 
 ## Runs
 

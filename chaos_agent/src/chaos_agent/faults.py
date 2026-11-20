@@ -85,6 +85,8 @@ class FaultRequest:
     blast_radius: tuple[str, ...] = ()  # every target the scenario declares
     # B-27: the scenario version ("<scenario_id>@<version>"); its faults share one radius.
     scenario: str | None = None
+    # B-43: when the scenario's approval lapses ("...Z"); a scenario fault must carry it.
+    approval_expires_at: str | None = None
 
     @classmethod
     def parse(cls, data: Any) -> FaultRequest:
@@ -146,6 +148,20 @@ class FaultRequest:
             )
         ):  # fmt: skip
             raise FaultError("a scenario fault needs run_id and a step_key like item-1.fault-2")
+        if self.scenario is not None and self.approval_expiry is None:
+            raise FaultError("a scenario fault names when its approval expires "
+                             "(approval_expires_at, ISO 8601 with a zone)")  # fmt: skip
+
+    @property
+    def approval_expiry(self) -> datetime | None:
+        """The approval's expiry, or None if absent or not an ISO 8601 time with a zone."""
+        if not isinstance(self.approval_expires_at, str) or len(self.approval_expires_at) > 40:
+            return None
+        try:
+            moment = datetime.fromisoformat(self.approval_expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return moment if moment.tzinfo is not None else None
 
     @property
     def step_scope(self) -> tuple[str, str] | None:

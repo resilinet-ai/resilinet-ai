@@ -76,7 +76,7 @@ curl -s -X POST "$API/v1/scenarios/<scenario id>/approvals" -H "$REVIEWER_AUTH" 
   -H 'content-type: application/json' -d '{"decision": "approve", "comment": "one proxy, 20 s, inside the ceiling"}'
 ```
 
-A later `reject` withdraws the approval; a changed scenario is a new version that needs its own.
+The approval lasts 30 days; add `"expires_at"` (at most 90 days ahead) to choose another term. When it lapses, nothing runs until someone reviews the scenario again. A later `reject` withdraws the approval; a changed scenario is a new version that needs its own.
 
 ## 4. Run it (engineer)
 

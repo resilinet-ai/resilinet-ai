@@ -295,8 +295,9 @@ def _scenario_problems(
     if config.chaos is None:
         return None, ["this worker is not configured for faults (RAI_WORKER_SIGNING_KEY)"]
     decision = latest_decision(conn, scenario.scenario_id)
-    if decision is None or decision.decision != "approve":
-        return None, ["the scenario's approval was withdrawn after the run was queued"]
+    refusal = "the scenario's approval was withdrawn" if decision is None else decision.refusal()
+    if refusal is not None:  # withdrawn, or expired (B-43), after the run was queued
+        return None, [f"{refusal} after the run was queued"]
     definition = ScenarioDefinition(blast_radius=scenario.blast_radius, faults=scenario.faults)
     specs = tuple(definition.specs(scenario_ref(scenario.scenario_id, scenario.version)))
     problems: list[str] = []
