@@ -5,6 +5,9 @@ read them. The API offers only SANDBOX and STAGING, and the database could not
 store anything else (``env_type`` has no PRODUCTION value; ``production_flag`` is
 held false). An environment's name and type never change; it is retired instead
 of deleted, and a retired environment takes no new targets and runs nothing.
+
+A container target names the image it runs (B-45: NFR-REP-1): ``image_digest``, Docker's
+image ID. Runs pin it, and the chaos agent refuses a container running another image.
 """
 
 from __future__ import annotations
@@ -80,6 +83,12 @@ class TargetIn(BaseModel):
         description="key=value the target must carry; required for containers and proxies",
     )
     health_url: str | None = Field(default=None, pattern=r"^https?://\S{1,490}$")
+    image_digest: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+        description="a container's image ID (docker inspect --format '{{.Image}}'); "
+        "required for containers",
+    )
 
 
 class TargetOut(BaseModel):
@@ -89,6 +98,7 @@ class TargetOut(BaseModel):
     name: str
     required_label: str | None
     health_url: str | None
+    image_digest: str | None
     created_by: UUID
     created_at: datetime
 
@@ -101,7 +111,7 @@ _ENV = (
 )
 _TARGET = (
     "SELECT target_id, environment_id, kind::text, name, required_label, health_url, "
-    "created_by, created_at FROM rai.environment_targets"
+    "image_digest, created_by, created_at FROM rai.environment_targets"
 )
 
 
@@ -241,16 +251,24 @@ def allow_target(
             detail="required_label, e.g. rai.sandbox=true: the chaos agent refuses targets "
             "without it",
         )  # fmt: skip
+    if body.kind == "container" and body.image_digest is None:
+        raise Problem(
+            422, "targets.image_required", "A container target must name the image it runs",
+            detail="image_digest: docker inspect --format '{{.Image}}' <container>. Runs pin "
+            "it, and the chaos agent refuses a container running another image",
+        )  # fmt: skip
+    if body.kind != "container" and body.image_digest is not None:
+        raise Problem(422, "targets.image_not_container", "Only a container target has an image")
     try:
         with session.conn.begin_nested():
             target_id = session.conn.execute(
                 text(
                     "INSERT INTO rai.environment_targets (environment_id, kind, name, "
-                    "required_label, health_url, created_by) VALUES (:e, "
-                    "CAST(:k AS rai.target_kind), :n, :l, :h, :u) RETURNING target_id"
+                    "required_label, health_url, image_digest, created_by) VALUES (:e, "
+                    "CAST(:k AS rai.target_kind), :n, :l, :h, :i, :u) RETURNING target_id"
                 ),
                 {"e": environment_id, "k": body.kind, "n": body.name, "l": body.required_label,
-                 "h": body.health_url, "u": session.user_id},
+                 "h": body.health_url, "i": body.image_digest, "u": session.user_id},
             ).scalar_one()  # fmt: skip
     except IntegrityError as error:
         if is_unique_violation(error):

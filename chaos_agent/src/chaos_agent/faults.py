@@ -50,6 +50,7 @@ NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}$")
 LABEL = re.compile(r"^[a-z0-9][a-z0-9_./-]{0,99}=[A-Za-z0-9_.-]{1,100}$")
 HARD_MAX_SECONDS = 3600  # whatever the request says (environment ceilings are at most 60 min)
 MAX_BLAST_RADIUS = 20
+IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 SCENARIO_STEP = re.compile(r"^[A-Za-z0-9_-]{1,80}\.fault-[1-9][0-9]{0,2}$")
 
 Status = Literal["injecting", "active", "reverted", "failed"]
@@ -87,6 +88,8 @@ class FaultRequest:
     scenario: str | None = None
     # B-43: when the scenario's approval lapses ("...Z"); a scenario fault must carry it.
     approval_expires_at: str | None = None
+    # B-45: the container image the run pinned ("sha256:..."); the agent refuses any other.
+    image_digest: str | None = None
 
     @classmethod
     def parse(cls, data: Any) -> FaultRequest:
@@ -148,6 +151,12 @@ class FaultRequest:
             )
         ):  # fmt: skip
             raise FaultError("a scenario fault needs run_id and a step_key like item-1.fault-2")
+        if self.image_digest is not None and (
+            self.type in PROXY_FAULTS
+            or not isinstance(self.image_digest, str)
+            or not IMAGE_DIGEST.fullmatch(self.image_digest)
+        ):
+            raise FaultError("image_digest is a container target's image, sha256:<64 hex>")
         if self.scenario is not None and self.approval_expiry is None:
             raise FaultError("a scenario fault names when its approval expires "
                              "(approval_expires_at, ISO 8601 with a zone)")  # fmt: skip

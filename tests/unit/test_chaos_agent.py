@@ -57,11 +57,15 @@ class FakeToxiproxy:
         self.proxies[proxy]["enabled"] = enabled
 
 
+IMAGE = "sha256:" + "a" * 64  # payments-api's image ID (B-45)
+
+
 class FakeDocker:
     def __init__(self) -> None:
         self.containers = {
             "payments-api": {
                 "Id": "c1",
+                "ImageID": IMAGE,
                 "Labels": {"rai.sandbox": "true", "rai.target": "payments-api"},
             },
             "rai-api": {"Id": "c2", "Labels": {"rai.target": "payments-api"}},  # not a sandbox
@@ -178,6 +182,10 @@ def test_a_restart_is_instant(parts: Any) -> None:
           "blast_radius": "x"}, "must be a list"),
         ({"type": "connection_drop", "target": "x", "duration_seconds": 5,
           "blast_radius": ["x"], "run_id": ""}, "run_id must be text"),
+        ({"type": "container_stop", "target": "x", "duration_seconds": 5, "required_label": LABEL,
+          "blast_radius": ["x"], "image_digest": "latest"}, "sha256:<64 hex>"),
+        ({"type": "connection_drop", "target": "x", "duration_seconds": 5,
+          "blast_radius": ["x"], "image_digest": "sha256:" + "a" * 64}, "container target's"),
     ],
 )  # fmt: skip
 def test_requests_are_checked(body: Any, message: str) -> None:
@@ -201,6 +209,17 @@ def test_targets_are_checked_against_the_sandbox(parts: Any) -> None:
         agent.inject(request("network_partition", network="other_net"))
     assert docker.calls == []
     assert state.load() == {}  # refused before anything was recorded or done
+
+
+def test_a_container_running_another_image_than_the_run_pinned_is_refused(parts: Any) -> None:
+    """B-45 (NFR-REP-1): the agent compares the container's ImageID with the pinned digest."""
+    agent, _, docker, state = parts
+    moved = "sha256:" + "b" * 64
+    with pytest.raises(FaultError, match=f"runs image {IMAGE}, not the {moved} the run pinned"):
+        agent.inject(request("container_stop", image_digest=moved))
+    assert (docker.calls, state.load()) == ([], {})
+    agent.inject(request("container_stop", image_digest=IMAGE))
+    assert docker.calls == [("stop", "c1")]
 
 
 def test_container_faults_stay_inside_the_agents_project(parts: Any) -> None:

@@ -69,7 +69,7 @@ A contract version's identity is the **SHA-256 of its canonical JSON** form. Run
 ## 5. Environments, targets and scenarios
 
 - **`environments`**: name, `env_type` **`SANDBOX` or `STAGING` only**, status (`active`, `retired`), `max_fault_duration` (default 15 min, at most 60), `production_flag` (a check holds it false). Names containing `PROD` are refused; name and type never change. Production cannot be represented, so no API bug can register it.
-- **`environment_targets`**: the allow-list. Kind (`container`, `proxy`, `db`, `http`), name, `required_label` (the label the target must carry), optional `health_url` for recovery probes. Admin only.
+- **`environment_targets`**: the allow-list. Kind (`container`, `proxy`, `db`, `http`), name, `required_label` (the label the target must carry), optional `health_url` for recovery probes, and for a container its `image_digest` (B-45; required for new container targets, NULL for those registered before). Admin only.
 - **`chaos_scenarios`**: immutable versions with a blast radius (`text[]`), ordered faults (JSON, the seven types) and an optional recovery plan (probes, ledger, RTO/RPO objectives, window, stable checks).
 - **`scenario_approvals`**: append-only decisions (`approve`, `reject`); the latest counts. A trigger refuses a reviewer who is the scenario's author. An approval has an `expires_at` at most 90 days after it was given (B-43); one without (given before B-43) counts as expired.
 

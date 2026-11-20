@@ -88,7 +88,7 @@
 | B-42 | Release decisions: a named reviewer approves or rejects a labelled release, recorded with the gate's state; approval refused while the gate is blocked and from anyone whose waiver or finding it relies on | FR-12.1, FR-12.2 | Done |
 | B-43 | Scenario approvals expire (30 days by default, at most 90); an expired approval is refused when a run is queued, by the worker before each fault and by the agent | FR-07.2, NFR-SAF-1 | Done |
 | B-44 | Independent recovery observer: ground-truth RTO for Protocol H3, outside every arm (`sandboxbank observe`, `rai-bench h3`) | FR-08.1 | Done |
-| B-45 | Human-readable run report with the limitations statement in every bundle; container image digests pinned in every run | FR-13.1, NFR-REP-1, NFR-AUD-2 | Planned |
+| B-45 | Human-readable run report with the limitations statement in every bundle (`report.md`, `bundle.json` `limitations`); container image digests pinned in every run and enforced by the worker and the agent | FR-13.1, NFR-REP-1, NFR-AUD-2 | Done |
 | B-46 | End-to-end tests for journeys J1–J5 (Spec section 13), nightly | NFR-REP-2 | Planned |
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.

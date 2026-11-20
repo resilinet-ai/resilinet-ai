@@ -2,7 +2,9 @@
 
 Returns the run's evidence bundle as a ZIP (``rai.core.evidence``): the run and its
 pins, steps, observations, lineage, recovery measurements, the scenario approvals it
-ran under, its own audit-chain entries and the anchor, with a SHA-256 manifest. Only
+ran under, its own audit-chain entries and the anchor, and ``report.md``: the same run
+for a person to read, with what the evidence does not show (B-45), all under a SHA-256
+manifest. Only
 a finished run has one: its results never change after that, so two exports are
 byte-identical. Each export is itself an audit entry (``evidence.export``), naming
 who took it and the manifest's SHA-256, which is also the ``X-RAI-Manifest-SHA256``
@@ -27,7 +29,7 @@ from sqlalchemy import Connection, text
 from rai.api.context import ROLES, TenantSession, require, settings_of
 from rai.api.problems import Problem
 from rai.api.routes_runs import find_run
-from rai.core import audit, evidence
+from rai.core import audit, evidence, report
 
 router = APIRouter(prefix="/v1", tags=["evidence"])
 
@@ -95,8 +97,7 @@ def collect(
         "statement": evidence.STATEMENT,
         "signature": evidence.signature_note(signer),
     }  # fmt: skip
-    return {
-        "bundle.json": bundle,
+    members: dict[str, Any] = {
         "run.json": run,
         "steps.json": steps,
         "observations.json": observations,
@@ -105,6 +106,8 @@ def collect(
         "approvals.json": approvals,
         "audit.json": entries,
     }
+    bundle["limitations"] = report.limitations(members, signed=signer is not None)
+    return {"bundle.json": bundle, **members, "report.md": report.render(members, bundle)}
 
 
 @router.get(

@@ -67,6 +67,7 @@ Where RAI may act (NFR-SAF-1). **Production cannot be registered**: the database
 - **Fixed at registration:** an environment's name and type never change. To change them, register a new environment and retire the old one (`"status": "retired"`). Environments are never deleted.
 - **Retired environments** take no new targets, and no new run starts there (`409`).
 - **Targets:** `kind` is `container`, `proxy`, `db` or `http`. Containers and proxies must name the label they carry (`required_label`, e.g. `rai.target=ledger-db`), which the chaos agent checks before it acts. An optional `health_url` is where recovery probes look.
+- **Container images (B-45).** A container target must name the image it runs: `image_digest`, Docker's image ID (`docker inspect --format '{{.Image}}' <container>`, `sha256:` and 64 hex; `422 targets.image_required`). Other kinds have none (`422 targets.image_not_container`). A run pins the image of every container target in its environment when it is queued (`pins.environment.images`, with `unpinned_images` for targets registered before B-45). The worker refuses a fault if the target was re-registered with another image since, and the chaos agent refuses a container whose running image is not the pinned one. To move to a new image, re-register the target and queue a new run.
 - **Every role in the tenant can read**; every change is audited.
 
 **Where runs execute.** A project may name a `default_environment_id`, and a plan its own `environment_id`. A run pins the plan's environment, or else the project's default (`pins.environment`, `environment_id` on the run).
@@ -541,15 +542,30 @@ curl -s -OJ "$API/v1/assurance/runs/$RUN/evidence" -H "$AUTH"
 
 | Member (under `rai-evidence-<run_id>/`) | Contents |
 | --- | --- |
-| `bundle.json` | Format `rai-evidence/1`, the scope (tenant, project, run), counts, what is excluded, the audit-chain **anchor**, and the tamper-evidence statement |
+| `bundle.json` | Format `rai-evidence/1`, the scope (tenant, project, run), counts, what is excluded, the audit-chain **anchor**, the tamper-evidence statement, and `limitations`: what this evidence does not show (B-45) |
 | `run.json` | The run, with the pins it executed from (plan version, definitions, environment) |
 | `steps.json`, `observations.json` | Every step and every observation, with the values observed and expected |
 | `lineage.json` | Every lineage edge, with the SHA-256 digest of the data the worker read |
 | `recovery.json` | Recovery measurements (B-29), for chaos runs |
 | `approvals.json` | The scenario approvals the run was pinned to: who approved, when |
 | `audit.json` | The run's own audit-chain entries, with `prev_hash` and `record_hash` |
+| `report.md` | The same run for a person to read (B-45): summary, steps, recovery against objectives, pinned versions and container images, the **limitations statement**, and how to check integrity. Rendered from the JSON members and holding nothing they do not; where they differ, the JSON is the record |
 | `manifest.json` | The SHA-256 and size of every member above |
 | `signature.json` | An Ed25519 signature over `manifest.json`, with the key id and public key, when the server has a signing key (B-35). The only member the manifest does not list |
+
+**Limitations (B-45, NFR-AUD-2).** Every bundle states what it does not show, in a fixed order:
+
+- **Always included:**
+  - the environment the run executed in (never production);
+  - that results hold only for the pinned inputs at the time of the run;
+  - that the bundle holds no data and no secrets;
+  - the tamper-evidence statement.
+- **Added when the bundle shows a reason:**
+  - the run did not complete;
+  - steps ended in error;
+  - container images were not pinned, or the run predates pinning;
+  - recovery times come from RAI's own probes;
+  - the bundle is not signed.
 
 - **Deterministic.** Members are canonical JSON (sorted keys, no spaces, UTF-8, times in UTC with microseconds), stored uncompressed in a fixed order with a fixed date and permissions. Two exports of the same run are byte-identical, on any platform and at any time.
 - **Only a finished run** (`passed`, `failed`, `refused`, `aborted` or `error`) has a bundle; earlier it is `409 evidence.run_unfinished`. A finished run's results never change.

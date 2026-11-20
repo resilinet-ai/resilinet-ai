@@ -90,7 +90,7 @@ Workers read data only through connectors the operator configures (`RAI_WORKER_C
 
 - **Audit chain:** every state change appends a hash-chained entry computed in the database, under a per-tenant advisory lock; a trigger refuses UPDATE, DELETE and TRUNCATE even from the owner. An independent Python verifier recomputes the chain (`docs/audit-chain.md`).
 - **Append-only results:** observations, run steps, lineage edges and scenario approvals are insert-only.
-- **Evidence bundle** (FR-13): a deterministic export of a finished run with a SHA-256 manifest and an audit-chain anchor, the run's last audit entry (B-34), and an Ed25519 signature over the manifest, checked offline by `rai verify` against a pinned public key (B-35).
+- **Evidence bundle** (FR-13): a deterministic export of a finished run with a SHA-256 manifest and an audit-chain anchor, the run's last audit entry (B-34), and an Ed25519 signature over the manifest, checked offline by `rai verify` against a pinned public key (B-35). Every bundle also carries `report.md`, the run for a person to read, with a limitations statement (B-45).
 
 ## 9. Deployment
 
@@ -124,5 +124,5 @@ The biggest technical risk is measurement credibility: if someone else cannot re
 | SandboxBank too simple to convince | Reviewers discount the results | Built on published core-banking patterns (idempotent API, append-only ledger, resumable ETL); reviewer critique invited |
 | Docker socket access is powerful | A fault escapes the sandbox | Socket proxy with allow-listed verbs; agent isolated on `bridge_net`; two preflights; watchdog; threat model |
 | A stale approval runs a scenario long after review | The reviewer's judgement no longer applies | Approvals expire (B-43) |
-| Runs not reproducible because images moved | Replication fails | Image digests pinned in every run (B-45) |
+| Runs not reproducible because images moved | Replication fails | Image digests pinned in every run, and a container running another image refused by the worker and the agent (B-45) |
 | One-person scope | The day-90 release slips | Gate-driven pace; MoSCoW cuts; capacity levers (Build Plan section 8) |

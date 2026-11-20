@@ -175,8 +175,17 @@ def partition() -> None:
 
 
 def stop() -> None:
+    # B-45: the image a run would pin, as `docker inspect` prints it; the agent compares it
+    # with the ImageID it sees, and refuses any other.
+    image = inspect("payments-api", "{{.Image}}")
+    moved = fault_request({"type": "container_stop", "target": "payments-api",
+                           "required_label": "rai.target=payments-api",
+                           "image_digest": "sha256:" + "0" * 64})  # fmt: skip
+    status, refused = http(f"{AGENT}/faults", "POST", signer().sign(moved))
+    expect(status == 422 and "the run pinned" in str(refused), f"a moved image: {status}")
     fault = inject({"type": "container_stop", "target": "payments-api",
-                    "required_label": "rai.target=payments-api"})  # fmt: skip
+                    "required_label": "rai.target=payments-api",
+                    "image_digest": image})  # fmt: skip
     expect(inspect("payments-api", "{{.State.Running}}") == "false", "payments-api still runs")
     expect(not ready(), "payments-api still answers")
     revert(fault)

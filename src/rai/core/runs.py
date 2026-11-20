@@ -109,6 +109,10 @@ class PinnedEnvironment(_Frozen):
     environment_id: UUID
     name: str
     type: Literal["SANDBOX", "STAGING"]
+    # B-45 (NFR-REP-1): each container target's image when the run was queued; a container
+    # target registered without one is listed in ``unpinned_images``. Absent before B-45.
+    images: dict[str, str] = Field(default_factory=dict)
+    unpinned_images: tuple[str, ...] = ()
 
 
 class Pins(_Frozen):
