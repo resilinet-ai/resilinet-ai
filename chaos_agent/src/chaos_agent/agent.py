@@ -7,7 +7,8 @@ Before acting, the agent checks on its own (it never trusts the caller alone):
 * a **container** target is exactly one container of that Compose service **in the
   agent's own Compose project** (read from its own container's labels; if it cannot
   tell, container faults are refused), carrying ``rai.sandbox=true`` and the label the
-  target registered with;
+  target registered with; and, when the request pins an image (B-45: NFR-REP-1), running
+  exactly that image (``ImageID``), so a run never acts on a container whose image moved;
 * a **proxy** target exists in Toxiproxy (which is reachable only on ``chaos_net``);
 * the target has no other active fault.
 
@@ -112,6 +113,13 @@ class Agent:
         key, _, value = (request.required_label or "").partition("=")
         if labels.get(key) != value:
             raise FaultError(f"target {request.target!r} does not carry {request.required_label}")
+        image = found[0].get("ImageID")
+        if request.image_digest is not None and image != request.image_digest:
+            raise FaultError(
+                f"target {request.target!r} runs image {image or 'unknown'}, not the "
+                f"{request.image_digest} the run pinned; register the new image and queue a "
+                "new run"
+            )
         return found[0]
 
     def _second_preflight(self, request: FaultRequest, faults: dict[str, Fault]) -> None:

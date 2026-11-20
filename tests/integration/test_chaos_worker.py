@@ -44,7 +44,8 @@ class Bench:
         targets = f"/v1/environments/{lab.environment}/targets"
         for target in ({"kind": "proxy", "name": "ledger-db-proxy", "required_label": PROXY_LABEL},
                        {"kind": "container", "name": "payments-api",
-                        "required_label": "rai.target=payments-api"},
+                        "required_label": "rai.target=payments-api",
+                        "image_digest": "sha256:" + "a" * 64},
                        {"kind": "db", "name": "ledger-db"}):  # fmt: skip
             response = client.post(targets, json=target, headers=lab.admin)
             assert response.status_code == 201, response.text

@@ -11,6 +11,7 @@ Every way RAI refuses to inject a fault, which layer refuses, and the test that 
 | A production environment cannot be registered: the type enum has no PRODUCTION, `production_flag` must be false, and `PROD` is refused in names | E-02 | `tests/integration/test_environments.py::test_production_is_refused_at_the_schema_level` |
 | An environment's name and type never change, so a sandbox cannot later become something else | E-02 | `tests/integration/test_environments.py::test_an_environment_never_changes_what_it_is` |
 | Only admins add allow-list targets, each with its kind and required label | S-05 | `tests/integration/test_environments.py::test_the_target_allow_list` |
+| **Pinned images (B-45):** a container target cannot be registered without its image digest, and no other kind can have one | S-05 | `tests/integration/test_environments.py::test_the_target_allow_list` |
 | A scenario fault whose target is outside the scenario's declared blast radius is refused when the scenario is published (422) | D-02 | `tests/integration/test_scenarios.py::test_scenarios_are_versioned_and_checked` |
 | Nobody reviews their own scenario (API 403 and a database trigger); engineers cannot review; decisions are append-only | E-03, R-02 | `tests/integration/test_scenarios.py::test_review_is_append_only_and_never_by_the_author` |
 | A run with an unapproved scenario (409), or without an environment (422), does not start | T-05 | `tests/integration/test_scenarios.py::test_a_run_starts_only_with_an_approved_scenario_and_an_environment` |
@@ -24,6 +25,7 @@ Every way RAI refuses to inject a fault, which layer refuses, and the test that 
 | A retired environment takes no faults | D-02 | `tests/integration/test_chaos_worker.py::test_a_retired_environment_takes_no_faults` |
 | A scenario whose approval was withdrawn after the run was queued; a worker with no signing key | T-05 | `tests/integration/test_scenarios.py::test_the_worker_refuses_what_it_cannot_run_safely` |
 | A scenario whose approval expired after the run was queued; the worker checks again before each fault and signs the approval's expiry into the request | T-05 | `tests/integration/test_scenarios.py::test_the_worker_refuses_a_scenario_whose_approval_expired_after_queueing` |
+| **Pinned images (B-45):** a container target re-registered with another image after the run was queued; the worker refuses the run and nothing reaches the agent | T-05 | `tests/integration/test_scenarios.py::test_a_run_pins_container_images_and_refuses_one_that_moved` |
 | Recovery probes and the ledger must be allow-listed targets with a `health_url`; a scenario never names an address | S-05 | `tests/integration/test_scenario_recovery.py::test_probes_must_be_allow_listed` |
 
 ## 3. Chaos agent: the signature
@@ -45,6 +47,7 @@ Every way RAI refuses to inject a fault, which layer refuses, and the test that 
 | **Scenario-level radius (B-27):** every fault of a scenario step must name the same scenario version and the same radius as the faults already recorded for it, open *or reverted* | D-02 | `tests/unit/test_chaos_signing.py::test_a_scenario_keeps_its_radius_after_its_first_fault_is_reverted`, `tests/unit/test_chaos_signing.py::test_each_scenario_step_of_a_run_has_its_own_radius` |
 | A scenario fault must name its run and a step key like `item-1.fault-2` | D-02 | `tests/unit/test_chaos_signing.py::test_a_scenario_fault_names_its_run_and_step` |
 | **Expired approvals (B-43):** a scenario fault must carry its approval's expiry, and the agent refuses it once that time has passed by its own clock, whatever the worker decided | T-05 | `tests/unit/test_chaos_signing.py::test_a_scenario_fault_names_when_its_approval_expires`, `tests/unit/test_chaos_signing.py::test_the_agent_refuses_a_fault_whose_approval_has_expired` |
+| **Pinned images (B-45):** the agent refuses a container whose running image is not the digest signed into the request, and a malformed digest or one on a proxy fault | T-05 | `tests/unit/test_chaos_agent.py::test_a_container_running_another_image_than_the_run_pinned_is_refused`, `tests/unit/test_chaos_agent.py::test_requests_are_checked` |
 
 ## 5. Chaos agent: the sandbox
 

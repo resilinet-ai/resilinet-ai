@@ -32,7 +32,7 @@ from rai.worker.service import Worker
 from tests.integration.apikit import needs_db, signed_in_member
 from tests.integration.runkit import Lab, config, drain
 from tests.integration.test_waivers import as_app
-from tests.unit.test_chaos_agent import FakeDocker, FakeToxiproxy
+from tests.unit.test_chaos_agent import IMAGE, FakeDocker, FakeToxiproxy
 
 pytestmark = needs_db
 
@@ -53,7 +53,8 @@ class Chaos:
         for target in ({"kind": "proxy", "name": "ledger-db-proxy",
                         "required_label": "rai.target=toxiproxy"},
                        {"kind": "container", "name": "payments-api",
-                        "required_label": "rai.target=payments-api"}):  # fmt: skip
+                        "required_label": "rai.target=payments-api",
+                        "image_digest": IMAGE}):  # fmt: skip
             assert client.post(targets, json=target, headers=lab.admin).status_code == 201
         self.toxiproxy, self.docker = FakeToxiproxy(), FakeDocker()
         self.agent = Agent(StateFile(tmp / "agent" / "state.json"), self.toxiproxy, self.docker,
@@ -245,6 +246,36 @@ def test_the_worker_refuses_a_scenario_whose_approval_expired_after_queueing(
     assert chaos.agent.state.load() == {}  # nothing reached the agent
 
 
+def test_a_run_pins_container_images_and_refuses_one_that_moved(
+    chaos: Chaos, worker_engine: Engine, feed: Path, tmp_path: Path
+) -> None:
+    """B-45 (NFR-REP-1): the run pins the image registered when it was queued; if the
+    target is re-registered with another image before the fault, the worker refuses."""
+    drain(Worker(worker_engine, config(feed, tmp_path / "earlier")))  # leftovers: refused
+    sid = chaos.scenario()["scenario_id"]
+    chaos.review(sid)
+    run = chaos.lab.start(chaos.plan(sid))
+    pinned = chaos.lab.run(run["run_id"])["pins"]["environment"]
+    assert (pinned["images"], pinned["unpinned_images"]) == ({"payments-api": IMAGE}, [])
+    targets = f"/v1/environments/{chaos.lab.environment}/targets"
+    client, admin = chaos.lab.client, chaos.lab.admin
+    [old] = [t for t in client.get(targets, headers=admin).json()["items"]
+             if t["name"] == "payments-api"]  # fmt: skip
+    assert client.delete(f"{targets}/{old['target_id']}", headers=admin).status_code == 204
+    moved = {
+        "kind": "container",
+        "name": "payments-api",
+        "required_label": "rai.target=payments-api",
+        "image_digest": "sha256:" + "b" * 64,
+    }
+    assert client.post(targets, json=moved, headers=admin).status_code == 201
+    assert chaos.worker(worker_engine, feed, tmp_path).run_once()
+    refused = chaos.lab.run(run["run_id"])
+    assert refused["state"] == "refused"
+    assert "registered image changed since the run was queued" in refused["reason"]
+    assert chaos.agent.state.load() == {}  # nothing reached the agent
+
+
 @pytest.mark.parametrize(
     ("item", "code"),
     [
@@ -292,6 +323,8 @@ def test_the_worker_runs_an_approved_scenario(
     assert all(f.request.run_id == run["run_id"] for f in faults)
     assert {f.request.scenario for f in faults} == {f"{sid}@1"}  # B-27: signed identity
     assert all(f.request.approval_expiry for f in faults)  # B-43: signed with its expiry
+    images = {f.request.target: f.request.image_digest for f in faults}
+    assert images == {"ledger-db-proxy": None, "payments-api": IMAGE}  # B-45: signed pin
 
 
 def test_a_retry_after_a_crash_injects_nothing_twice(

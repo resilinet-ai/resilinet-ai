@@ -10,17 +10,20 @@ A bundle is a ZIP file whose members sit under ``rai-evidence-<run_id>/``:
   run's insert-only results;
 * ``approvals.json``: the scenario approvals the run was pinned to;
 * ``audit.json``: the run's own audit-chain entries, with their hashes;
+* ``report.md``: the same run for a person to read, with its limitations statement
+  (B-45; :mod:`rai.core.report`);
 * ``manifest.json``: the SHA-256 and size of every member above;
 * ``signature.json``: an Ed25519 signature over ``manifest.json``, when the API has
   an evidence signing key. It is the only member the manifest does not list.
 
-**Deterministic.** Every member is canonical JSON (sorted keys, no spaces, UTF-8,
-one trailing newline). Members are stored, not compressed, in a fixed order with a
-fixed date, permissions and host system, so two exports of the same run are
-byte-identical on any platform. Nothing in a bundle depends on when it was exported:
-a run's results never change once it has finished, the anchor is the run's own last
-audit entry, not the chain's moving head, and Ed25519 signatures are deterministic
-(RFC 8032), so the same key gives the same signature.
+**Deterministic.** Every JSON member is canonical JSON (sorted keys, no spaces, UTF-8,
+one trailing newline), and ``report.md`` is UTF-8 text with LF line endings. Members
+are stored, not compressed, in a fixed order with a fixed date, permissions and host
+system, so two exports of the same run are byte-identical on any platform. Nothing in a
+bundle depends on when it was exported: a run's results never change once it has
+finished, the anchor is the run's own last audit entry, not the chain's moving head,
+and Ed25519 signatures are deterministic (RFC 8032), so the same key gives the same
+signature.
 
 **Anchor (T-02).** ``bundle.json`` records the ``seq`` and ``record_hash`` of the
 run's last audit entry. A later rewrite of the audit chain at or before that entry
@@ -78,12 +81,12 @@ STATEMENT = (
 )
 
 
-def _plain(value: Any) -> Any:
+def plain(value: Any) -> Any:
     """JSON-ready: UUIDs and decimals as strings, times in UTC with microseconds."""
     if isinstance(value, Mapping):
-        return {str(k): _plain(v) for k, v in value.items()}
+        return {str(k): plain(v) for k, v in value.items()}
     if isinstance(value, list | tuple):
-        return [_plain(v) for v in value]
+        return [plain(v) for v in value]
     if isinstance(value, UUID | Decimal):
         return str(value)
     if isinstance(value, datetime):
@@ -93,9 +96,18 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def encode(content: Any) -> bytes:
+    """A member's bytes: text as UTF-8 with LF line endings and one final newline, anything
+    else as canonical JSON."""
+    if isinstance(content, str):
+        text = content.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+        return (text + "\n").encode("utf-8")
+    return canonical_json(content)
+
+
 def canonical_json(value: Any) -> bytes:
     """The bytes of a bundle member: sorted keys, no spaces, UTF-8, a final newline."""
-    text = json.dumps(_plain(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    text = json.dumps(plain(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return (text + "\n").encode("utf-8")
 
 
@@ -180,11 +192,12 @@ def signature_note(signer: EvidenceSigner | None) -> dict[str, str] | None:
 
 
 def build(run_id: UUID, members: Mapping[str, Any], signer: EvidenceSigner | None = None) -> Bundle:
-    """The ZIP for ``members`` (name -> JSON-ready content), its manifest and signature."""
+    """The ZIP for ``members`` (name -> JSON-ready content, or text), its manifest and
+    signature."""
     if MANIFEST in members or SIGNATURE in members:
         raise ValueError(f"{MANIFEST} and {SIGNATURE} are written by build()")
     name = f"rai-evidence-{run_id}"
-    encoded = {path: canonical_json(content) for path, content in sorted(members.items())}
+    encoded = {path: encode(content) for path, content in sorted(members.items())}
     manifest = canonical_json({
         "format": FORMAT,
         "algorithm": "sha256",

@@ -15,13 +15,14 @@ from typer.testing import CliRunner
 from rai.api.app import create_app
 from rai.api.settings import Settings
 from rai.cli.main import app as cli
-from rai.core import evidence
+from rai.core import evidence, report
 from rai.worker.service import Worker
 from tests.integration.apikit import DSN, SECRET, needs_db
 from tests.integration.runkit import Lab, config, drain
 from tests.integration.test_api_keys import bearer, new_key
 from tests.integration.test_scenario_recovery import System, run, setup
 from tests.integration.test_scenarios import Chaos, chaos
+from tests.unit.test_chaos_agent import IMAGE
 
 pytestmark = needs_db
 __all__ = ["chaos", "setup"]  # fixtures shared with the scenario tests
@@ -45,7 +46,10 @@ def export(client: TestClient, run_id: str, headers: dict[str, str]) -> Any:
 
 def contents(data: bytes) -> dict[str, Any]:
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        return {n.split("/", 1)[1]: json.loads(archive.read(n)) for n in archive.namelist()}
+        return {
+            name: raw.decode("utf-8") if name.endswith(".md") else json.loads(raw)
+            for name, raw in ((n.split("/", 1)[1], archive.read(n)) for n in archive.namelist())
+        }
 
 
 def test_a_finished_run_exports_the_same_bytes_every_time(
@@ -68,7 +72,16 @@ def test_a_finished_run_exports_the_same_bytes_every_time(
     files = contents(first.content)
     assert set(files) == {"bundle.json", "run.json", "steps.json", "observations.json",
                           "lineage.json", "recovery.json", "approvals.json", "audit.json",
-                          "manifest.json"}  # fmt: skip
+                          "report.md", "manifest.json"}  # fmt: skip
+    # B-45: a report for people, with the limitations bundle.json lists.
+    limits = files["bundle.json"]["limitations"]
+    assert report.LIMIT_UNSIGNED in limits
+    assert limits[-1] == evidence.STATEMENT
+    text_report = files["report.md"]
+    assert text_report.startswith(f"# RAI evidence report: run {run_id}\n")
+    assert "| item-2 | test |" in text_report
+    assert all(f"- {limit}" in text_report for limit in limits)
+    assert "\r" not in text_report
     assert files["run.json"]["state"] == "failed"  # batch 1 re-sends rows of batch 0
     assert files["run.json"]["pins"]["format"] == "rai-run-pins/1"
     assert [s["step_key"] for s in files["steps.json"]] == ["item-1", "item-2"]
@@ -133,6 +146,15 @@ def test_a_chaos_run_carries_its_approval_and_recovery_measurement(
     assert (approval["approval_id"], approval["decision"]) == (pinned["approval_id"], "approve")
     [measurement] = files["recovery.json"]
     assert (measurement["step_key"], measurement["rto_met"]) == ("item-1", True)
+    # B-45: the container image was pinned when the run was queued, and the report shows it.
+    environment = files["run.json"]["pins"]["environment"]
+    assert environment["images"] == {"payments-api": IMAGE}
+    assert environment["unpinned_images"] == []
+    limits = files["bundle.json"]["limitations"]
+    assert report.LIMIT_RECOVERY in limits
+    assert not any("not pinned" in limit for limit in limits)
+    assert f"| payments-api | {IMAGE} |" in files["report.md"]
+    assert "## Recovery" in files["report.md"]
 
 
 def test_a_signing_server_signs_bundles_that_rai_verify_trusts(
@@ -150,8 +172,11 @@ def test_a_signing_server_signs_bundles_that_rai_verify_trusts(
     assert first.headers["x-rai-signature-key-id"] == signer.key_id
     assert published == {"algorithm": "ed25519", "key_id": signer.key_id,
                          "public_key": signer.public_key}  # fmt: skip
-    note = contents(first.content)["bundle.json"]["signature"]
+    signed = contents(first.content)
+    note = signed["bundle.json"]["signature"]
     assert note == {"algorithm": "ed25519", "key_id": signer.key_id, "member": "signature.json"}
+    assert report.LIMIT_UNSIGNED not in signed["bundle.json"]["limitations"]
+    assert f"Signed with Ed25519 key {signer.key_id}" in signed["report.md"]
 
     path = tmp_path / "bundle.zip"
     path.write_bytes(first.content)

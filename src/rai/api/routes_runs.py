@@ -360,7 +360,16 @@ def _environment(conn: Connection, plan_id: UUID) -> PinnedEnvironment | None:
             409, "runs.environment_retired", "The run's environment is retired",
             detail=f"environment {row.name}: choose an active one for the plan or project",
         )  # fmt: skip
-    return PinnedEnvironment(environment_id=row.environment_id, name=row.name, type=row.type)
+    containers = conn.execute(
+        text("SELECT name, image_digest FROM rai.environment_targets "
+             "WHERE environment_id = :e AND kind = 'container' ORDER BY name"),
+        {"e": row.environment_id},
+    ).all()  # fmt: skip
+    return PinnedEnvironment(
+        environment_id=row.environment_id, name=row.name, type=row.type,
+        images={c.name: c.image_digest for c in containers if c.image_digest},
+        unpinned_images=tuple(c.name for c in containers if not c.image_digest),
+    )  # fmt: skip
 
 
 def _request_hash(body: RunIn) -> str:

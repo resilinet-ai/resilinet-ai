@@ -20,6 +20,7 @@ from sqlalchemy.exc import DBAPIError
 from rai.worker.service import Worker
 from tests.integration.apikit import needs_db, new_tenant, signed_in_member
 from tests.integration.runkit import Lab, config, drain
+from tests.unit.test_chaos_agent import IMAGE
 
 pytestmark = needs_db
 
@@ -146,6 +147,21 @@ def test_the_target_allow_list(lab: Lab, client: TestClient, owner: Engine) -> N
                        headers=lab.engineer).status_code == 403  # fmt: skip
     listed = client.get(targets, headers=lab.viewer).json()["items"]
     assert [t["name"] for t in listed] == ["ledger-db-proxy", "ledger-db"]
+
+    # B-45: a container target names the image it runs; nothing else has one.
+    container = {"kind": "container", "name": "payments-api",
+                 "required_label": "rai.target=payments-api"}  # fmt: skip
+    assert code(client.post(targets, json=container, headers=lab.admin)) == (
+        422, "targets.image_required")  # fmt: skip
+    assert client.post(targets, json=container | {"image_digest": "payments:latest"},
+                       headers=lab.admin).status_code == 422  # fmt: skip
+    assert code(client.post(targets, json=proxy | {"name": "p2", "image_digest": IMAGE},
+                            headers=lab.admin)) == (422, "targets.image_not_container")  # fmt: skip
+    pinned = client.post(targets, json=container | {"image_digest": IMAGE}, headers=lab.admin)
+    assert pinned.status_code == 201, pinned.text
+    assert pinned.json()["image_digest"] == IMAGE
+    assert client.delete(f"{targets}/{pinned.json()['target_id']}",
+                         headers=lab.admin).status_code == 204  # fmt: skip
 
     removed = client.delete(f"{targets}/{db.json()['target_id']}", headers=lab.admin)
     assert removed.status_code == 204

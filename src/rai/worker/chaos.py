@@ -73,6 +73,8 @@ class PreparedFault:
     required_label: str
     # B-43: when the scenario's approval lapses; the agent refuses the fault after it.
     approval_expires_at: datetime | None = None
+    # B-45: the container image the run pinned; the agent refuses a container running another.
+    image_digest: str | None = None
 
     def request(self) -> dict[str, Any]:
         spec = self.spec
@@ -86,6 +88,7 @@ class PreparedFault:
             "approval_expires_at": (
                 _stamp(self.approval_expires_at) if self.approval_expires_at else None
             ),
+            "image_digest": self.image_digest,
         }  # fmt: skip
 
 
@@ -126,7 +129,8 @@ def fault_preflight(
         row.name: row
         for row in conn.execute(
             text(
-                "SELECT name, kind::text AS kind, required_label FROM rai.environment_targets "
+                "SELECT name, kind::text AS kind, required_label, image_digest "
+                "FROM rai.environment_targets "
                 "WHERE environment_id = :e AND name = ANY(:names)"
             ),
             {"e": pins.environment.environment_id, "names": list(spec.blast_radius)},
@@ -141,11 +145,15 @@ def fault_preflight(
         problems.append(f"{spec.type} needs a {wanted} target; {spec.target!r} is a {target.kind}")
     if target is not None and not target.required_label:
         problems.append(f"target {spec.target!r} has no required label")
+    pinned = pins.environment.images.get(spec.target) if wanted == "container" else None
+    if target is not None and pinned is not None and target.image_digest != pinned:
+        problems.append(f"target {spec.target!r}'s registered image changed since the run was "
+                        "queued; queue a new run")  # fmt: skip
     if problems or target is None:
         return None, problems
     return (
         PreparedFault(spec, run_id, tenant_id, step_key, env.name, env.ceiling,
-                      target.required_label, approval_expires_at),
+                      target.required_label, approval_expires_at, pinned),
         [],
     )  # fmt: skip
 
