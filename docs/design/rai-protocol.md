@@ -123,7 +123,7 @@ Every metric is computed by a script from raw logs, and published with its numer
 - **Detection lead time:** first matching alert minus the batch's delivery (onset = batch arrival = window end), in seconds.
 - **Validation latency:** P50 and P95 wall seconds per batch (nearest-rank, so every value was observed), CPU seconds and peak memory.
 - **Recovery:** RTO and RPO per scenario against its objectives, with the number of runs meeting them over runs attempted. RPO ground truth comes from the seeding log of acknowledged writes (B-30), not from the system under test.
-- **RTO and RPO measurement error (H3):** RAI's value minus ground truth, per injection. Ground-truth RTO comes from an independent observer (B-44): a separate container, part of no arm, that probes the payments API and runs the consistency query every 250 ms on its own monotonic clock.
+- **RTO and RPO measurement error (H3):** RAI's value minus ground truth, per injection. Ground-truth RTO comes from an independent observer (B-44): a separate container, part of no arm, that probes the payments API and runs the consistency query (the ledger head, read straight from ledger-db) every 250 ms on its own monotonic clock. It applies RAI's restoration rule to its own samples, so the error measures RAI's measurement, not a different definition. An injection the observer did not watch is excluded and reported, never counted as agreement (`rai-bench h3`).
 - **Post-recovery damage (H4):** injections with lost, duplicated or unexpected rows after recovery, and which arms flag them.
 - **Drift (H6):** scoring windows from shift onset to the first drift alert, and false alarms on unshifted windows.
 

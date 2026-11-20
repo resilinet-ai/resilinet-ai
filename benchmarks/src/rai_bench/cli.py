@@ -1,4 +1,5 @@
-"""``rai-bench``: run the arms, score a run, dry-run the whole chain (B-15), profile B2 (B-21).
+"""``rai-bench``: run the arms, score a run, dry-run the whole chain (B-15), profile B2 (B-21),
+score RTO against the independent observer (B-44).
 
 Exit codes: 0 done, 1 ``chaos-seal`` found a plan that does not match its seal,
 2 the command could not run (bad inputs, broken seal, evaluation fixtures without
@@ -23,6 +24,7 @@ from rai_bench.chaos import (
     build_plan,
     check_plan,
 )
+from rai_bench.h3 import h3
 from rai_bench.runner import HarnessError, run
 from rai_bench.scale import history_scale
 from rai_bench.scoring import score
@@ -201,6 +203,34 @@ def chaos_seal_command(
             typer.echo(f"{plan}: {problem}", err=True)
         raise typer.Exit(1)
     typer.echo(f"{plan}: fault log matches its seal")
+
+
+@app.command("h3")
+def h3_command(
+    measurements: Annotated[Path, typer.Argument(help="RAI's measurements (rai-bench-recovery/1)")],
+    observations: Annotated[Path, typer.Argument(help="The observer's log (sandboxbank observe)")],
+    out: Annotated[Path | None, typer.Option(help="Write the full result here (JSON)")] = None,
+    hold: Annotated[
+        float, typer.Option(help="Seconds healthy before restoration counts (stable_checks - 1)")
+    ] = 2.0,
+) -> None:
+    """Protocol H3: RAI's RTO against the observer's ground truth, within +/- 2 s."""
+    try:
+        result = h3(measurements, observations, hold=hold)
+    except HarnessError as problem:
+        raise _fail(problem) from None
+    s, ba = result["summary"], result["summary"]["bland_altman"]
+    ci = "n/a" if s["ci95"] is None else f"{s['ci95'][0]:.4f}-{s['ci95'][1]:.4f}"
+    typer.echo(
+        f"H3: {s['agreed']}/{s['scored']} injections within +/- {s['tolerance_seconds']:g} s "
+        f"(95% CI {ci}); {s['unobserved']} unobserved, excluded; "
+        f"{'supported' if s['supported'] else 'not supported'}"
+    )
+    typer.echo(f"Bland-Altman: bias {ba['bias']} s, limits {ba['lower_limit']} to "
+               f"{ba['upper_limit']} s over {ba['n']} injections")  # fmt: skip
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
 
 @app.command("b2-profile")
