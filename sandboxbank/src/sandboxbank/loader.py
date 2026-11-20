@@ -53,6 +53,25 @@ def load_reference(conn: psycopg.Connection[Any], data_dir: Path) -> dict[str, i
     return inserted
 
 
+def load_canaries(conn: psycopg.Connection[Any], canary_dir: Path) -> int:
+    """Insert the canary customers of ``customers.csv`` (FR-05.1); return how many
+    were new. Re-running is harmless: existing customers are skipped."""
+    from sandboxbank.canaries import COLUMNS, CUSTOMERS_FILE
+
+    migrate(conn)
+    rows = [tuple(row[c] for c in COLUMNS) for row in _read(canary_dir / CUSTOMERS_FILE)]
+    with conn.transaction(), conn.cursor() as cursor:
+        before = cursor.execute("SELECT count(*) FROM customers").fetchone()
+        cursor.executemany(
+            "INSERT INTO customers (customer_id, full_name, email, phone, card_number, "
+            "date_of_birth, marker) VALUES (%s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (customer_id) DO NOTHING",
+            rows,
+        )
+        after = cursor.execute("SELECT count(*) FROM customers").fetchone()
+    return (after[0] if after else 0) - (before[0] if before else 0)
+
+
 def to_payload(row: dict[str, str]) -> dict[str, Any]:
     """CSV row of transactions_raw to the payments-api JSON shape."""
     payload: dict[str, Any] = dict(row)

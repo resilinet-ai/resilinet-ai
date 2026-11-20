@@ -180,3 +180,16 @@ uv run sandboxbank model card --out sandboxbank/MODEL_CARD.md
 - **Scores** come out as `txn_id, score, is_fraud`, ready for a RAI drift check on `score` against an earlier batch's scores.
 - **Development seeds only**: training seed 31000, batches 0 to 7, hold-out batches 8 and 9. Evaluation seeds belong to the registered benchmark.
 - **Not in the images.** The `model` extra is not installed in the SandboxBank image; the payments API and the ETL do not use the model.
+
+## Canary customers (FR-05.1)
+
+Fake customers for RAI's privacy sentinel. The feed carries no personal data, so SandboxBank plants a few canaries: realistic-looking personal details linked to real `customer_id`s, loaded into ledger-db's `customers` table, which nothing downstream copies. A canary value found anywhere else (the warehouse, a log, an evidence bundle) is a leak, and never a coincidence: every value is unique.
+
+```bash
+uv run sandboxbank canaries write --accounts data/sandboxbank/accounts.csv --seed 7 --out data/canaries
+uv run sandboxbank canaries load --dir data/canaries          # needs SANDBOXBANK_LEDGER_DSN
+```
+
+- **Impossible by construction.** Emails end in `@example.invalid` (a reserved domain that never resolves; the table refuses any other), phones are in the `555 01xx` range reserved for fiction, and card numbers are in the `400000` test range with a valid Luhn digit, so card detectors still match them. Surnames are built from syllables, never taken from a list of people.
+- **`canaries.json` is the answer key**: every canary's needles (marker, email, name, card number with and without spaces, phone with and without punctuation), the values RAI searches for. Keep it with the run's inputs, like any answer key.
+- **Nothing else changes.** Canaries come from their own random stream of the seed, so a dataset and its fixtures stay byte-identical.

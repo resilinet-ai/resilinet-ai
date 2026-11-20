@@ -25,11 +25,12 @@ import uvicorn
 from fastapi.testclient import TestClient
 
 from sandboxbank.api import create_app
+from sandboxbank.canaries import generate_canaries, write_canaries
 from sandboxbank.cli import main
 from sandboxbank.dataset import write_dataset
 from sandboxbank.generator import GeneratorConfig
 from sandboxbank.ledger import TransactionIn, ledger_head, migrate, post_transactions
-from sandboxbank.loader import load_reference, post_batches
+from sandboxbank.loader import load_canaries, load_reference, post_batches
 
 DSN = os.environ.get("SANDBOXBANK_TEST_DSN", "")
 if os.environ.get("CI") == "true" and not DSN:  # never skip silently in CI
@@ -44,7 +45,7 @@ def conn() -> Iterator[psycopg.Connection[Any]]:
     with psycopg.connect(DSN, autocommit=True) as connection:
         migrate(connection)
         connection.execute(
-            "TRUNCATE ledger_transactions, accounts, merchants RESTART IDENTITY CASCADE"
+            "TRUNCATE ledger_transactions, accounts, merchants, customers RESTART IDENTITY CASCADE"
         )
         connection.execute(
             "INSERT INTO accounts VALUES "
@@ -311,3 +312,22 @@ def test_every_acknowledged_write_in_the_seeding_log_is_in_the_ledger(
         (list(acked),),
     ).fetchall())  # fmt: skip
     assert in_ledger == acked
+
+
+def test_canaries_load_once_and_stay_out_of_reach_of_typos(
+    conn: psycopg.Connection[Any], tmp_path: Path
+) -> None:
+    """FR-05.1: canary customers land in ledger-db's customers table; loading again adds
+    nothing, and the table refuses an email outside the reserved domain."""
+    made = generate_canaries(21, [f"CUS-{n:07d}" for n in range(1, 30)], 5)
+    write_canaries(made, 21, tmp_path)
+    assert load_canaries(conn, tmp_path) == 5
+    assert load_canaries(conn, tmp_path) == 0
+    query = "SELECT marker, card_number FROM customers ORDER BY customer_id"
+    stored = conn.execute(query).fetchall()
+    assert stored == [(c.marker, c.card_number) for c in made]
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(
+            "INSERT INTO customers VALUES ('CUS-9', 'A B', 'a@example.com', '+1', "
+            "'4000000000000002', '2000-01-01', 'cn0000000000')"
+        )

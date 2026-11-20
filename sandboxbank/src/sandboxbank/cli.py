@@ -3,6 +3,8 @@
 sandboxbank generate --seed 42 --out data/sandboxbank --batches 3
 sandboxbank verify data/sandboxbank
 sandboxbank load-reference --data data/sandboxbank        (needs SANDBOXBANK_LEDGER_DSN)
+sandboxbank canaries write --accounts data/sandboxbank/accounts.csv --seed 7 --out data/canaries
+sandboxbank canaries load --dir data/canaries               (needs SANDBOXBANK_LEDGER_DSN)
 sandboxbank post --data data/sandboxbank --api http://127.0.0.1:18080
 sandboxbank serve --port 8080                              (needs SANDBOXBANK_LEDGER_DSN)
 sandboxbank fixtures --data-seed 1 --injector-seed 2 --out data/fixtures
@@ -107,6 +109,22 @@ def _parser() -> argparse.ArgumentParser:
 
     acks = commands.add_parser("verify-acks", help="Check a seeding log's hash chain.")
     acks.add_argument("log", type=Path, help="Seeding log")
+
+    canaries = commands.add_parser(
+        "canaries", help="Fake customers for RAI's privacy sentinel (FR-05.1)."
+    )
+    canary_commands = canaries.add_subparsers(dest="canary_command", required=True)
+    write = canary_commands.add_parser(
+        "write", help="Write customers.csv and the answer key canaries.json."
+    )
+    write.add_argument("--accounts", type=Path, required=True,
+                       help="The dataset's accounts.csv (canaries use its customers)")  # fmt: skip
+    write.add_argument("--seed", type=int, required=True, help="Seed of the canaries' stream")
+    write.add_argument("--count", type=int, default=5, help="How many canaries (1-50)")
+    write.add_argument("--out", type=Path, required=True, help="Folder for the two files")
+    load_canaries = canary_commands.add_parser("load", help="Load customers.csv into ledger-db.")
+    load_canaries.add_argument("--dir", type=Path, required=True,
+                               help="Folder written by `canaries write`")  # fmt: skip
 
     model = commands.add_parser("model", help="The fraud model (ADR-005; the `model` extra).")
     model_commands = model.add_subparsers(dest="model_command", required=True)
@@ -317,6 +335,38 @@ def _verify_acks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _canaries(args: argparse.Namespace) -> int:
+    import csv
+
+    from sandboxbank import canaries
+
+    if args.canary_command == "write":
+        try:
+            with args.accounts.open(newline="", encoding="utf-8") as handle:
+                customers = [row["customer_id"] for row in csv.DictReader(handle)]
+            made = canaries.generate_canaries(args.seed, customers, args.count)
+        except (OSError, KeyError, ValueError) as error:
+            return _error(error)
+        canaries.write_canaries(made, args.seed, args.out)
+        print(f"{len(made)} canary customers written to {args.out} "
+              f"({canaries.CUSTOMERS_FILE}; answer key {canaries.KEY_FILE})")  # fmt: skip
+        return 0
+    import psycopg
+
+    from sandboxbank.loader import load_canaries
+
+    dsn = os.environ.get(DSN_ENV)
+    if not dsn:
+        return _error(f"set {DSN_ENV} to the ledger-db connection string")
+    try:
+        with psycopg.connect(dsn) as conn:
+            added = load_canaries(conn, args.dir)
+    except (OSError, KeyError) as error:
+        return _error(error)
+    print(f"customers: {added} new")
+    return 0
+
+
 def _model(args: argparse.Namespace) -> int:
     import csv
 
@@ -373,6 +423,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "slice": _slice,
     "seed": _seed,
     "verify-acks": _verify_acks,
+    "canaries": _canaries,
     "model": _model,
 }
 
