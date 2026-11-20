@@ -26,8 +26,8 @@ FR-09.3,M09,L,Robustness tests,,,,,,planned
 FR-10.1,M10,M,"Findings with severity, owner, fix and retest",,,,tests/integration/test_findings.py,docs/api.md,in progress
 FR-11.1,M11,M,Executive dashboard with denominators,,,,tests/integration/test_summary.py;web/src/screens/Dashboard.test.tsx,docs/api.md;web/README.md,in progress
 FR-11.2,M11,M,Persistent synthetic-data banner,B-17;B-37,,#22,tests/integration/test_api_definitions.py;web/src/App.test.tsx,docs/api.md;web/README.md;docs/ui/runs.png,in progress
-FR-12.1,M12,M,Named reviewer approvals; no self-approval,B-26;B-33;B-42,,,tests/integration/test_scenarios.py;tests/integration/test_waivers.py,docs/api.md,in progress
-FR-12.2,M12,M,Critical finding blocks gate unless waived with expiry,B-33;B-42,,,tests/integration/test_waivers.py;tests/unit/test_cli_run.py,docs/api.md;action.yml,in progress
+FR-12.1,M12,M,Named reviewer approvals; no self-approval,B-26;B-33;B-42,,,tests/integration/test_scenarios.py;tests/integration/test_waivers.py;tests/integration/test_releases.py,docs/api.md,in progress
+FR-12.2,M12,M,Critical finding blocks gate unless waived with expiry,B-33;B-42,,,tests/integration/test_waivers.py;tests/unit/test_cli_run.py;tests/integration/test_releases.py,docs/api.md;action.yml,in progress
 FR-13.1,M13,M,Deterministic evidence bundle with SHA-256 manifest,B-34;B-45,,,tests/unit/test_evidence_bundle.py;tests/integration/test_evidence.py,docs/api.md,in progress
 FR-13.2,M13,S,Signed manifest and rai verify,B-35,,,tests/unit/test_evidence_bundle.py;tests/unit/test_cli_verify.py;tests/integration/test_evidence.py,docs/api.md,in progress
 FR-14.1,M14,M,"Docs site, quick-start and playbooks",,,,tests/unit/test_docs_site.py,mkdocs.yml;docs/index.md;docs/quickstart.md;docs/playbooks/index.md;scripts/quickstart.py,in progress

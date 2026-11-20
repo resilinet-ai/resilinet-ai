@@ -85,7 +85,7 @@
 | B-38, B-39 | Not used (section 9) | — | — |
 | B-40 | Image hardening (SSDF: SBOM, signed images; NFR-SEC-3) | NFR-SEC-3 | Done |
 | B-41 | RAI v1.0 release: tag, signed images, release notes, and a reproduction on a clean 8 GB laptop | NFR-REP-2 | Planned |
-| B-42 | Release decisions: a named reviewer approves or rejects a labelled release against the gate's state; refused while the gate is blocked; never by its requester | FR-12.1, FR-12.2 | Planned |
+| B-42 | Release decisions: a named reviewer approves or rejects a labelled release, recorded with the gate's state; approval refused while the gate is blocked and from anyone whose waiver or finding it relies on | FR-12.1, FR-12.2 | Done |
 | B-43 | Scenario approvals expire; an expired approval is refused by both preflights | FR-07.2, NFR-SAF-1 | Planned |
 | B-44 | Independent recovery observer: ground-truth RTO for Protocol H3, outside every arm | FR-08.1 | Planned |
 | B-45 | Human-readable run report with the limitations statement in every bundle; container image digests pinned in every run | FR-13.1, NFR-REP-1, NFR-AUD-2 | Planned |

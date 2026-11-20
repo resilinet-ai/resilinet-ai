@@ -81,7 +81,7 @@ Rules, severities and limits are those of `contracts/sandboxbank/transactions_ra
 
 ![W05 Approvals and gates](wireframes/png/approvals.png)
 
-*Planned (B-42):* under the gate, a **release decision** panel. The reviewer names the release (for example `v1.4`) and chooses approve or reject with a justification. Approve is disabled, with the reason, while the gate is blocked, and the decision records the gate's state at that moment in the audit chain.
+*Planned screen; API built (B-42):* under the gate, a **release decision** panel. The reviewer names the release (for example `v1.4`) and chooses approve or reject with a justification. Approve is disabled, with the reason, while the gate is blocked, and the decision records the gate's state at that moment in the audit chain.
 
 ### W06. Evidence
 
