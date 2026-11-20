@@ -54,6 +54,27 @@ python -m uv run sandboxbank verify-acks acks/acks.csv
 - **RAI reconciles the acknowledged rows against the ledger** after recovery (see [RPO ground truth](../docs/api.md#chaos-scenarios)). An acknowledged write missing from the ledger is a broken promise, whatever `GET /v1/ledger/head` says.
 - **Use transactions the ledger hasn't seen yet,** e.g. a batch that hasn't been posted. A repeated `txn_id` comes back `replayed`, which is acknowledged but proves nothing new.
 
+## Recovery observer (B-44: RTO ground truth)
+
+Protocol H3 checks RAI's RTO against the truth, so the truth can't come from RAI's own probes. `sandboxbank observe` runs in its own container, `rai-observer`, which belongs to no arm and carries no `rai.sandbox` label, so no fault can target it. Every 250 ms, on a schedule kept by its own monotonic clock, it takes one sample and appends it to its own log:
+
+```
+docker compose --profile sandbox --profile observer up -d
+python -m uv run sandboxbank verify-observations obs/observations.csv
+python -m uv run sandboxbank observed-rto obs/observations.csv --onset 2026-11-20T12:00:10Z --reverted 2026-11-20T12:01:10Z
+```
+
+- **What one sample checks:**
+  - the payments-api's `/readyz`, the way clients reach it;
+  - the **consistency query**: `max(seq)` on ledger-db, read directly rather than through Toxiproxy, in a read-only session.
+
+  A sample is healthy when both answer within 2 s, the same timeout RAI's probes use.
+- **Columns:** `n, at, api, ledger, seq, healthy, chain`. The `at` column is the wall clock read once at start-up plus the monotonic time since then, so a clock step during a run cannot move it.
+- **The schedule never drifts.** A slow sample skips the ticks it missed rather than making them up.
+- **The log is append-only and hash-chained,** like the seeding log, and fsynced line by line. A restarted observer continues the same chain.
+- **`observed-rto`** applies RAI's restoration rule to the samples: ignore everything before the last revert, then take the first healthy sample from which the system stayed healthy for `--hold` seconds. The default hold is 2 s, which matches RAI's default of 3 probe rounds 1 s apart. Only the clock and the sampling rate differ from RAI's measurement, so any difference is measurement error, not a different definition.
+- **Unobserved is not "not restored".** If the observer started after the revert, or its samples have a gap of more than 5 s before restoration, the answer is *unobserved* (exit 1), and `rai-bench h3` excludes that injection rather than scoring it.
+
 ## Settlement ETL and analytics warehouse (B-04, pipeline P2)
 
 `etl-job` is a long-running service. It copies the ledger into the `warehouse` schema of `analytics-db` (published on `127.0.0.1:55434`) every `ETL_INTERVAL_SECONDS` (default 60). Each cycle does three things:

@@ -13,7 +13,7 @@ COPY deploy/build-requirements.txt sandboxbank/requirements.txt ./
 RUN pip install --require-hashes --only-binary=:all: -r build-requirements.txt -r requirements.txt
 COPY sandboxbank/pyproject.toml ./
 COPY sandboxbank/src ./src
-RUN pip install --no-deps --no-build-isolation . && rm -rf /app/src
+RUN pip install --no-deps --no-build-isolation . && rm -rf /app/src \n    && mkdir -p /var/lib/sandboxbank-observer && chown 10001 /var/lib/sandboxbank-observer
 
 USER 10001
 EXPOSE 8080

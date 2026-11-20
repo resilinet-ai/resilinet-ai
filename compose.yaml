@@ -181,6 +181,30 @@ services:
     networks: [sandbox_net, chaos_net]
   # B-02: the generator is a CLI (`sandboxbank generate`), not a service.
 
+  # ---- observer profile: RTO ground truth (opt in: --profile sandbox --profile observer) ----
+  rai-observer:
+    # B-44 (Protocol H3): part of no arm. Every 250 ms it checks payments-api's /readyz and
+    # reads the ledger head straight from ledger-db (not through Toxiproxy), on its own
+    # monotonic clock, into a hash-chained log on its own volume. No rai.sandbox label,
+    # so no fault can target it.
+    profiles: ["observer"]
+    build:
+      context: .
+      dockerfile: sandboxbank/Dockerfile
+    command: ["sandboxbank", "observe", "--api", "http://payments-api:8080",
+              "--log", "/var/lib/sandboxbank-observer/observations.csv"]
+    healthcheck:
+      disable: true # the image's check probes payments-api's HTTP port, which the observer lacks
+    environment:
+      SANDBOXBANK_LEDGER_DSN: postgresql://ledger:${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}@ledger-db:5432/ledger
+    volumes:
+      - observer-log:/var/lib/sandboxbank-observer
+    restart: unless-stopped # a restart continues the same chain
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [sandbox_net]
+
   # ---- chaos profile: fault injection (opt in: --profile sandbox --profile chaos) ----
   socket-proxy:
     profiles: ["chaos"]
@@ -273,3 +297,4 @@ volumes:
   ledger-db-data: {}
   analytics-db-data: {}
   chaos-agent-state: {}
+  observer-log: {}

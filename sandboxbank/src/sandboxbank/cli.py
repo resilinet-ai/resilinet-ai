@@ -12,6 +12,9 @@ sandboxbank seal data/fixtures [--expect <sha256>]
 sandboxbank etl [--once]          (needs SANDBOXBANK_LEDGER_DSN and SANDBOXBANK_ANALYTICS_DSN)
 sandboxbank seed --data data/sandboxbank --log acks/acks.csv --rate 10
 sandboxbank verify-acks acks/acks.csv
+sandboxbank observe --log obs/observations.csv               (needs SANDBOXBANK_LEDGER_DSN)
+sandboxbank verify-observations obs/observations.csv
+sandboxbank observed-rto obs/observations.csv --onset <ISO 8601> --reverted <ISO 8601>
 sandboxbank model card --out sandboxbank/MODEL_CARD.md      (needs the `model` extra)
 sandboxbank model score --feed data/slice/feed --batch B000001 --out scores.csv
 """
@@ -22,6 +25,7 @@ import argparse
 import os
 import sys
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from pathlib import Path
 
 from sandboxbank.dataset import verify_dataset, write_dataset
@@ -109,6 +113,30 @@ def _parser() -> argparse.ArgumentParser:
 
     acks = commands.add_parser("verify-acks", help="Check a seeding log's hash chain.")
     acks.add_argument("log", type=Path, help="Seeding log")
+
+    observe = commands.add_parser(
+        "observe", help="Sample the payments-api and ledger every 250 ms: RTO ground truth (B-44)."
+    )
+    observe.add_argument("--api", default="http://127.0.0.1:18080", help="payments-api base URL")
+    observe.add_argument("--log", type=Path, required=True, help="Observation log (CSV, appended)")
+    observe.add_argument("--interval", type=float, default=0.25, help="Seconds between samples")
+    observe.add_argument("--timeout", type=float, default=2.0, help="Seconds each check may take")
+    observe.add_argument("--samples", type=int, help="Stop after this many samples")
+
+    observations = commands.add_parser(
+        "verify-observations", help="Check an observation log's hash chain."
+    )
+    observations.add_argument("log", type=Path, help="Observation log")
+
+    observed = commands.add_parser(
+        "observed-rto", help="Ground-truth RTO of one injection from an observation log."
+    )
+    observed.add_argument("log", type=Path, help="Observation log")
+    observed.add_argument("--onset", required=True, help="Fault onset, ISO 8601 with a zone")
+    observed.add_argument("--reverted", required=True, help="Last revert, ISO 8601 with a zone")
+    observed.add_argument("--hold", type=float, default=2.0,
+                          help="Seconds healthy before it counts (stable_checks - 1)")  # fmt: skip
+    observed.add_argument("--window", type=float, help="Seconds after the revert to look")
 
     canaries = commands.add_parser(
         "canaries", help="Fake customers for RAI's privacy sentinel (FR-05.1)."
@@ -335,6 +363,63 @@ def _verify_acks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _observe(args: argparse.Namespace) -> int:  # pragma: no cover - runs until stopped
+    from sandboxbank.observer import LedgerQuery, ObservationLog, observe
+
+    dsn = os.environ.get(DSN_ENV)
+    if not dsn:
+        return _error(f"set {DSN_ENV} to the ledger-db connection string")
+    ledger = LedgerQuery(dsn)
+    try:
+        log = ObservationLog(args.log)
+        observe(args.api, ledger, log, interval=args.interval, timeout=args.timeout,
+                samples=args.samples)  # fmt: skip
+    except (ValueError, OSError) as error:
+        return _error(error)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        ledger.close()
+    print(f"log: {args.log} ({log.count} samples, chain head {log.head})")
+    return 0
+
+
+def _verify_observations(args: argparse.Namespace) -> int:
+    from sandboxbank.observer import verify
+
+    try:
+        samples, head = verify(args.log)
+    except (ValueError, OSError) as error:
+        return _error(error, code=1)
+    print(f"intact: {samples} samples, chain head {head}")
+    return 0
+
+
+def _zoned(text: str) -> datetime:
+    moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if moment.tzinfo is None:
+        raise ValueError(f"{text!r} has no time zone")
+    return moment
+
+
+def _observed_rto(args: argparse.Namespace) -> int:
+    from sandboxbank.observer import read, restoration
+
+    try:
+        truth = restoration(read(args.log), _zoned(args.onset), _zoned(args.reverted),
+                            hold=args.hold, window=args.window)  # fmt: skip
+    except (ValueError, OSError) as error:
+        return _error(error)
+    if not truth.observed:
+        print(f"unobserved: {truth.reason}")
+        return 1
+    if truth.restored_at is None:
+        print(f"not restored: {truth.reason}")
+        return 0
+    print(f"RTO {truth.seconds} s (restored at {truth.restored_at.isoformat()})")
+    return 0
+
+
 def _canaries(args: argparse.Namespace) -> int:
     import csv
 
@@ -423,6 +508,9 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "slice": _slice,
     "seed": _seed,
     "verify-acks": _verify_acks,
+    "observe": _observe,
+    "verify-observations": _verify_observations,
+    "observed-rto": _observed_rto,
     "canaries": _canaries,
     "model": _model,
 }

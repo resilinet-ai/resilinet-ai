@@ -103,6 +103,37 @@ Repetitions are shuffled by the seed, and a seeded gap (60 to 600 s by default) 
 
 **Not here yet:** the S01–S20 registry itself (to be restored from v0.1 or written by the author; Protocol section 5), and the runner that injects a plan and scores the arms' injection alerts.
 
+## Protocol H3: RTO against the independent observer (B-44)
+
+`rai-bench h3` compares RAI's RTO for each injection with the ground truth from the observer's log (`sandboxbank observe`; see the SandboxBank README):
+
+```bash
+uv run rai-bench h3 rai-recovery.jsonl observations.csv --out benchmarks/results/run-1/h3.json
+```
+
+RAI's measurements are one JSON object per line, `rai-bench-recovery/1`, with these fields:
+
+- `injection`: the injection's ID from the fault plan;
+- `onset_at`, `reverted_at` and `rto_seconds`: as `GET /v1/assurance/recovery` reports them, with `null` when RAI found the system not restored;
+- `window_seconds`: optional.
+
+The observer's truth uses the same onset, revert and restoration rule.
+
+| Outcome per injection | Counts as |
+| --- | --- |
+| Both found it restored, and they differ by at most 2 s | Agrees |
+| Neither found it restored within the window | Agrees |
+| One found it restored and the other did not, or they differ by more than 2 s | Disagrees |
+| The observer was not watching (started after the revert, or a gap of more than 5 s) | Excluded and counted as `unobserved`, never as agreement |
+
+The output gives:
+
+- the share that agrees, with its exact Clopper-Pearson 95% interval;
+- the verdict: **supported** when the share is at least 95% and the interval's lower bound at least 90% (Protocol section 7);
+- Bland-Altman bias and limits of agreement over the injections where both found a value.
+
+H3's other half, the exact RPO match against the seeding log, comes from `recovery.rpo_truth` (B-30).
+
 ## Also in the harness
 
 `rai-bench history-scale` times a 100,000-row validation against a cross-batch key history of protocol size: 18M keys, one pipeline's 180 batches. See [`analysis/`](analysis/README.md) for how metrics map to the protocol.

@@ -71,11 +71,22 @@ def test_every_built_service_is_locked_down() -> None:
         "etl-job",
         "rai-chaos-agent",
         "rai-chaos-watchdog",
+        "rai-observer",
     }
     for name, service in built.items():
         assert service["read_only"] is True, name
         assert service["cap_drop"] == ["ALL"], name
         assert "no-new-privileges:true" in service["security_opt"], name
+
+
+def test_the_recovery_observer_stands_outside_every_arm_and_every_fault() -> None:
+    # B-44 (Protocol H3): no fault can target it (no rai.sandbox label), it cannot reach the
+    # chaos agent or RAI, and it reads ledger-db directly rather than through Toxiproxy.
+    observer = COMPOSE["services"]["rai-observer"]
+    assert "rai.sandbox" not in observer.get("labels", {})
+    assert observer["networks"] == ["sandbox_net"]
+    assert "@ledger-db:5432/" in observer["environment"]["SANDBOXBANK_LEDGER_DSN"]
+    assert observer["profiles"] == ["observer"]
 
 
 @pytest.mark.parametrize("dockerfile", PYTHON_IMAGES)

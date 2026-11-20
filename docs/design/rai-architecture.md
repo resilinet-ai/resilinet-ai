@@ -23,7 +23,7 @@ RAI tests a system it does not own: here SandboxBank, a synthetic payments syste
 | `rai-chaos-agent` | bridge | The only component that can inject a fault. Deliberately minimal: the standard library plus `cryptography` |
 | `rai-web` | control | React/TypeScript UI (ADR-004), built into the Caddy image and served from the API's origin. Sign-in and Runs are built; the other screens are marked planned (`web/README.md`) |
 
-Added during the build: `rai-chaos-watchdog` (B-25), an independent process that reverts overdue faults when the agent is dead or hung.
+Added during the build: `rai-chaos-watchdog` (B-25), an independent process that reverts overdue faults when the agent is dead or hung; and `rai-observer` (B-44, `observer` profile), which samples the payments API and the ledger every 250 ms on its own clock to give Protocol H3 its ground-truth RTO. It has no `rai.sandbox` label, so no fault can target it.
 
 | Network | Holds | Why separate |
 | --- | --- | --- |

@@ -331,3 +331,34 @@ def test_canaries_load_once_and_stay_out_of_reach_of_typos(
             "INSERT INTO customers VALUES ('CUS-9', 'A B', 'a@example.com', '+1', "
             "'4000000000000002', '2000-01-01', 'cn0000000000')"
         )
+
+
+# ---- the recovery observer (B-44) -------------------------------------------
+
+
+def test_the_observer_samples_the_live_api_and_ledger_read_only(
+    conn: psycopg.Connection[Any], live_api: str, tmp_path: Path
+) -> None:
+    from sandboxbank.observer import LedgerQuery, ObservationLog, observe, read
+
+    post_transactions(conn, [txn(), txn()])
+    ledger = LedgerQuery(DSN)
+    try:
+        log = ObservationLog(tmp_path / "obs.csv")
+        observe(live_api, ledger, log, samples=3, interval=0.1)
+        samples = read(log.path)
+        assert [(s.api, s.ledger_ok, s.seq, s.healthy) for s in samples] == [
+            (200, True, 2, True)
+        ] * 3
+        # The consistency query's session cannot write.
+        with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+            ledger.conn.execute("DELETE FROM customers")
+    finally:
+        ledger.close()
+    # A ledger that does not answer: the sample is unhealthy and the next one reconnects.
+    unreachable = LedgerQuery("postgresql://ledger:x@127.0.0.1:1/ledger")
+    log = ObservationLog(tmp_path / "down.csv")
+    observe(live_api, unreachable, log, samples=1, interval=0.1)
+    (down,) = read(log.path)
+    assert (down.api, down.ledger_ok, down.healthy) == (200, False, False)
+    assert unreachable.conn is None
