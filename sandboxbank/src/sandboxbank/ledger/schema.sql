@@ -20,6 +20,19 @@ CREATE TABLE IF NOT EXISTS merchants (
     country     char(2) NOT NULL
 );
 
+-- Canary customers for RAI's privacy sentinel (FR-05.1): fake personal details,
+-- never real people. Nothing downstream copies this table, so a value of it found
+-- anywhere else is a leak. customer_id matches accounts.customer_id.
+CREATE TABLE IF NOT EXISTS customers (
+    customer_id   text PRIMARY KEY,
+    full_name     text NOT NULL,
+    email         text NOT NULL UNIQUE CHECK (email LIKE '%@example.invalid'),
+    phone         text NOT NULL,
+    card_number   char(16) NOT NULL UNIQUE,
+    date_of_birth date NOT NULL,
+    marker        text NOT NULL UNIQUE
+);
+
 -- One row per posted transaction. seq is the commit order RAI uses to measure RPO
 -- ("last committed ledger record", FR-08.2); committed_at is the database clock.
 CREATE TABLE IF NOT EXISTS ledger_transactions (
