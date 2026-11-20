@@ -4,7 +4,7 @@
 | --- | --- |
 | **Version** | v0.2 (reconstructed draft), 2026-11-17; screens redrawn 2026-11-18 from the recovered v0.1 screen 01 |
 | **Status** | Draft. **Pending review and approval by the author of record**, Trevor Kauyu (ADR-007) |
-| **Supersedes** | Nothing. Of the v0.1 originals (2026-11-13), only screen 01 has been recovered (section 1); the rest take precedence over this draft if found |
+| **Baseline** | This document (decision DESIGN-V03). The other v0.1 screens, found on 2026-11-20, are not adopted; the release decision on W05 comes from them (B-42) |
 
 > **How this document was made.** The v0.1 wireframes were made on 2026-11-13 in a visual design tool and were never exported to this repository. One of them, *01 Executive dashboard (FR-11)*, was recovered on 2026-11-18 and is kept unchanged in [`wireframes/v0.1/`](wireframes/v0.1/). The other screens here were drawn on 2026-11-18 by an AI assistant (Claude Code) in the design language of that screen. Their content comes from the requirements in `docs/traceability.csv`, the platform modules M01–M14 (Spec section 3), and the data the API already returns. They are **not the v0.1 designs**. Field names follow the API and the SandboxBank contracts. **All values are illustrative and synthetic.**
 
@@ -81,6 +81,8 @@ Rules, severities and limits are those of `contracts/sandboxbank/transactions_ra
 
 ![W05 Approvals and gates](wireframes/png/approvals.png)
 
+*Planned (B-42):* under the gate, a **release decision** panel. The reviewer names the release (for example `v1.4`) and chooses approve or reject with a justification. Approve is disabled, with the reason, while the gate is blocked, and the decision records the gate's state at that moment in the audit chain.
+
 ### W06. Evidence
 
 ![W06 Evidence export](wireframes/png/evidence.png)
@@ -120,8 +122,3 @@ The same dashboard in the three other themes (Midnight is above):
 ## 6. Traceability
 
 Every requirement cited here is in `docs/traceability.csv`. The UI itself is not built, so no requirement is marked as satisfied by these wireframes. They are the design input for `rai-web` (ADR-004) and for B-37 (the banner in the UI).
-
-## Not recoverable from the repository
-
-- v0.1 screens other than 01. The v0.1 file name numbers its screen "01", so there were more.
-- v0.1's theme designs, if any were drawn beyond the light palette.
