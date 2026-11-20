@@ -419,6 +419,29 @@ curl -s -X POST "$API/v1/waivers/$WAIVER/decisions" -H "$REVIEWER_AUTH" -d '{"de
 - **One at a time.** A finding with a pending waiver, or one in force, refuses another (`409 waivers.exists`, with a `Location` header).
 - **No self-approval.** The requester and the finding's owner cannot decide (`403 waivers.self_approval`). A trigger enforces this in the database too, both tables are never changed or deleted, and every row is an audit entry (`waiver.insert`, `waiver_decision.insert`).
 
+### Release decisions
+
+The gate says whether a project *may* ship. A **release decision** records that a named reviewer decided it *should*, for one labelled release such as `v1.4` (B-42: FR-12.1, FR-12.2).
+
+| Endpoint | Write roles | Notes |
+| --- | --- | --- |
+| `POST /v1/projects/{id}/releases/{label}/decisions` | reviewer, admin | `{"decision": "approve"\|"reject", "justification"}`; users only, never an API key |
+| `GET /v1/projects/{id}/releases` | | Each release with its latest decision, most recent first; also with a `runs:read` key |
+| `GET /v1/projects/{id}/releases/{label}` | | Its status and every decision, oldest first |
+
+```bash
+curl -s -X POST "$API/v1/projects/$PROJECT/releases/v1.4/decisions" -H "$REVIEWER_AUTH" \
+  -H 'Content-Type: application/json' -d '{"decision": "approve", "justification": "F-031 waived until 2.4"}'
+# 201 {"status": "approved", "latest": {"gate": {"verdict": "pass", "blocking_findings": [],
+#      "waived_findings": ["..."], "waivers": ["..."]}, ...}, "decisions": [...]}
+```
+
+- **Labels** are 1–64 characters: letters, digits and `. _ + -`, starting with a letter or digit.
+- **The gate is recorded with every decision**: its verdict, the findings blocking it and the waived findings with the waivers in force. The database computes this when the row is written and ignores any values a caller sends.
+- **No approval while the gate is blocked** (`409 releases.gate_blocked`). Rejecting is always possible.
+- **No approving your own exception.** An approval that relies on a waiver is refused from that waiver's requester and from the waived finding's owner (`403 releases.self_approval`). They may still reject.
+- **Append-only.** For a release, the latest decision counts: a later `reject` withdraws an approval. Decisions are never changed or deleted, and each is an audit entry (`release_decision.insert`).
+
 ## Lineage
 
 Lineage records **which data a run actually read**, as SHA-256 digests (FR-04.1).
