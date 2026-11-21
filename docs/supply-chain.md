@@ -57,7 +57,7 @@ Dependabot opens the pull requests: `docker` bumps the `FROM` lines, `docker-com
 
 ```bash
 docker buildx imagetools inspect python:3.12-slim --format '{{json .Manifest.Digest}}'
-uv export --package rai-sandboxbank --no-dev --no-emit-workspace --format requirements.txt -o sandboxbank/requirements.txt
+uv export --package rai-sandboxbank --extra model --no-dev --no-emit-workspace --format requirements.txt -o sandboxbank/requirements.txt
 ```
 
 Each `requirements.txt` names its own export command in its header, and `deploy/build-requirements.txt` names its compile command.

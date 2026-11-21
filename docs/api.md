@@ -66,7 +66,7 @@ Where RAI may act (NFR-SAF-1). **Production cannot be registered**: the database
 
 - **Fixed at registration:** an environment's name and type never change. To change them, register a new environment and retire the old one (`"status": "retired"`). Environments are never deleted.
 - **Retired environments** take no new targets, and no new run starts there (`409`).
-- **Targets:** `kind` is `container`, `proxy`, `db` or `http`. Containers and proxies must name the label they carry (`required_label`, e.g. `rai.target=ledger-db`), which the chaos agent checks before it acts. An optional `health_url` is where recovery probes look.
+- **Targets:** `kind` is `container`, `proxy`, `db` or `http`. Containers and proxies must name the label they carry (`required_label`, e.g. `rai.target=ledger-db`), which the chaos agent checks before it acts. An optional `health_url` is where recovery probes look. An `http` target may also have a `score_url`, where robustness tests have rows scored by a model (FR-09.3); no other kind has one (`422 targets.score_not_http`).
 - **Container images (B-45).** A container target must name the image it runs: `image_digest`, Docker's image ID (`docker inspect --format '{{.Image}}' <container>`, `sha256:` and 64 hex; `422 targets.image_required`). Other kinds have none (`422 targets.image_not_container`). A run pins the image of every container target in its environment when it is queued (`pins.environment.images`, with `unpinned_images` for targets registered before B-45). The worker refuses a fault if the target was re-registered with another image since, and the chaos agent refuses a container whose running image is not the pinned one. To move to a new image, re-register the target and queue a new run.
 - **Every role in the tenant can read**; every change is audited.
 
@@ -330,6 +330,42 @@ uv run rai worker            # or: rai worker --once
 - **Judging.** `judge_on: estimate` compares the metric itself with its target. `confidence_bound` is stricter: `at_least` must be met by the interval's lower end, `at_most` by its upper end, so a pass means the data supports the target at the stated `confidence`. F1 can only be judged on the estimate.
 - **Rows.** A null score or label leaves the row out and is counted (`null_rows`). A score that is not a finite number, or a label other than true/false or 1/0, is an error: the data is not what the test says it is.
 - **Verdict and lineage.** A missed target, a metric that cannot be judged, or too little data fails the step, and so the run. Lineage records the digest of the scores that were judged.
+
+**Robustness tests (FR-09.3).** A `robustness_check` test case asks how a model's metrics change when its inputs are perturbed or missing. Its target asset is a feature table: one row per case, with an id, the model's input features and the label. SandboxBank's `sandboxbank model features` writes one. **RAI perturbs the table itself** and has each variant scored by the system under test's model, at the `score_url` of an `http` target on the environment's allow-list. RAI never runs the model (decision TEVV-METRIC), but the evidence shows exactly what was perturbed:
+
+```json
+{"name": "fraud.robustness", "type": "robustness_check", "target_asset_id": "<a feature table>",
+ "definition": {"connector": "feed", "environment": "SANDBOX-01", "scorer": "model-api",
+                "features": ["amount", "amount_to_limit", "channel", "credit", "status",
+                             "account_type", "has_merchant", "merchant_category"],
+                "categorical": ["channel", "status", "account_type", "merchant_category"],
+                "id_column": "txn_id", "label_column": "is_fraud", "threshold": 0.5, "seed": 7,
+                "perturbations": [
+                  {"name": "amount-noise", "kind": "noise", "columns": ["amount"], "scale": 0.1},
+                  {"name": "no-status", "kind": "missing", "columns": ["status"]},
+                  {"name": "odd-channel", "kind": "unknown_category", "columns": ["channel"],
+                   "share": 0.5}],
+                "metrics": [{"name": "recall", "max_drop": 0.1},
+                            {"name": "roc_auc", "max_drop": 0.02}]}}
+```
+
+- **Perturbations.** They are RAI's own, seeded and recorded:
+  - `noise` multiplies a numeric feature by `1 + scale * z`, where z is standard normal;
+  - `missing` makes a feature missing;
+  - `unknown_category` puts `value` (default `__unknown__`) in a categorical feature.
+
+  Each perturbation applies to a `share` of the rows (default all). Every draw is a SHA-256 of the seed, the perturbation, the column and the row's position. A variant therefore depends only on the definition and the table, and anyone can rebuild it and check its digest.
+- **What is sent.** Only the listed features, in batches of `batch_size` rows (at most 5,000), as `{"rows": [{feature: value or null}]}`. Categorical features are sent as text and every other feature as a number. No ids and no labels are sent. At most `max_rows` rows are scored (default 100,000).
+- **Every number with its n.** The clean table and each variant are evaluated as a `tevv_metric` is: counts, intervals, and the minimum sample sizes. The observations are:
+  - `robustness.sample`: the rows read and used, the table's digest, and which model scored it;
+  - `robustness.clean`: the clean table's results;
+  - one `robustness.<perturbation>` per variant: what was perturbed, how many rows and cells changed, the digest of the inputs sent, each metric with its counts and interval, and its degradation.
+- **Judging.** A metric's degradation is how much worse the variant is than the clean table: lower, or higher for `false_positive_rate`. A degradation above `max_drop` fails the variant and the step. The step errors, and never passes, when:
+  - a variant cannot be scored;
+  - there is too little data;
+  - the scorer answers with the wrong number of scores, or with a score that is not a finite number;
+  - the model's identity changes between calls, because the variants would not be comparable.
+- **Preflight.** The scorer must be an `http` target with a `score_url` in the test's environment. Otherwise the run is refused and nothing is sent. Lineage records the digest of the feature table.
 
 **Canary privacy checks (FR-05.1).** A `privacy_canary` test case searches its target asset (a warehouse table, an export) for canary values: fake personal details planted in a source system's table that nothing downstream should copy. The values come from an answer key, another asset of the project with the columns `canary, kind, value`; SandboxBank's `sandboxbank canaries write` writes one as `needles.csv`. Both are read through worker connectors:
 

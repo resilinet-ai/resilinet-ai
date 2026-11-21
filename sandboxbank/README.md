@@ -195,12 +195,19 @@ A gradient-boosted classifier (scikit-learn `HistGradientBoostingClassifier`) th
 uv sync --package rai-sandboxbank --extra model          # scikit-learn, only for the model
 uv run sandboxbank model score --feed data/slice/feed --batch B000001 --out scores.csv
 uv run sandboxbank model card --out sandboxbank/MODEL_CARD.md
+uv run sandboxbank model features --feed data/slice/feed --batch B000001 --out features.csv
+uv run sandboxbank model serve --port 8081                # the model-api (FR-09.3)
 ```
 
 - **No model file is shipped.** A pickled model can run code when loaded, so the model is its recipe in `sandboxbank/model.py` (development seeds, features, hyperparameters) and is retrained from it in seconds by every command. The card records the recipe's SHA-256 and a fingerprint of the hold-out scores; a test fails if the published card does not match the recipe.
 - **Scores** come out as `txn_id, score, is_fraud`, ready for a RAI drift check on `score` against an earlier batch's scores.
 - **Development seeds only**: training seed 31000, batches 0 to 7, hold-out batches 8 and 9. Evaluation seeds belong to the registered benchmark.
-- **Not in the images.** The `model` extra is not installed in the SandboxBank image; the payments API and the ETL do not use the model.
+- **Features** come out as `txn_id`, the eight named inputs and `is_fraud`. Categories are kept as text and a missing value is an empty cell. RAI's robustness tests perturb this table.
+- **The model-api** (`sandboxbank model serve`; compose service `model-api`, profile `model`, port `127.0.0.1:18081`) trains from the recipe at startup, in about 20 seconds; `/readyz` answers 503 until then.
+  - `POST /v1/score` takes `{"rows": [{feature: value or null}]}`, at most 5,000 rows, and returns `{"model": {format, recipe_sha256, scikit_learn, sandboxbank}, "scores": [...]}` in order.
+  - Every row must name exactly the eight features. A missing value and a category outside the vocabulary are both missing to the model.
+  - Nothing is stored or logged. Register it with RAI as an `http` target with `score_url` `http://127.0.0.1:18081/v1/score` (FR-09.3).
+- **In the image.** The SandboxBank image installs the `model` extra for the model-api; the payments API and the ETL do not use it.
 
 ## Canary customers (FR-05.1)
 

@@ -105,6 +105,13 @@ from rai.recovery.consistency import (
 from rai.recovery.measure import Head, Sample, rpo, rto
 from rai.tevv.drift import ColumnDrift, DriftDefinition, drift
 from rai.tevv.metrics import Evaluation, MetricDefinition, describe, evaluate
+from rai.tevv.robustness import (
+    Robustness,
+    RobustnessDefinition,
+    Scorer,
+    describe_variant,
+    robustness,
+)
 from rai.validation.contract import Contract
 from rai.validation.engine import ValidationReport, validate
 from rai.validation.history import SqliteKeyStore
@@ -112,6 +119,7 @@ from rai.validation.verdict import decide
 from rai.worker import probes
 from rai.worker.chaos import ChaosClient, FaultOutcome, fault_preflight, record_revert
 from rai.worker.queue import Job
+from rai.worker.scoring import http_scorer
 
 SUPPORTED_TYPES = (
     "contract_rule",
@@ -119,6 +127,7 @@ SUPPORTED_TYPES = (
     "drift_check",
     "tevv_metric",
     "privacy_canary",
+    "robustness_check",
 )
 
 
@@ -162,6 +171,7 @@ class WorkerConfig:
     connectors: dict[str, dict[str, Any]] = field(default_factory=dict)  # name -> config
     lease: timedelta = timedelta(minutes=5)
     chaos: ChaosClient | None = None  # B-24: signed fault requests; None = no faults here
+    scorer: Callable[[str], Scorer] = http_scorer  # FR-09.3: an allow-listed score_url
 
 
 @dataclass(frozen=True)
@@ -197,6 +207,15 @@ class PreparedMetric:
 
     item: PinnedItem
     definition: MetricDefinition
+
+
+@dataclass(frozen=True)
+class PreparedRobustness:
+    """A robustness test, checked in preflight (FR-09.3)."""
+
+    item: PinnedItem
+    definition: RobustnessDefinition
+    score_url: str  # from the allow-list, never from the test case
 
 
 @dataclass(frozen=True)
@@ -406,6 +425,41 @@ def _metric_problems(
     return PreparedMetric(item, definition), []
 
 
+def _robustness_problems(
+    conn: Connection, pins: Pins, config: WorkerConfig, item: PinnedItem
+) -> tuple[PreparedRobustness | None, list[str]]:
+    """The worker's preflight for a robustness test (FR-09.3): a valid definition, a
+    registered environment, its connector on this worker, a locatable feature table,
+    and a scorer on the run environment's allow-list with a ``score_url``."""
+    assert item.test is not None  # noqa: S101 - the caller dispatches on it
+    try:
+        definition = RobustnessDefinition.model_validate(item.test.definition)
+    except ValidationError as error:
+        fields = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc']) or 'definition'}: {e['msg']}"
+            for e in error.errors()
+        )
+        return None, [f"the robustness test's definition is not valid ({fields})"]
+    problems = _environment_problems(conn, pins, definition.environment)
+    problems += _connector_problems(config, definition.connector, definition.environment)
+    if item.asset is None or not item.asset.locator:
+        problems.append("the target asset has no locator")
+    # The allow-list of the test's environment, which _environment_problems has checked is
+    # registered, active and the run's own when the run pins one.
+    url = conn.execute(
+        text("SELECT t.score_url FROM rai.environment_targets t JOIN rai.environments e "
+             "USING (environment_id) WHERE e.name = :env AND e.status = 'active' "
+             "AND t.name = :n AND t.kind = 'http'"),
+        {"env": definition.environment, "n": definition.scorer},
+    ).scalar_one_or_none()  # fmt: skip
+    if url is None:
+        problems.append(f"scorer {definition.scorer!r} is not on the allow-list as an http "
+                        "target with a score_url")  # fmt: skip
+    if problems or url is None:
+        return None, problems
+    return PreparedRobustness(item, definition, url), []
+
+
 def _canary_problems(
     conn: Connection, pins: Pins, config: WorkerConfig, item: PinnedItem
 ) -> tuple[PreparedCanary | None, list[str]]:
@@ -489,6 +543,12 @@ def preflight(
             problems.extend(f"{where}: {problem}" for problem in found)
             if sentinel is not None:
                 prepared[item.step_key] = sentinel
+            continue
+        if item.test.type == "robustness_check":
+            robust, found = _robustness_problems(conn, pins, config, item)
+            problems.extend(f"{where}: {problem}" for problem in found)
+            if robust is not None:
+                prepared[item.step_key] = robust
             continue
         if item.test.type == "tevv_metric":
             metric, found = _metric_problems(conn, pins, config, item)
@@ -681,6 +741,8 @@ class Executor:
                 self._drift(job, step)
             elif isinstance(step, PreparedMetric):
                 self._metric(job, step)
+            elif isinstance(step, PreparedRobustness):
+                self._robustness(job, step)
             elif isinstance(step, PreparedCanary):
                 self._canary(job, step)
             else:
@@ -1156,6 +1218,39 @@ class Executor:
             error="model evaluation: " + " | ".join(problems) if problems else None,
         )  # fmt: skip
 
+    def _robustness(self, job: Job, step: PreparedRobustness) -> None:
+        """Perturb the feature table and score every variant through the allow-listed
+        scorer (FR-09.3). A degradation beyond its limit fails the step; a variant that
+        cannot be scored or judged is an error."""
+        started = datetime.now(UTC)
+        definition = step.definition
+        assert step.item.asset is not None  # noqa: S101 - checked in preflight
+        assert step.item.asset.locator  # noqa: S101 - checked in preflight
+        try:
+            table = connector(self.config.connectors[definition.connector]).read(
+                step.item.asset.locator, environment=definition.environment
+            )
+        except (ConnectorError, ValueError) as error:
+            message = f"could not read the feature table: {error}"
+            note = {"kind": "note", "rule": "read", "outcome": "error", "rows": None,
+                    "failing": None, "observed": json.dumps({"message": message}),
+                    "expected": "{}"}  # fmt: skip
+            self._commit_step(job, step.item, started, [note], [],
+                              state="error", verdict=None, error=message)  # fmt: skip
+            return
+        result = robustness(table, definition, self.config.scorer(step.score_url))
+        problems = result.problems
+        errored = result.error is not None or any(v.outcome == "error" for v in result.variants)
+        seen = _digested(table)
+        read = {step.item.asset.asset_id: seen}
+        self._commit_step(
+            job, step.item, started, _robustness_observations(result, definition, seen),
+            _edges(step.item, read, {}),
+            state="error" if errored else "done",
+            verdict=None if errored else ("fail" if problems else "pass"),
+            error="robustness: " + " | ".join(problems) if problems else None,
+        )  # fmt: skip
+
     def _canary(self, job: Job, step: PreparedCanary) -> None:
         """Search the target for every canary value of the pinned key (FR-05.1). Any
         hit fails the step; a key that cannot work is an error. No value is ever
@@ -1264,6 +1359,7 @@ Step = (
     | PreparedDrift
     | PreparedMetric
     | PreparedCanary
+    | PreparedRobustness
 )
 
 
@@ -1353,6 +1449,40 @@ def _metric_observations(result: Evaluation, definition: MetricDefinition) -> li
         for r in result.results
     ]  # fmt: skip
     return [sample, *metrics]
+
+
+def _robustness_observations(
+    result: Robustness, definition: RobustnessDefinition, table: Digested
+) -> list[dict[str, Any]]:
+    """``robustness.sample`` (what was read and which model scored it), then one metric
+    per variant, the clean table first, with what was perturbed and every number's n."""
+    expected = {
+        "scorer": definition.scorer, "seed": definition.seed, "threshold": definition.threshold,
+        "max_drop": {m.name: m.max_drop for m in definition.metrics},
+        "min_rows": definition.min_rows, "min_positives": definition.min_positives,
+        "min_negatives": definition.min_negatives, "confidence": definition.confidence,
+    }  # fmt: skip
+    sample = {
+        "kind": "metric", "rule": "robustness.sample",
+        "outcome": "error" if result.error else "pass", "rows": result.rows_read,
+        "failing": None,
+        "observed": json.dumps({
+            "rows_read": result.rows_read, "rows_used": result.rows_used,
+            "null_label_rows": result.null_label_rows, "table_digest": table.sha256,
+            "model": result.model, "features": list(definition.features),
+            "categorical": list(definition.categorical), "error": result.error,
+        }),
+        "expected": json.dumps(expected),
+    }  # fmt: skip
+    variants = [
+        {
+            "kind": "metric", "rule": f"robustness.{v.name}", "outcome": v.outcome,
+            "rows": v.rows, "failing": None,
+            "observed": json.dumps(describe_variant(v)), "expected": json.dumps(expected),
+        }
+        for v in result.variants
+    ]  # fmt: skip
+    return [sample, *variants]
 
 
 def _canary_observation(result: Scan, definition: CanaryDefinition) -> dict[str, Any]:
