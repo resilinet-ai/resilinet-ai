@@ -1,7 +1,7 @@
 id,module,priority,requirement,backlog,issues,pull_requests,tests,evidence,status
 FR-01.1,M01,M,"Tenants, users and roles; cross-tenant isolation",B-05;B-16,,#4;#21,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py;tests/integration/test_api.py;tests/unit/test_api_security.py,docs/api.md,in progress
 FR-01.2,M01,M,Hash-chained audit entry for every state change,B-05;B-17,,#4;#22,tests/integration/test_core_schema.py;tests/unit/test_core_ids_audit.py;tests/integration/test_api_definitions.py,docs/api.md,in progress
-FR-01.3,M01,L,SSO via OIDC,,,,,,planned
+FR-01.3,M01,L,SSO via OIDC,,,,tests/integration/test_sso.py;web/src/App.test.tsx,docs/api.md,in progress
 FR-02.1,M02,M,PostgreSQL and CSV/Parquet connectors scoped to one environment,B-13,,#15,tests/unit/test_connectors.py;tests/integration/test_connectors_postgres.py,docs/connectors.md,in progress
 FR-02.2,M02,S,Redshift connector,,,,tests/unit/test_connectors_redshift.py;tests/integration/test_redshift_on_postgres.py,docs/connectors.md,in progress
 FR-02.3,M02,M,Credentials only as secret references,B-13,,#15,tests/unit/test_connectors.py;tests/integration/test_connectors_postgres.py,docs/connectors.md,in progress

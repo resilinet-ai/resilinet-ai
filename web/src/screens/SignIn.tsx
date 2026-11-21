@@ -1,16 +1,60 @@
-import { useState, type FormEvent } from "react";
-import { ApiError, type Api, type Me, type Tenant } from "../api";
+import { useEffect, useState, type FormEvent } from "react";
+import { ApiError, ssoReturn, type Api, type Me, type Sso, type Tenant } from "../api";
 import { Brand } from "../components/Brand";
 
 // W10: sign in, then choose a tenant when you belong to several (FR-01.1). The error
 // is the server's: the same for an unknown email, a wrong password and a disabled
 // account (threat S-01), and a 429 says how long to wait.
+//
+// FR-01.3: when the deployment has single sign-on, a button sends the browser to the
+// provider through the API. The API's callback returns here with a one-time code in the
+// URL fragment, which is exchanged at once and removed from the address bar.
+const SSO_ERRORS: Record<string, string> = {
+  "sso.no_account":
+    "Your account at the identity provider is not linked to a RAI user. Ask a tenant admin to invite you with the same, verified email.",
+  "sso.expired": "The sign-in took too long, or started in another browser. Try again.",
+  "sso.invalid_code": "The sign-in link was already used or has expired. Try again.",
+};
+const SSO_FAILED = "Single sign-on did not succeed. Try again, or sign in with your password.";
 export function SignIn({ api, onSignedIn }: { api: Api; onSignedIn: (me: Me, tenant: Tenant) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
+  const [sso, setSso] = useState<Sso>({ enabled: false, name: null });
+
+  function arrived(who: Me) {
+    const [only] = who.tenants;
+    if (who.tenants.length === 1 && only) onSignedIn(who, only);
+    else if (who.tenants.length === 0) setError("You are not a member of any tenant yet.");
+    else setMe(who);
+  }
+
+  useEffect(() => {
+    let live = true;
+    void api.sso().then((found) => live && setSso(found));
+    const back = ssoReturn(window.location.hash);
+    if (back) {
+      // Out of the address bar and the history before anything else: the code is single use.
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      if ("error" in back) setError(SSO_ERRORS[back.error] ?? SSO_FAILED);
+      else {
+        setBusy(true);
+        api
+          .ssoExchange(back.code)
+          .then((who) => live && arrived(who))
+          .catch((caught: unknown) =>
+            live && setError(caught instanceof ApiError ? SSO_ERRORS[caught.problem.code] ?? SSO_FAILED : SSO_FAILED),
+          )
+          .finally(() => live && setBusy(false));
+      }
+    }
+    return () => {
+      live = false;
+    };
+    // Once, when the screen opens.
+  }, [api]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -19,10 +63,7 @@ export function SignIn({ api, onSignedIn }: { api: Api; onSignedIn: (me: Me, ten
     try {
       const who = await api.login(email.trim(), password);
       setPassword("");
-      const [only] = who.tenants;
-      if (who.tenants.length === 1 && only) onSignedIn(who, only);
-      else if (who.tenants.length === 0) setError("You are not a member of any tenant yet.");
-      else setMe(who);
+      arrived(who);
     } catch (caught) {
       if (caught instanceof ApiError && caught.problem.retryAfter) {
         setError(`${caught.problem.title}. Try again in ${caught.problem.retryAfter} s.`);
@@ -75,6 +116,11 @@ export function SignIn({ api, onSignedIn }: { api: Api; onSignedIn: (me: Me, ten
       <button className="btn primary" type="submit" disabled={busy}>
         {busy ? "Signing in…" : "Sign in"}
       </button>
+      {sso.enabled && (
+        <a className="btn" href="/v1/auth/sso/start">
+          Sign in with {sso.name ?? "single sign-on"}
+        </a>
+      )}
       {error && (
         <div className="box alert" role="alert">
           <span className="pill fail">✕ Not signed in</span> {error}

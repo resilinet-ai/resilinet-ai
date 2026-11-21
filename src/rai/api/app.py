@@ -32,10 +32,12 @@ from rai.api import (
     routes_releases,
     routes_runs,
     routes_scenarios,
+    routes_sso,
     routes_summary,
     routes_waivers,
 )
 from rai.api.context import check_login_role
+from rai.api.oidc import OidcClient
 from rai.api.problems import Problem, problem_response
 from rai.api.ratelimit import FailureLimiter, RequestLimiter
 from rai.api.settings import Settings
@@ -69,6 +71,7 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
     app.state.login_by_email = FailureLimiter(settings.login_attempts, window)
     app.state.login_by_address = FailureLimiter(settings.login_attempts * ADDRESS_FACTOR, window)
     app.state.key_requests = RequestLimiter(settings.key_requests_per_minute, 60)
+    app.state.oidc = OidcClient(settings.oidc) if settings.oidc else None  # FR-01.3
     problems.install(app)
 
     @app.middleware("http")
@@ -114,6 +117,7 @@ def create_app(settings: Settings, *, engine: Engine | None = None) -> FastAPI:
         return {"status": "ready", "database": "ok"}
 
     app.include_router(routes_auth.router)
+    app.include_router(routes_sso.router)
     app.include_router(routes_members.router)
     app.include_router(routes_keys.router)
     app.include_router(routes_projects.router)

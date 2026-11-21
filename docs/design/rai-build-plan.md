@@ -68,6 +68,7 @@
 | — | Drift checks: PSI and KS between a pinned reference and the current data (FR-09.2; no backlog number recorded) | FR-09.2 | Done |
 | — | SandboxBank fraud model and model card (ADR-005), the model FR-09.1 evaluates | FR-09.1 | Done |
 | — | Model evaluation: the `tevv_metric` test type, every metric with its counts and confidence interval (FR-09.1; no backlog number recorded) | FR-09.1 | Done |
+| — | Single sign-on through OpenID Connect: authorization code with PKCE, ID token verified against the provider's JWKS, invited members only, linked by verified email then by subject; checked live against Keycloak 26 (FR-01.3; no backlog number recorded) | FR-01.3 | Done |
 | — | OpenLineage ingest: an orchestrator posts run events with a `lineage:write` key; RAI keeps their core (never facets), maps datasets to assets and shows external jobs in a project's graph (FR-04.2; no backlog number recorded) | FR-04.2 | Done |
 | — | Robustness tests: the `robustness_check` test type perturbs a feature table itself (noise, missing, unknown category; seeded) and has each variant scored by SandboxBank's model-api through an allow-listed `score_url` (FR-09.3; no backlog number recorded) | FR-09.3 | Done |
 | — | Safety limits mapped to their evidence: maximum duration, blast radius, rollback and the kill switch, built in B-23, B-25 and B-27 | NFR-SAF-2 | Done |
@@ -95,7 +96,7 @@
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
-Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2 (built, not yet run on a live cluster), FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1, NFR-OPS-1, NFR-USE-2, FR-14.1, and FR-09.2, FR-09.1, FR-09.3 and FR-04.2 (built, number not recorded).
+Requirements the matrix maps to no backlog item yet: FR-02.2 (built, not yet run on a live cluster), FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1, NFR-OPS-1, NFR-USE-2, FR-14.1, and FR-09.2, FR-09.1, FR-09.3, FR-04.2 and FR-01.3 (built, number not recorded).
 
 ## 5. First runnable slice: acceptance
 

@@ -34,6 +34,41 @@ curl -s localhost:8000/v1/me -H "authorization: Bearer $ACCESS"
 - **Refresh token:** `POST /v1/auth/refresh` returns a new pair, and the old refresh token stops working. Presenting an old one again ends the whole session. Sessions last at most 7 days from sign-in.
 - **Failed sign-ins** all get the same 401, whether the email is unknown, the password is wrong or the account is not active. After 5 failures for one email within 15 minutes, further attempts get 429 with `Retry-After`.
 
+### Single sign-on (OpenID Connect)
+
+A deployment can let people sign in through its identity provider (FR-01.3). Any OpenID Connect provider works, for example Keycloak, Entra ID, Okta or Google, with one provider per deployment. Passwords keep working alongside it.
+
+**Configure** the API with a confidential client registered at the provider. Its redirect URI is this API's `/v1/auth/sso/callback`:
+
+| Variable | Value |
+| --- | --- |
+| `RAI_OIDC_ISSUER` | The issuer, e.g. `https://login.example.org/realms/rai`. It must use `https://`; `http://` is allowed only for localhost. Its endpoints and keys come from `/.well-known/openid-configuration` |
+| `RAI_OIDC_CLIENT_ID` | The client's ID |
+| `RAI_OIDC_CLIENT_SECRET` | A secret reference: `env:NAME` or `file:/run/secrets/oidc` |
+| `RAI_OIDC_REDIRECT_URI` | e.g. `https://rai.example.org/v1/auth/sso/callback` |
+| `RAI_OIDC_UI_URL` | Where the browser goes afterwards (default `/`) |
+| `RAI_OIDC_NAME` | The button's label, e.g. `Keycloak` (default `single sign-on`) |
+
+**The flow.** The web UI's sign-in screen shows "Sign in with <name>" when `GET /v1/auth/sso` says SSO is enabled.
+
+1. `GET /v1/auth/sso/start` sends the browser to the provider (authorization code flow with PKCE, S256).
+2. The provider returns to `/v1/auth/sso/callback`, which sends the browser back to the UI with a one-time code in the URL fragment (`#sso=`).
+3. The UI exchanges the code at `POST /v1/auth/sso/exchange` for the usual token pair, and removes it from the address bar.
+
+**What is checked:**
+
+- **The attempt is this browser's.** `state`, the `nonce` and the PKCE verifier are kept in a signed, HttpOnly, SameSite=Lax cookie for 10 minutes.
+- **The ID token is the provider's.** It must be signed with a key from the provider's JWKS, using an asymmetric algorithm; `none` and HMAC are refused. Its issuer, audience (and `azp` when there are several audiences), expiry and nonce must all match.
+- **The one-time code** lives 2 minutes and works once; the database keeps only its SHA-256.
+
+**Who can sign in.** SSO never creates accounts: a tenant admin invites people as before.
+
+- The first SSO sign-in links an invited or active account whose email matches. The provider must mark that email **verified** (`email_verified: true`). An invited account becomes active.
+- From then on, only the provider's subject identifies the account, so a later change of email at the provider cannot move it to someone else.
+- A disabled account never signs in.
+
+**Failures** send the browser back to the UI with `#sso_error=` and a reason code only: `sso.no_account`, `sso.expired`, `sso.state_mismatch`, `sso.invalid_token`, `sso.provider_refused` or `sso.provider_unreachable`. The details are logged. Codes, ID tokens and the client secret are never logged or stored.
+
 ## Tenants and roles
 
 Send `X-RAI-Tenant: <tenant id>` if you belong to several tenants. With one tenant it is optional.

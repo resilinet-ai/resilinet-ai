@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 
+from rai.api.oidc import OidcConfig, OidcConfigError
 from rai.connectors.secrets import SecretError, SecretRef
 from rai.core.db import sqlalchemy_url
 from rai.core.evidence import EvidenceKeyError, EvidenceSigner
@@ -34,6 +35,7 @@ class Settings:
     login_window: timedelta = timedelta(minutes=15)
     key_requests_per_minute: int = 120  # per API key (threat D-03)
     evidence_signer: EvidenceSigner | None = field(default=None, repr=False)  # B-35: FR-13.2
+    oidc: OidcConfig | None = field(default=None, repr=False)  # FR-01.3: single sign-on
 
     def __post_init__(self) -> None:
         if len(self.jwt_secret.encode("utf-8")) < MIN_SECRET_BYTES:
@@ -59,7 +61,16 @@ class Settings:
             database_url=sqlalchemy_url(url),
             jwt_secret=secret,
             evidence_signer=evidence_signer_from_env(),
+            oidc=oidc_from_env(),
         )
+
+
+def oidc_from_env() -> OidcConfig | None:
+    """The single sign-on provider from RAI_OIDC_* (see rai.api.oidc), or None."""
+    try:
+        return OidcConfig.from_env()
+    except OidcConfigError as error:
+        raise SettingsError(str(error)) from None
 
 
 def evidence_signer_from_env() -> EvidenceSigner | None:
