@@ -31,7 +31,7 @@ class KeyIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project_id: UUID
     name: str = Field(min_length=1, max_length=100, description="e.g. github-actions")
-    scopes: list[apikeys.Scope] = Field(default=list(apikeys.SCOPES), min_length=1)
+    scopes: list[apikeys.Scope] = Field(default=list(apikeys.DEFAULT_SCOPES), min_length=1)
     expires_in_days: int = Field(default=30, ge=1, le=apikeys.MAX_DAYS)
 
 

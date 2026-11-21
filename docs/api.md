@@ -522,6 +522,42 @@ curl -s localhost:8000/v1/assurance/runs/$RUN/lineage -H "authorization: Bearer 
 
 `rai validate` reports the same value as `batch.source.content_sha256`, so a run's digests can be checked locally. The exact encoding is documented in `src/rai/lineage/digest.py`, and a test pins it.
 
+### External jobs (OpenLineage)
+
+An orchestrator's jobs can join a project's lineage (FR-04.2). Any orchestrator with an [OpenLineage](https://openlineage.io) integration can send them: Airflow, Dagster, dbt or Spark. It posts its run events to RAI, and RAI shows each job with the datasets it read and wrote.
+
+**1. A key for the orchestrator.** Create a project API key with only the `lineage:write` scope:
+
+```json
+{"project_id": "<project>", "name": "airflow-openlineage", "scopes": ["lineage:write"]}
+```
+
+**2. Point OpenLineage's HTTP transport at RAI.** For example, in `openlineage.yml`:
+
+```yaml
+transport:
+  type: http
+  url: https://rai.example.org
+  endpoint: v1/projects/<project>/openlineage
+  auth: {type: api_key, apiKey: rai_...}
+```
+
+| Endpoint | Who | Notes |
+| --- | --- | --- |
+| `POST /v1/projects/{id}/openlineage` | a `lineage:write` key of this project, or an engineer | One OpenLineage `RunEvent`. Answers `201` when stored, or `200` with `stored: false` when the same event was already stored, since clients retry |
+| `GET /v1/projects/{id}/openlineage/events` | every role | The stored events, oldest first; `?job_namespace=&job_name=` |
+| `GET, POST, DELETE /v1/assets/{id}/openlineage` | engineer (writes) | Map an asset to an OpenLineage dataset, `{"namespace": "postgres://analytics-db:5432", "name": "analytics.warehouse.fact_transaction"}` |
+| `GET /v1/projects/{id}/lineage` | every role | The project's graph: `assets` (each with its dataset, if mapped), declared `inputs`, and `jobs` |
+
+- **What RAI keeps.** It keeps the event type and time, the run ID, the job, the input and output datasets, and the producer. **It drops the facets and keeps only their names** (`job.sql`, `dataset.schema`), because facets can carry SQL, paths or environment details, and the graph doesn't need them. Events are insert-only and every one is in the audit chain.
+- **What is refused.** An event without a run ID (a UUID), a job, a producer or a valid `eventType` is `422`, as is one with more than 200 inputs or outputs. Another project's key gets `404`; a key without `lineage:write` gets `403 auth.key_scope`.
+- **In the graph.** Each job shows:
+  - how many runs it has had and its latest event;
+  - every dataset it read or wrote, with `asset_id` set when that dataset is mapped to an asset, which is how a job connects to the tables RAI tests.
+
+  Unmapped datasets still appear, without an asset. Mappings are one to one within a project (`409 openlineage.already_mapped`), audited, and can be removed. Removing a mapping changes nothing that was stored.
+- **Not yet.** A run's own lineage (`/v1/assurance/runs/{id}/lineage`) does not yet name the external job that last wrote each input, and `DatasetEvent` and `JobEvent` are not accepted.
+
 ## API keys and the CI gate
 
 CI signs in with a **project API key**, not a user account (FR-06.1, threat S-02).
@@ -534,7 +570,7 @@ CI signs in with a **project API key**, not a user account (FR-06.1, threat S-02
 
 - **Format:** `Authorization: Bearer rai_<prefix>_<secret>`. Only the SHA-256 of the secret is stored; the prefix identifies the key in lists and the audit log.
 - **Expiry is required:** 1 to 90 days (default 30). Revocation is the only change a key ever takes; keys are never deleted, and both events are audited.
-- **Scopes:** `runs:start` and `runs:read` (both by default). A key starts and reads runs of **its own project only**; another project's runs are `404`, and every other endpoint is `403` (`auth.key_scope`, or `auth.key_not_allowed` for account endpoints such as `/v1/me`).
+- **Scopes:** `runs:start` and `runs:read` (both by default), and `lineage:write` for an orchestrator's OpenLineage events (only when asked for; see [External jobs](#external-jobs-openlineage)). A key starts and reads runs of **its own project only**; another project's runs are `404`, and every other endpoint is `403` (`auth.key_scope`, or `auth.key_not_allowed` for account endpoints such as `/v1/me`).
 - **A key never outlives its creator's access.** It stops working when the user who created it is removed, disabled or no longer an admin or engineer, and when its project is archived.
 - **Accountability:** a run started by a key records the key (`api_key_id`) and its creator (`triggered_by`); the audit log names the key as actor.
 - **Rate limit:** 120 requests per minute per key (`429` with `Retry-After`).

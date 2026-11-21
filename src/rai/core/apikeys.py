@@ -21,8 +21,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 TOKEN_PREFIX = "rai_"  # noqa: S105 - the public marker of the format, not a secret
-Scope = Literal["runs:start", "runs:read"]
-SCOPES: tuple[Scope, ...] = ("runs:start", "runs:read")
+Scope = Literal["runs:start", "runs:read", "lineage:write"]
+SCOPES: tuple[Scope, ...] = ("runs:start", "runs:read", "lineage:write")
+# A new key gets what CI needs; an orchestrator's key asks for lineage:write (FR-04.2).
+DEFAULT_SCOPES: tuple[Scope, ...] = ("runs:start", "runs:read")
 MAX_DAYS = 90
 _ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"
 _TOKEN = re.compile(r"^rai_([a-z2-7]{12})_([A-Za-z0-9_-]{43})$")
