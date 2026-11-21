@@ -83,6 +83,11 @@ class TargetIn(BaseModel):
         description="key=value the target must carry; required for containers and proxies",
     )
     health_url: str | None = Field(default=None, pattern=r"^https?://\S{1,490}$")
+    score_url: str | None = Field(
+        default=None,
+        pattern=r"^https?://\S{1,490}$",
+        description="an http target's model-scoring endpoint, for robustness tests (FR-09.3)",
+    )
     image_digest: str | None = Field(
         default=None,
         pattern=r"^sha256:[0-9a-f]{64}$",
@@ -98,6 +103,7 @@ class TargetOut(BaseModel):
     name: str
     required_label: str | None
     health_url: str | None
+    score_url: str | None
     image_digest: str | None
     created_by: UUID
     created_at: datetime
@@ -111,7 +117,7 @@ _ENV = (
 )
 _TARGET = (
     "SELECT target_id, environment_id, kind::text, name, required_label, health_url, "
-    "image_digest, created_by, created_at FROM rai.environment_targets"
+    "score_url, image_digest, created_by, created_at FROM rai.environment_targets"
 )
 
 
@@ -259,16 +265,20 @@ def allow_target(
         )  # fmt: skip
     if body.kind != "container" and body.image_digest is not None:
         raise Problem(422, "targets.image_not_container", "Only a container target has an image")
+    if body.kind != "http" and body.score_url is not None:
+        raise Problem(422, "targets.score_not_http", "Only an http target scores rows")
     try:
         with session.conn.begin_nested():
             target_id = session.conn.execute(
                 text(
                     "INSERT INTO rai.environment_targets (environment_id, kind, name, "
-                    "required_label, health_url, image_digest, created_by) VALUES (:e, "
-                    "CAST(:k AS rai.target_kind), :n, :l, :h, :i, :u) RETURNING target_id"
+                    "required_label, health_url, score_url, image_digest, created_by) "
+                    "VALUES (:e, CAST(:k AS rai.target_kind), :n, :l, :h, :s, :i, :u) "
+                    "RETURNING target_id"
                 ),
                 {"e": environment_id, "k": body.kind, "n": body.name, "l": body.required_label,
-                 "h": body.health_url, "i": body.image_digest, "u": session.user_id},
+                 "h": body.health_url, "s": body.score_url, "i": body.image_digest,
+                 "u": session.user_id},
             ).scalar_one()  # fmt: skip
     except IntegrityError as error:
         if is_unique_violation(error):

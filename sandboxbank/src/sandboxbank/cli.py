@@ -17,6 +17,8 @@ sandboxbank verify-observations obs/observations.csv
 sandboxbank observed-rto obs/observations.csv --onset <ISO 8601> --reverted <ISO 8601>
 sandboxbank model card --out sandboxbank/MODEL_CARD.md      (needs the `model` extra)
 sandboxbank model score --feed data/slice/feed --batch B000001 --out scores.csv
+sandboxbank model features --feed data/slice/feed --batch B000001 --out features.csv
+sandboxbank model serve --port 8081                         (the model-api, FR-09.3)
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ import sys
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from sandboxbank.dataset import verify_dataset, write_dataset
 from sandboxbank.generator import GeneratorConfig
@@ -165,6 +168,18 @@ def _parser() -> argparse.ArgumentParser:
     score.add_argument("--feed", type=Path, required=True, help=feed_help)
     score.add_argument("--batch", required=True, help="Batch ID such as B000001, or a CSV path")
     score.add_argument("--out", type=Path, required=True, help="Scores (CSV)")
+    table = model_commands.add_parser(
+        "features",
+        help="Write one batch as the model's named inputs (txn_id, the features, is_fraud).",
+    )
+    table.add_argument("--feed", type=Path, required=True, help=feed_help)
+    table.add_argument("--batch", required=True, help="Batch ID such as B000001, or a CSV path")
+    table.add_argument("--out", type=Path, required=True, help="Feature table (CSV)")
+    serve_model = model_commands.add_parser(
+        "serve", help="Run the model-api: trains, then scores named feature records (FR-09.3)."
+    )
+    serve_model.add_argument("--host", default="127.0.0.1")
+    serve_model.add_argument("--port", type=int, default=8081)
     return parser
 
 
@@ -460,9 +475,17 @@ def _model(args: argparse.Namespace) -> int:
     except ImportError:  # pragma: no cover - the extra is installed in CI
         return _error("the fraud model needs the `model` extra: "
                       "uv sync --package rai-sandboxbank --extra model")  # fmt: skip
+    if args.model_command == "serve":
+        import uvicorn
+
+        from sandboxbank.model_api import create_app
+
+        uvicorn.run(create_app(), host=args.host, port=args.port)
+        return 0
     try:
-        trained = model.train()
+        trained = None if args.model_command == "features" else model.train()
         if args.model_command == "card":
+            assert trained is not None  # noqa: S101 - trained above
             evaluation, fingerprint = model.holdout(trained)
             args.out.parent.mkdir(parents=True, exist_ok=True)
             args.out.write_text(model.card(trained, evaluation, fingerprint), encoding="utf-8",
@@ -483,6 +506,9 @@ def _model(args: argparse.Namespace) -> int:
         reference = model.Reference.from_rows(rows(feed / "accounts.csv"),
                                               rows(feed / "merchants.csv"))  # fmt: skip
         transactions = rows(batch)
+        if args.model_command == "features":
+            return _feature_table(model, transactions, reference, args.out)
+        assert trained is not None  # noqa: S101 - trained above
         scores = trained.score(transactions, reference)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         with args.out.open("w", newline="", encoding="utf-8") as handle:
@@ -493,6 +519,27 @@ def _model(args: argparse.Namespace) -> int:
     except (OSError, KeyError, ValueError) as error:
         return _error(error)
     print(f"{len(scores):,} transactions scored into {args.out}")
+    return 0
+
+
+def _feature_table(
+    model: Any, transactions: list[dict[str, str]], reference: Any, out: Path
+) -> int:
+    """``model features``: the batch as named inputs; a missing value is an empty cell."""
+    import csv
+
+    names = [name for name, _ in model.FEATURES]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(["txn_id", *names, "is_fraud"])
+        for row in transactions:
+            record = model.feature_record(row, reference)
+            cells = ["" if record[n] is None else
+                     (f"{record[n]:.6f}" if isinstance(record[n], float) else record[n])
+                     for n in names]  # fmt: skip
+            writer.writerow([row["txn_id"], *cells, row.get("is_fraud", "")])
+    print(f"{len(transactions):,} transactions written as model inputs to {out}")
     return 0
 
 

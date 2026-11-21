@@ -72,6 +72,7 @@ def test_every_built_service_is_locked_down() -> None:
         "rai-chaos-agent",
         "rai-chaos-watchdog",
         "rai-observer",
+        "model-api",
     }
     for name, service in built.items():
         assert service["read_only"] is True, name

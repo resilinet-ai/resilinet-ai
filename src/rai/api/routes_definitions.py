@@ -48,6 +48,7 @@ TestType = Literal[
     "tevv_metric",
     "drift_check",
     "privacy_canary",
+    "robustness_check",
 ]
 Severity = Literal["info", "warn", "critical"]
 NAME = r"^[a-z][a-z0-9_.-]{0,99}$"

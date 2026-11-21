@@ -22,7 +22,7 @@ FR-08.2,M08,M,RPO from last committed ledger record,B-26b;B-29;B-30,,#32;#35,tes
 FR-08.3,M08,M,Post-recovery consistency checks,,,#34,tests/unit/test_recovery_consistency.py;tests/integration/test_consistency.py,docs/api.md,in progress
 FR-09.1,M09,S,Model evaluation with sample sizes,,,,tests/unit/test_tevv_metrics.py;tests/integration/test_model_evaluation.py;tests/unit/test_sandboxbank_model.py,docs/api.md;sandboxbank/MODEL_CARD.md;sandboxbank/README.md,in progress
 FR-09.2,M09,S,Drift detection (PSI/KS),,,,tests/unit/test_tevv_drift.py;tests/integration/test_drift_checks.py,docs/api.md,in progress
-FR-09.3,M09,L,Robustness tests,,,,,,planned
+FR-09.3,M09,L,Robustness tests,,,,tests/unit/test_tevv_robustness.py;tests/integration/test_robustness.py;tests/unit/test_sandboxbank_model_api.py,docs/api.md;sandboxbank/README.md,in progress
 FR-10.1,M10,M,"Findings with severity, owner, fix and retest",,,,tests/integration/test_findings.py,docs/api.md,in progress
 FR-11.1,M11,M,Executive dashboard with denominators,,,,tests/integration/test_summary.py;web/src/screens/Dashboard.test.tsx,docs/api.md;web/README.md,in progress
 FR-11.2,M11,M,Persistent synthetic-data banner,B-17;B-37,,#22,tests/integration/test_api_definitions.py;web/src/App.test.tsx,docs/api.md;web/README.md;docs/ui/runs.png,in progress

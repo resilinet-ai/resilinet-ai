@@ -179,6 +179,31 @@ services:
       - ./sandboxbank/toxiproxy.json:/config/toxiproxy.json:ro # ledger-db-proxy, analytics-db-proxy
     # The admin API (8474) is on chaos_net only: just the chaos agent can configure faults (TB5).
     networks: [sandbox_net, chaos_net]
+  # ---- model profile: the fraud model as a service (opt in: --profile sandbox --profile model) ----
+  model-api:
+    # FR-09.3: RAI perturbs a feature table itself and sends the rows here to be scored; RAI
+    # never runs a model (decision TEVV-METRIC). Trains from its recipe at startup (about
+    # 20 s; /readyz answers 503 until then), stores nothing, and has no database.
+    profiles: ["model"]
+    build:
+      context: .
+      dockerfile: sandboxbank/Dockerfile
+    command: ["sandboxbank", "model", "serve", "--host", "0.0.0.0", "--port", "8080"]
+    labels:
+      rai.sandbox: "true"
+      rai.target: model-api
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 180s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [sandbox_net]
+    ports:
+      - "127.0.0.1:18081:8080" # host-only: the worker scores through it
   # B-02: the generator is a CLI (`sandboxbank generate`), not a service.
 
   # ---- observer profile: RTO ground truth (opt in: --profile sandbox --profile observer) ----

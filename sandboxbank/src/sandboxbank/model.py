@@ -104,21 +104,47 @@ def _code(value: str | None, vocabulary: tuple[str, ...]) -> float:
     return float(vocabulary.index(value)) if value in vocabulary else math.nan
 
 
-def features(row: Mapping[str, str], reference: Reference) -> list[float]:
-    """One transaction (a ``transactions_raw`` row, as text) as the model's inputs."""
+Value = float | str | None
+CATEGORICAL = {name for name, vocabulary in FEATURES if vocabulary is not None}
+
+
+def feature_record(row: Mapping[str, str], reference: Reference) -> dict[str, Value]:
+    """One transaction (a ``transactions_raw`` row, as text) as the model's named inputs:
+    numbers for numeric features, the plain value for categorical ones, None if missing.
+    This is what ``sandboxbank model features`` writes and the scoring service takes."""
     amount = float(row["amount"])
     kind, limit = reference.accounts.get(row["account_id"], (None, math.nan))
     merchant = row.get("merchant_id") or None
-    return [
-        amount,
-        amount / limit if limit and not math.isnan(limit) else math.nan,
-        _code(row["channel"], CHANNELS),
-        1.0 if row["direction"] == "credit" else 0.0,
-        _code(row["status"], STATUSES),
-        _code(kind, ACCOUNT_KINDS),
-        0.0 if merchant is None else 1.0,
-        _code(reference.merchants.get(merchant) if merchant else None, CATEGORIES),
-    ]
+    return {
+        "amount": amount,
+        "amount_to_limit": amount / limit if limit and not math.isnan(limit) else None,
+        "channel": row["channel"] or None,
+        "credit": 1.0 if row["direction"] == "credit" else 0.0,
+        "status": row["status"] or None,
+        "account_type": kind,
+        "has_merchant": 0.0 if merchant is None else 1.0,
+        "merchant_category": reference.merchants.get(merchant) if merchant else None,
+    }
+
+
+def encode(record: Mapping[str, Value]) -> list[float]:
+    """Named inputs as the classifier's row. A missing or non-numeric number, and a
+    category outside its vocabulary, become NaN: the model treats both as missing."""
+    encoded = []
+    for name, vocabulary in FEATURES:
+        value = record.get(name)
+        if vocabulary is not None:
+            encoded.append(_code(value if isinstance(value, str) else None, vocabulary))
+        elif isinstance(value, bool) or not isinstance(value, int | float):
+            encoded.append(math.nan)
+        else:
+            encoded.append(float(value) if math.isfinite(value) else math.nan)
+    return encoded
+
+
+def features(row: Mapping[str, str], reference: Reference) -> list[float]:
+    """One transaction (a ``transactions_raw`` row, as text) as the classifier's row."""
+    return encode(feature_record(row, reference))
 
 
 def _generated(recipe: Mapping[str, Any], batches: Sequence[int]) -> tuple[
@@ -156,6 +182,23 @@ class Model:
 
         matrix = np.asarray([features(row, reference) for row in rows], dtype=float)
         return [float(p) for p in self.estimator.predict_proba(matrix)[:, 1]]
+
+    def score_records(self, records: Sequence[Mapping[str, Value]]) -> list[float]:
+        """The probability of fraud for each named-input record (``feature_record``)."""
+        if not records:
+            return []
+        import numpy as np  # comes with scikit-learn
+
+        matrix = np.asarray([encode(record) for record in records], dtype=float)
+        return [float(p) for p in self.estimator.predict_proba(matrix)[:, 1]]
+
+    @property
+    def identity(self) -> dict[str, str]:
+        """Which model this is: its format, recipe hash and scikit-learn version."""
+        import sklearn
+
+        return {"format": FORMAT, "recipe_sha256": recipe_sha256(self.recipe),
+                "scikit_learn": sklearn.__version__, "sandboxbank": __version__}  # fmt: skip
 
 
 def train(recipe: Mapping[str, Any] | None = None) -> Model:

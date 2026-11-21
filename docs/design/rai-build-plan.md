@@ -68,6 +68,7 @@
 | — | Drift checks: PSI and KS between a pinned reference and the current data (FR-09.2; no backlog number recorded) | FR-09.2 | Done |
 | — | SandboxBank fraud model and model card (ADR-005), the model FR-09.1 evaluates | FR-09.1 | Done |
 | — | Model evaluation: the `tevv_metric` test type, every metric with its counts and confidence interval (FR-09.1; no backlog number recorded) | FR-09.1 | Done |
+| — | Robustness tests: the `robustness_check` test type perturbs a feature table itself (noise, missing, unknown category; seeded) and has each variant scored by SandboxBank's model-api through an allow-listed `score_url` (FR-09.3; no backlog number recorded) | FR-09.3 | Done |
 | — | Safety limits mapped to their evidence: maximum duration, blast radius, rollback and the kill switch, built in B-23, B-25 and B-27 | NFR-SAF-2 | Done |
 | — | Privacy sentinel, part 1: SandboxBank's canary customers and their answer key | FR-05.1 | Done |
 | — | Privacy sentinel, part 2: the `privacy_canary` test type searches data assets, every hit masked | FR-05.1 | Done |
@@ -93,7 +94,7 @@
 
 The Requirements column is the `backlog` column of `docs/traceability.csv`, read in reverse; for planned items it is the requirement named in the scope, and "—" where the matrix records none. The matrix is the live record: if the two disagree, the matrix wins and this table is corrected.
 
-Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2 (built, not yet run on a live cluster), FR-04.2, FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1, NFR-OPS-1, NFR-USE-2, FR-14.1, FR-09.2 and FR-09.1 (built, number not recorded), and FR-09.3.
+Requirements the matrix maps to no backlog item yet: FR-01.3, FR-02.2 (built, not yet run on a live cluster), FR-04.2, FR-05.1, FR-08.3, FR-10.1, FR-11.1, NFR-USE-1, NFR-OPS-1, NFR-USE-2, FR-14.1, and FR-09.2, FR-09.1 and FR-09.3 (built, number not recorded).
 
 ## 5. First runnable slice: acceptance
 
