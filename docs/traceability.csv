@@ -10,7 +10,7 @@ FR-03.2,M03,M,"Schema drift detection, breaking vs non-breaking",B-11,,#13,tests
 FR-03.3,M03,M,Duplicate transaction IDs within and across batches,B-10,,#12,tests/unit/test_duplicates.py;tests/unit/test_engine.py,,in progress
 FR-03.4,M03,M,Rule severity and thresholds; critical fails the run,B-08;B-12;B-17,,#14;#22,tests/unit/test_contract.py;tests/unit/test_verdict.py;tests/integration/test_api_definitions.py,docs/api.md,in progress
 FR-04.1,M04,M,Lineage edges with content digests,B-17;B-19,,#22;#24,tests/integration/test_api_definitions.py;tests/integration/test_lineage.py;tests/unit/test_lineage_digest.py,docs/api.md,in progress
-FR-04.2,M04,L,OpenLineage ingest,,,,,,planned
+FR-04.2,M04,L,OpenLineage ingest,,,,tests/integration/test_openlineage.py,docs/api.md,in progress
 FR-05.1,M05,S,Synthetic canary privacy sentinel,,,#82;#83,tests/unit/test_sandboxbank_canaries.py;tests/integration/test_sandboxbank_ledger.py;tests/unit/test_privacy_canary.py;tests/integration/test_canary_checks.py;tests/unit/test_canary_sweep.py,sandboxbank/README.md;docs/api.md;docs/playbooks/evidence.md,in progress
 FR-06.1,M06,M,CLI and GitHub Action; non-zero exit on gate failure,B-14;B-20;B-17;B-18,,#17;#22;#23;#25,tests/unit/test_cli_validate.py;tests/integration/test_api_definitions.py;tests/integration/test_worker.py;tests/integration/test_api_keys.py;tests/unit/test_cli_run.py;tests/unit/test_apikeys.py,scripts/demo_slice.py;docs/demos;docs/api.md;action.yml,in progress
 FR-06.2,M06,S,"Idempotent, resumable runs",B-18,,#23,tests/integration/test_worker.py,docs/api.md,in progress
