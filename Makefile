@@ -1,4 +1,4 @@
-.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e tls-e2e journeys
+.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e tls-e2e journeys reproduce
 
 setup:
 	uv sync --all-packages
@@ -78,3 +78,9 @@ journeys:
 	status=0; docker compose --profile core --profile sandbox --profile chaos up -d --build --wait $(JOURNEY_SERVICES) \
 	&& uv run pytest tests/e2e -v || status=$$?; \
 	docker compose --profile core --profile sandbox --profile chaos down -v; exit $$status
+
+# B-41 (NFR-REP-2): reproduce a release on this machine, on a clean checkout of its tag:
+# the locked install, the demo and the journeys, with a report of the machine, each step and
+# the containers' peak memory (scripts/reproduce.py, docs/releasing.md).
+reproduce:
+	uv run --no-project python scripts/reproduce.py
