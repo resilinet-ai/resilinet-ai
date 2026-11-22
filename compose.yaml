@@ -204,6 +204,36 @@ services:
     networks: [sandbox_net]
     ports:
       - "127.0.0.1:18081:8080" # host-only: the worker scores through it
+  feature-job:
+    # P3: the fraud feature pipeline. Reads P2's warehouse after its watermark, has each
+    # chunk scored by the model-api through Toxiproxy (model-api-proxy, Protocol S10), and
+    # commits features, scores and the watermark together (S13, S18 resume cleanly).
+    profiles: ["model"]
+    build:
+      context: .
+      dockerfile: sandboxbank/Dockerfile
+    command: ["sandboxbank", "features", "--interval", "${FEATURE_INTERVAL_SECONDS:-60}",
+              "--model-api", "http://toxiproxy:18082"]
+    restart: unless-stopped
+    healthcheck:
+      disable: true # a batch job: no HTTP port; its progress is features.feature_watermark
+    labels:
+      rai.sandbox: "true"
+      rai.target: feature-job
+    environment:
+      SANDBOXBANK_ANALYTICS_DSN: postgresql://analytics:${ANALYTICS_DB_PASSWORD:?set ANALYTICS_DB_PASSWORD in .env}@toxiproxy:15434/analytics
+    depends_on:
+      analytics-db:
+        condition: service_healthy
+      model-api:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [sandbox_net]
+
   # B-02: the generator is a CLI (`sandboxbank generate`), not a service.
 
   # ---- observer profile: RTO ground truth (opt in: --profile sandbox --profile observer) ----

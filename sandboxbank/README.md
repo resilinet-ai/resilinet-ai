@@ -97,6 +97,20 @@ python -m uv run sandboxbank observed-rto obs/observations.csv --onset 2026-11-2
 python -m uv run sandboxbank etl --once --lag 0
 ```
 
+## Fraud feature pipeline (pipeline P3)
+
+The downstream machine-learning pipeline, so the study has a third pipeline with its own dependencies to fail (Protocol S10, S13, S18).
+
+```bash
+docker compose --profile sandbox --profile model up -d --wait   # adds model-api and feature-job
+uv run sandboxbank features --once --model-api http://127.0.0.1:18081   # one cycle, by hand
+```
+
+- **What it does.** `feature-job` reads `warehouse.fact_transaction` after its watermark, in `ledger_seq` order and in chunks of up to 5,000. It computes the fraud model's eight inputs from the warehouse and its dimensions; `status` is `posted`, because the warehouse holds posted transactions only. Each chunk is scored by the model-api, and the job writes `features.fraud_features`: the inputs, the label, the score and the model's recipe hash.
+- **Nothing lost, nothing doubled.** A chunk is scored before anything is written. Then its rows and the watermark's move commit in one transaction. A scoring outage, a database outage or a restart therefore leaves the table at the last committed chunk, and the next cycle carries on from there.
+- **Faults reach it through Toxiproxy.** It calls the model-api through `model-api-proxy` (`toxiproxy:18082`), so latency and connection drops apply to scoring, and it reaches analytics-db through `analytics-db-proxy`. The container carries `rai.target=feature-job`.
+- **Checked live:** with `model-api-proxy` disabled, the warehouse grew to 2,794 rows while the feature table held at 1,919, and the job logged three scoring outages. Once re-enabled, it caught up to 2,794 with no duplicates.
+
 ## Fault paths (B-23)
 
 In Compose, SandboxBank's database traffic goes through Toxiproxy ([`toxiproxy.json`](toxiproxy.json)): `ledger-db-proxy` (payments-api and the ETL to ledger-db) and `analytics-db-proxy` (the ETL to analytics-db). Every service the chaos agent may act on carries `rai.sandbox=true` and a `rai.target` label. See [docs/chaos-agent.md](../docs/chaos-agent.md).

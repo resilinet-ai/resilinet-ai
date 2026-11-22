@@ -10,5 +10,11 @@
     "listen": "0.0.0.0:15434",
     "upstream": "analytics-db:5432",
     "enabled": true
+  },
+  {
+    "name": "model-api-proxy",
+    "listen": "0.0.0.0:18082",
+    "upstream": "model-api:8080",
+    "enabled": true
   }
 ]
