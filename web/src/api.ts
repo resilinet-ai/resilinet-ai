@@ -129,6 +129,19 @@ async function toProblem(response: Response): Promise<ApiError> {
   return new ApiError(problem);
 }
 
+export interface Sso {
+  enabled: boolean;
+  name: string | null;
+}
+
+/** What the SSO callback left in the URL fragment: a one-time code, an error code, or
+ * nothing. The fragment never reaches a server or a Referer. */
+export function ssoReturn(hash: string): { code: string } | { error: string } | null {
+  const match = /^#sso(_error)?=([A-Za-z0-9._-]{1,200})$/.exec(hash);
+  if (!match) return null;
+  return match[1] ? { error: match[2]! } : { code: match[2]! };
+}
+
 export class Api {
   private tokens: Tokens | null = null;
   tenantId: string | null = null;
@@ -145,6 +158,24 @@ export class Api {
   async login(email: string, password: string): Promise<Me> {
     const pair = await this.send<{ access_token: string; refresh_token: string }>(
       "POST", "/v1/auth/login", { email, password }, false,
+    );
+    this.tokens = { access: pair.access_token, refresh: pair.refresh_token };
+    return this.get<Me>("/v1/me");
+  }
+
+  /** Whether this deployment offers single sign-on, and its button's label (FR-01.3). */
+  async sso(): Promise<Sso> {
+    try {
+      return await this.send<Sso>("GET", "/v1/auth/sso", undefined, false);
+    } catch {
+      return { enabled: false, name: null }; // an older API, or none reachable: no button
+    }
+  }
+
+  /** Finish a single sign-on: the one-time code from the callback, for a session. */
+  async ssoExchange(code: string): Promise<Me> {
+    const pair = await this.send<{ access_token: string; refresh_token: string }>(
+      "POST", "/v1/auth/sso/exchange", { code }, false,
     );
     this.tokens = { access: pair.access_token, refresh: pair.refresh_token };
     return this.get<Me>("/v1/me");

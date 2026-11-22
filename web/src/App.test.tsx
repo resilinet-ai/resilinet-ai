@@ -33,6 +33,58 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+describe("single sign-on (FR-01.3)", () => {
+  it("offers the provider only when the API has one", async () => {
+    const off = api();
+    const { unmount } = render(<App api={new Api("", off.fetcher)} />);
+    await waitFor(() => expect(off.sent.some((s) => s.path === "/v1/auth/sso")).toBe(true));
+    expect(screen.queryByRole("link", { name: /Sign in with/ })).toBeNull();
+    unmount();
+
+    const on = api({ "GET /v1/auth/sso": json({ enabled: true, name: "Example SSO" }) });
+    render(<App api={new Api("", on.fetcher)} />);
+    const link = await screen.findByRole("link", { name: "Sign in with Example SSO" });
+    expect(link).toHaveAttribute("href", "/v1/auth/sso/start");
+  });
+
+  it("exchanges the one-time code once and clears it from the address bar", async () => {
+    window.location.hash = "#sso=one-time-code_123";
+    const { fetcher, sent } = api({ "POST /v1/auth/sso/exchange": json(PAIR) });
+    render(<App api={new Api("", fetcher)} />);
+    await screen.findByRole("heading", { name: "Assurance overview" });
+    const exchanges = sent.filter((s) => s.path === "/v1/auth/sso/exchange");
+    expect(exchanges.map((s) => s.body)).toEqual([{ code: "one-time-code_123" }]);
+    expect(window.location.hash).not.toContain("sso=");
+    expect(sent.find((s) => s.path === "/v1/me")?.headers.Authorization).toBe("Bearer a1");
+  });
+
+  it("says why a single sign-on did not succeed, without details", async () => {
+    window.location.hash = "#sso_error=sso.no_account";
+    const { fetcher } = api();
+    render(<App api={new Api("", fetcher)} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("not linked to a RAI user");
+    expect(window.location.hash).toBe("");
+  });
+
+  it("treats a used or expired code as a failed sign-in", async () => {
+    window.location.hash = "#sso=already-used";
+    const { fetcher } = api({
+      "POST /v1/auth/sso/exchange": json({ title: "Sign in again", code: "sso.invalid_code" }, 401),
+    });
+    render(<App api={new Api("", fetcher)} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("already used or has expired");
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+  });
+
+  it("ignores a fragment that is not an SSO answer", async () => {
+    window.location.hash = "#sso=<script>";
+    const { fetcher, sent } = api();
+    render(<App api={new Api("", fetcher)} />);
+    await waitFor(() => expect(sent.some((s) => s.path === "/v1/auth/sso")).toBe(true));
+    expect(sent.some((s) => s.path === "/v1/auth/sso/exchange")).toBe(false);
+  });
+});
+
 describe("App", () => {
   it("shows the synthetic-data banner before and after sign-in (FR-11.2)", async () => {
     const { fetcher } = api();

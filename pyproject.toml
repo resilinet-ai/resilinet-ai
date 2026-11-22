@@ -21,6 +21,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyjwt>=2.9",
     "cryptography>=44", # Ed25519 signing of chaos fault requests (B-24)
+    "httpx>=0.27", # the SSO provider (FR-01.3) and model scoring (FR-09.3)
 ]
 
 [project.scripts]

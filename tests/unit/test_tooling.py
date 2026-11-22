@@ -59,3 +59,46 @@ def test_the_workspace_images_install_exactly_the_locked_versions(
     for name, version in pinned.items():
         assert locked.get(name) == version, f"{name}: run the uv export in requirements.txt"
     assert "--hash=sha256:" in text
+
+
+def _runtime_closure(lock: dict[str, object], root: str) -> set[str]:
+    """Every distribution ``root`` installs without dev groups, by its normalised name."""
+    packages = {p["name"]: p for p in lock["package"]}  # type: ignore[attr-defined]
+    seen: set[str] = set()
+    todo = [root]
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in packages:
+            continue
+        seen.add(name)
+        todo.extend(d["name"] for d in packages[name].get("dependencies", []))
+    return seen
+
+
+def test_rai_imports_only_what_it_installs() -> None:
+    # The API image installs resilinet-ai without dev groups. A module imported from a
+    # dev-only package (httpx, before FR-01.3) passes every test and breaks the image.
+    import ast
+    import sys
+    from importlib.metadata import packages_distributions
+
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    installed = _runtime_closure(lock, "resilinet-ai")
+    owners = packages_distributions()
+    missing = set()
+    for path in (ROOT / "src" / "rai").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                modules = [node.module]
+            else:
+                continue
+            for module in modules:
+                top = module.split(".")[0]
+                if top == "rai" or top in sys.stdlib_module_names:
+                    continue
+                dists = {re.sub(r"[-_.]+", "-", d).lower() for d in owners.get(top, [top])}
+                if not dists & installed:
+                    missing.add(f"{top} ({path.relative_to(ROOT).as_posix()})")
+    assert not missing, f"imported but not a runtime dependency: {sorted(missing)}"
