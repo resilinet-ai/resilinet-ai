@@ -104,6 +104,20 @@ def _parser() -> argparse.ArgumentParser:
         "--lag", type=float, default=5.0, help="Only read rows committed this long ago"
     )
 
+    features = commands.add_parser(
+        "features", help="Run the P3 fraud feature pipeline (warehouse to feature table)."
+    )
+    features.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    features.add_argument("--interval", type=float, default=60.0, help="Seconds between cycles")
+    features.add_argument(
+        "--chunk",
+        type=int,
+        default=5_000,
+        help="Warehouse rows per scored, committed chunk (at most 5,000)",
+    )
+    features.add_argument("--model-api", default="http://127.0.0.1:18081",
+                          help="The model-api's base URL")  # fmt: skip
+
     seed = commands.add_parser(
         "seed", help="Post transactions one by one at a steady rate, logging every answer."
     )
@@ -308,6 +322,30 @@ def _seal(args: argparse.Namespace) -> int:
         return 0
     print(f"{args.out}: answer key does NOT match its seal", file=sys.stderr)
     return 1
+
+
+def _features(args: argparse.Namespace) -> int:
+    import threading
+
+    from sandboxbank.etl import main_loop_signals
+    from sandboxbank.features import run_service
+
+    analytics_dsn = os.environ.get(ANALYTICS_DSN_ENV)
+    if not analytics_dsn:
+        return _error(f"set {ANALYTICS_DSN_ENV}")
+    if not 1 <= args.chunk <= 5_000 or args.interval <= 0:
+        return _error("--chunk must be 1 to 5,000 and --interval above 0")
+    stop = threading.Event()
+    if not args.once:  # pragma: no cover - long-running service
+        main_loop_signals(stop)
+    return run_service(
+        analytics_dsn,
+        args.model_api.rstrip("/") + "/v1/score",
+        once=args.once,
+        interval=args.interval,
+        chunk_size=args.chunk,
+        stop=stop,
+    )
 
 
 def _etl(args: argparse.Namespace) -> int:
@@ -550,6 +588,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "post": _post,
     "serve": _serve,
     "etl": _etl,
+    "features": _features,
     "fixtures": _fixtures,
     "seal": _seal,
     "slice": _slice,

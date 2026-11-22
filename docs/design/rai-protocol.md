@@ -32,7 +32,7 @@ Only H1–H3 are confirmatory and used for a headline claim. RAI is not expected
 
 ## 2. System under test
 
-SandboxBank (Spec section 5), synthetic data only. Pipeline **P1**: the payments feed (`transactions_raw` micro-batches) through `payments-api` into the append-only ledger. Pipeline **P2**: the settlement ETL into the analytics warehouse. Data comes from the seeded generator: **development seeds 0–99,999** for building and tuning; **evaluation seeds 100,000–199,999** for the registered benchmark only. The harness refuses evaluation fixtures unless explicitly allowed for the registered run.
+SandboxBank (Spec section 5), synthetic data only. Pipeline **P1**: the payments feed (`transactions_raw` micro-batches) through `payments-api` into the append-only ledger. Pipeline **P2**: the settlement ETL into the analytics warehouse. Pipeline **P3**: the fraud feature pipeline (`feature-job`). It reads P2's warehouse, has each transaction scored by the fraud model's service (`model-api`), and writes features and scores to `features.fraud_features` (decided 2026-11-21: P3 joins the study). Data comes from the seeded generator: **development seeds 0–99,999** for building and tuning; **evaluation seeds 100,000–199,999** for the registered benchmark only. The harness refuses evaluation fixtures unless explicitly allowed for the registered run.
 
 ## 3. Comparison arms
 
@@ -96,19 +96,19 @@ Seven fault types, applied by the chaos agent only in a registered sandbox:
 | S07 | connection_drop | `analytics-db-proxy` (P2) | proxy disabled | 5 min | 30 min | 5 min |
 | S08 | network_partition | `payments-api` (P1) | disconnected from the sandbox network | 2 min | 15 min | 2 min |
 | S09 | network_partition | `etl-job` (P2) | disconnected from the sandbox network | 10 min | 45 min | 15 min |
-| S10 | *reserved* | P3 (fraud feature pipeline) | — | — | — | — |
+| S10 | latency | `model-api-proxy` (P3) | +2,000 ms per scoring call | 5 min | 15 min *(proposed)* | 0 *(proposed)* |
 | S11 | container_stop | `payments-api` (P1) | stop | 1 min | 10 min | 0 |
 | S12 | container_stop | `etl-job` (P2) | stop mid-load | 10 min | 45 min | 15 min |
-| S13 | *reserved* | P3 | — | — | — | — |
+| S13 | connection_drop | `model-api-proxy` (P3) | proxy disabled: no scores | 5 min | 15 min *(proposed)* | 0 *(proposed)* |
 | S14 | container_restart | `ledger-db` (P1) | restart | instant | 10 min | 1 min |
 | S15 | container_restart | `payments-api` (P1) | restart mid-delivery | instant | 5 min | 0 |
 | S16 | container_restart | `etl-job` (P2) | restart mid-load | instant | 30 min | 5 min |
 | S17 | stale_upstream | `etl-job` (P2) | paused: settlement stops, state kept | 15 min | 30 min | 15 min |
-| S18 | *reserved* | P3 | — | — | — | — |
+| S18 | container_restart | `feature-job` (P3) | restart mid-chunk | instant | 5 min *(proposed)* | 0 *(proposed)* |
 | S19 | compound | `ledger-db-proxy`, then `payments-api` (P1) | +2,000 ms latency, then restart | 5 min | 15 min | 1 min |
 | S20 | compound | `ledger-db-proxy`, then `etl-job` (P1, P2) | connection drop, then paused ETL | 10 min | 45 min | 15 min |
 
-- **Reserved rows.** S10, S13 and S18 target the P3 fraud feature pipeline, which SandboxBank does not run as a service yet. They keep their numbers so the IDs stay stable. Each one is either specified when P3 exists or dropped before registration and logged as a deviation, never replaced by a different scenario.
+- **P3 rows.** S10, S13 and S18 target the P3 fraud feature pipeline, specified on 2026-11-21 once P3 ran as a service. Their objectives are proposals until the author's review of the whole table. P3 stores a chunk only together with its scores and its watermark move, and recomputes from the warehouse. So a scoring outage or a restart delays features but loses none, and the proposed RPO is 0. In S10 and S13 the feature-job must retry until scoring returns; in S18 it must resume with nothing lost or doubled.
 - **Compound scenarios.** S19 and S20 are faults in sequence within one scenario's blast radius. If the chaos path cannot run them when RAI v1.0 is frozen, they are dropped and logged as a deviation, not replaced.
 - **What each scenario must show.** In S04, S07 and S09 the database becomes unreachable and the ETL must retry until the fault clears. In S12 and S16 the ETL is stopped or restarted mid-load and must resume with nothing lost or doubled.
 - **The registry.** The table becomes the sealed registry `rai-bench-chaos-registry/1` (B-28), with each scenario's blast radius, recovery probes and objectives in the API's scenario shape.
@@ -182,5 +182,5 @@ The protocol is registered on OSF under embargo before the evaluation runs (deci
 
 ## Open before registration
 
-- Specify or drop the reserved P3 scenarios S10, S13 and S18, and decide whether P3 joins the defect study (section 7, power).
+- P3 joins the study (decided 2026-11-21), and S10, S13 and S18 are specified. Still open: P3's defect fixtures and baseline suites, and P2's (the fixture builder produces P1 only so far).
 - Author review of every objective in the S01–S20 table.
