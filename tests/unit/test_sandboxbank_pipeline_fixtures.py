@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import json
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +17,12 @@ pytest.importorskip("sklearn")
 
 from rai.validation.contract import load_contract
 from rai.validation.engine import read_batch, validate
+from rai_bench.arms import Delivery
+from rai_bench.baselines import B1Arm
 from rai_bench.cli import _arms
 from rai_bench.runner import HarnessError, delivered_table
 from sandboxbank import model
-from sandboxbank.fixtures import build_fixtures
+from sandboxbank.fixtures import build_fixtures, write_clean_deliveries
 from sandboxbank.injector import RATES
 from sandboxbank.schema import PIPELINE_TABLES, column_names
 from tests.unit.test_sandboxbank_model import SMALL as SMALL_RECIPE
@@ -146,9 +149,44 @@ def test_p2_rows_are_posted_transactions_in_ledger_order(sets: dict[str, Path]) 
     assert seen == sorted(seen)
 
 
-def test_an_unknown_pipeline_and_baselines_without_a_suite_are_refused(tmp_path: Path) -> None:
+def test_an_unknown_pipeline_and_a_table_without_a_b2_suite_are_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="pipeline must be one of"):
         build_fixtures(tmp_path / "x", data_seed=31, injector_seed=32, pipeline="P4", **SIZE)
-    with pytest.raises(HarnessError, match="arm B1 has no suite for fact_transaction yet"):
-        _arms(["B1"], CONTRACTS, "fact_transaction")
+    with pytest.raises(HarnessError, match="arm B2 has no suite for nowhere"):
+        _arms(["B2"], CONTRACTS, "nowhere")
+    assert [a.name for a in _arms(["B1"], CONTRACTS, "fact_transaction")] == ["B1"]
     assert delivered_table({}) == "transactions_raw"  # P1 sets made before B-28
+
+
+def test_clean_deliveries_for_profiling_are_development_only(
+    tmp_path: Path, small_model: model.Model, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(model, "train", lambda recipe=None: small_model)
+    with pytest.raises(ValueError, match="development seeds only"):
+        write_clean_deliveries(tmp_path / "e", data_seed=150_000, pipeline="P2")
+    manifest = write_clean_deliveries(tmp_path / "p3", data_seed=45_000, pipeline="P3",
+                                      batches=2, accounts=200, merchants=30,
+                                      rows_per_batch=500)  # fmt: skip
+    assert (manifest["table"], manifest["seed_purpose"], manifest["config"]["batches"]) == (
+        "fraud_features", "development", 2)  # fmt: skip
+    files = sorted(p.name for p in (tmp_path / "p3" / "fraud_features").glob("B*.csv"))
+    assert files == ["B000000.csv", "B000001.csv"]
+    assert (tmp_path / "p3" / "merchants.csv").is_file()
+
+
+@pytest.mark.parametrize("pipeline", ["P2", "P3"])
+def test_b1_runs_on_each_pipeline_and_passes_clean_loads(
+    sets: dict[str, Path], pipeline: str, tmp_path: Path
+) -> None:
+    out = sets[pipeline]
+    arm = B1Arm(table=PIPELINE_TABLES[pipeline])
+    arm.open(tmp_path, out / "feed")
+    clean = next(r for r in truth(out) if r["defect_class"] is None)
+    delivery = Delivery(batch_id=clean["batch_id"], file=out / clean["file"],
+                        feed=out / "feed", arrival=datetime.now(UTC), dimension=None)  # fmt: skip
+    assert arm.observe(delivery, lambda: datetime.now(UTC)) == []
+    renamed = next(r for r in truth(out) if r["defect_class"] == "D07")
+    delivery = Delivery(batch_id=renamed["batch_id"], file=out / renamed["file"],
+                        feed=out / "feed", arrival=datetime.now(UTC), dimension=None)  # fmt: skip
+    claims = {a.defect_class for a in arm.observe(delivery, lambda: datetime.now(UTC))}
+    assert "D07" in claims

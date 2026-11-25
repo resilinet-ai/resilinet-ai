@@ -411,3 +411,52 @@ def build_slice(
     seal = sha256_file(answer_key)
     (out_dir / "answer_key" / "SEAL").write_text(seal + "\n", encoding="utf-8", newline="\n")
     return {"answer_key_sha256": seal, "batches": truth, "seed_purpose": seed_purpose(data_seed)}
+
+
+def write_clean_deliveries(
+    out_dir: Path,
+    *,
+    data_seed: int,
+    pipeline: str,
+    batches: int = 30,
+    accounts: int = 5_000,
+    merchants: int = 500,
+    rows_per_batch: int = 100_000,
+) -> dict[str, Any]:
+    """Clean batches as a pipeline delivers them, with no defect and no answer key: what
+    baseline B2 is profiled on (Protocol section 3: 30 clean development batches).
+
+    Layout: ``<out>/<table>/Bnnnnnn.csv``, ``accounts.csv``, ``merchants.csv`` and
+    ``manifest.json`` (seed, purpose, schema version and configuration). Development seeds
+    only."""
+    from sandboxbank.schema import SCHEMA_VERSION
+
+    if pipeline not in PIPELINE_TABLES:
+        raise ValueError(f"pipeline must be one of {', '.join(PIPELINE_TABLES)}")
+    if seed_purpose(data_seed) != "development":
+        raise ValueError("clean profiling batches use development seeds only")
+    config = GeneratorConfig(seed=data_seed, accounts=accounts, merchants=merchants,
+                             batches=batches, rows_per_batch=rows_per_batch)  # fmt: skip
+    account_rows, merchant_rows = generate_accounts(config), generate_merchants(config)
+    table = PIPELINE_TABLES[pipeline]
+    shape = _Shaper(pipeline, data_seed, account_rows, merchant_rows)
+    _write_csv(out_dir / "accounts.csv", list(column_names("accounts")),
+               [list(a.as_row()) for a in account_rows])  # fmt: skip
+    _write_csv(out_dir / "merchants.csv", list(column_names("merchants")),
+               [list(m.as_row()) for m in merchant_rows])  # fmt: skip
+    for index in range(batches):
+        rows = shape.rows(index, generate_batch(config, account_rows, merchant_rows, index))
+        _write_csv(out_dir / table / f"{batch_id(index)}.csv", list(column_names(table)), rows)
+    manifest = {
+        "kind": "clean deliveries", "pipeline": pipeline, "table": table, "seed": data_seed,
+        "seed_purpose": "development", "schema_version": SCHEMA_VERSION,
+        "config": {"accounts": accounts, "merchants": merchants, "batches": batches,
+                   "rows_per_batch": rows_per_batch,
+                   "batch_window_seconds": config.batch_window_seconds,
+                   "start": format_timestamp(config.start)},
+        **({"model": shape.model_identity} if pipeline == "P3" else {}),
+    }  # fmt: skip
+    (out_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+    )
+    return manifest
