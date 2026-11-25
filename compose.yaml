@@ -147,10 +147,13 @@ services:
     build:
       context: .
       dockerfile: sandboxbank/Dockerfile
-    command: ["sandboxbank", "etl", "--interval", "${ETL_INTERVAL_SECONDS:-60}"]
+    command: ["sandboxbank", "etl", "--interval", "${ETL_INTERVAL_SECONDS:-60}",
+              "--health-port", "8080"]
     restart: unless-stopped # S12/S16: stopped or restarted mid-load, it resumes from the watermark
-    healthcheck:
-      disable: true # the image's check probes payments-api's HTTP port, which the ETL lacks
+    # The image's healthcheck asks /healthz (alive). /readyz is RAI's freshness probe for P2
+    # scenarios (B-28): 200 only while the warehouse is caught up.
+    ports:
+      - "127.0.0.1:18083:8080"
     labels:
       rai.sandbox: "true"
       rai.target: etl-job
@@ -213,10 +216,11 @@ services:
       context: .
       dockerfile: sandboxbank/Dockerfile
     command: ["sandboxbank", "features", "--interval", "${FEATURE_INTERVAL_SECONDS:-60}",
-              "--model-api", "http://toxiproxy:18082"]
+              "--model-api", "http://toxiproxy:18082", "--health-port", "8080"]
     restart: unless-stopped
-    healthcheck:
-      disable: true # a batch job: no HTTP port; its progress is features.feature_watermark
+    # /healthz for the image's healthcheck; /readyz is RAI's freshness probe for P3 (B-28).
+    ports:
+      - "127.0.0.1:18084:8080"
     labels:
       rai.sandbox: "true"
       rai.target: feature-job

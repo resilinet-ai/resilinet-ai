@@ -33,6 +33,7 @@ from typing import Any
 
 import psycopg
 
+from sandboxbank.health import Readiness
 from sandboxbank.model import FEATURES, Value
 
 PIPELINE = "p3_fraud_features"
@@ -220,8 +221,10 @@ def run_service(
     interval: float = 60.0,
     chunk_size: int = DEFAULT_CHUNK,
     stop: threading.Event | None = None,
+    readiness: Readiness | None = None,
 ) -> int:
-    """Run cycles until stopped. With ``once``, run one cycle and return its exit code."""
+    """Run cycles until stopped. With ``once``, run one cycle and return its exit code.
+    ``readiness`` (the freshness probe, ``sandboxbank.health``) learns each outcome."""
     stop = stop or threading.Event()
     while True:
         try:
@@ -231,6 +234,8 @@ def run_service(
                 while True:
                     summary = run_cycle(wh, score_url, chunk_size=chunk_size)
                     log("cycle", **asdict(summary))
+                    if readiness is not None:  # run_cycle drains every chunk: caught up
+                        readiness.cycle_succeeded()
                     if once:
                         return 0
                     if stop.wait(interval):
@@ -238,8 +243,12 @@ def run_service(
                         return 0
         except psycopg.OperationalError as error:
             log("database_unavailable", error=str(error).splitlines()[0] if str(error) else "")
+            if readiness is not None:
+                readiness.cycle_failed("analytics-db unavailable")
         except ScoringUnavailable as error:
             log("scoring_unavailable", error=str(error)[:300])
+            if readiness is not None:
+                readiness.cycle_failed("model-api unavailable")
         if once:
             return 1
         if stop.wait(interval):
