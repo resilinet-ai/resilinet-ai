@@ -119,16 +119,17 @@ RAI's measurements are one JSON object per line, `rai-bench-recovery/1`, with th
 
 - `injection`: the injection's ID from the fault plan;
 - `onset_at`, `reverted_at` and `rto_seconds`: as `GET /v1/assurance/recovery` reports them, with `null` when RAI found the system not restored;
-- `window_seconds`: optional.
+- `window_seconds`: optional;
+- `probes`: optional, the injection's recovery probes from the registry (`payments-health`, `etl-ready`, `features-ready`). Without it, `["payments-health"]`.
 
-The observer's truth uses the same onset, revert and restoration rule.
+The observer's truth uses the same onset, revert, recovery probes and restoration rule. A P2 scenario recovered by `etl-ready` is judged on the observer's own check of the etl-job's `/readyz`, not the payments-api's.
 
 | Outcome per injection | Counts as |
 | --- | --- |
 | Both found it restored, and they differ by at most 2 s | Agrees |
 | Neither found it restored within the window | Agrees |
 | One found it restored and the other did not, or they differ by more than 2 s | Disagrees |
-| The observer was not watching (started after the revert, or a gap of more than 5 s) | Excluded and counted as `unobserved`, never as agreement |
+| The observer was not watching (started after the revert, did not check one of the probes, or a gap of more than 5 s) | Excluded and counted as `unobserved`, never as agreement |
 
 The output gives:
 

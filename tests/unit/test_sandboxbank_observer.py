@@ -130,7 +130,7 @@ def test_an_edited_reordered_or_truncated_log_is_detected(tmp_path: Path) -> Non
     from sandboxbank.seeder import GENESIS, link
 
     fields = text.splitlines()[1].split(",")[:-1]
-    fields[5] = "true"
+    fields[FIELDS.index("healthy")] = "true"
     forged.write_text(f"{','.join(FIELDS)}\n{','.join([*fields, link(GENESIS, tuple(fields))])}\n")
     with pytest.raises(ValueError, match="healthy does not follow"):
         verify(forged)
@@ -209,3 +209,58 @@ def test_the_cli_verifies_a_log_and_prints_the_ground_truth(
     assert "no time zone" in capsys.readouterr().err
     (tmp_path / "bad.csv").write_text("n,at\n")
     assert main(["verify-observations", str(tmp_path / "bad.csv")]) == 1
+
+
+def test_the_jobs_freshness_probes_are_checked_and_logged(tmp_path: Path) -> None:
+    clock = Clock()
+    answers = {"http://api/readyz": 200, "http://etl/readyz": 503, "http://features/readyz": 0}
+    asked: list[str] = []
+
+    def get(url: str, timeout: float) -> int:
+        asked.append(url)
+        return answers[url]
+
+    log = ObservationLog(tmp_path / "obs.csv")
+    observe("http://api", lambda t: 5, log, etl_url="http://etl/", features_url="http://features",
+            samples=1, get=get, monotonic=clock.monotonic, wall=lambda: T0,
+            sleep=clock.sleep)  # fmt: skip
+    assert asked == list(answers)
+    (sample,) = read(log.path)
+    assert (sample.api, sample.etl, sample.features) == (200, 503, 0)
+    assert not sample.healthy  # a watched job is behind
+    assert sample.healthy_for(("payments-health",))  # but P1's probe is satisfied
+    assert not sample.healthy_for(("payments-health", "etl-ready"))
+    with pytest.raises(ValueError, match="etl_url"):
+        observe("http://api", lambda t: 5, log, etl_url="file:///etc", samples=1)
+
+
+def test_ground_truth_uses_the_injections_own_recovery_probes() -> None:
+    # The API stays up; the ETL falls behind from 10 s and is caught up again from 95 s.
+    samples = [Sample(at(t / 4), 200, True, 1, etl=503 if 40 <= t < 380 else 200, features=200)
+               for t in range(0, 480)]  # fmt: skip
+    assert restoration(samples, at(10), at(70)).seconds == 60.0  # P1: healthy all along
+    etl = restoration(samples, at(10), at(70), probes=("etl-ready",))
+    assert etl.observed
+    assert etl.seconds == 85.0
+    both = restoration(samples, at(10), at(70), probes=("payments-health", "etl-ready"))
+    assert both.seconds == 85.0
+    # A log without the job checks cannot give a P2 truth: unobserved, not "restored".
+    p1_only = timeline((0, 120, True))
+    blind = restoration(p1_only, at(10), at(70), probes=("etl-ready",))
+    assert not blind.observed
+    assert "did not check etl-ready" in blind.reason
+    with pytest.raises(ValueError, match="no observer check"):
+        restoration(samples, at(10), at(70), probes=("model-api",))
+
+
+def test_an_earlier_format_log_is_read_but_never_appended_to(tmp_path: Path) -> None:
+    from sandboxbank.observer import FIELDS_V1
+    from sandboxbank.seeder import GENESIS, link
+
+    fields = ("1", "2026-11-20T12:00:00.000000Z", "200", "ok", "7", "true")
+    old = tmp_path / "old.csv"
+    old.write_text(f"{','.join(FIELDS_V1)}\n{','.join([*fields, link(GENESIS, fields)])}\n")
+    (sample,) = read(old)
+    assert (sample.api, sample.etl, sample.features, sample.healthy) == (200, None, None, True)
+    with pytest.raises(ValueError, match="earlier format"):
+        ObservationLog(old)
