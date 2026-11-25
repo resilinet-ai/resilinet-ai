@@ -1,0 +1,379 @@
+# The S01-S20 chaos registry (B-28; Protocol section 5). Sealed: its SHA-256 is committed
+# in docs/design/rai-protocol.md, and `rai-bench chaos-seal` refuses a plan whose
+# registry differs. Never edit after the seal; a change is a deviation, recorded with
+# its date, reason and who decided (Protocol section 10).
+#
+# Objectives as the author approved them on 2026-11-25 (review page
+# https://claude.ai/artifact/NHJZq3YSRRM4ncaa8DGf7c): every RTO as listed, RPO 0 for all
+# twenty (Q2, Q3), P2 and P3 recovery probed by the jobs' freshness probes (Q1).
+#
+# Allow-listed targets on SANDBOX-01 (registered by an admin; RAI never takes addresses
+# from a scenario): ledger-db-proxy, analytics-db-proxy and model-api-proxy (Toxiproxy);
+# payments-api, ledger-db, etl-job and feature-job (containers); payments-health
+# (payments-api /readyz), payments-ledger (/v1/ledger/head), etl-ready (etl-job /readyz)
+# and features-ready (feature-job /readyz) (http).
+#
+# recovery.window_seconds equals the RTO objective, so restoration is always awaited at
+# least as long as the objective allows. A restart's 1 s duration is nominal: the agent
+# restarts the container at once and holds nothing.
+format: rai-bench-chaos-registry/1
+scenarios:
+- id: S01
+  title: Ledger latency +200 ms (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - ledger-db-proxy
+    faults:
+    - type: latency
+      target: ledger-db-proxy
+      duration_seconds: 300
+      latency_ms: 200
+    recovery:
+      probes: &id001
+      - payments-health
+      ledger: payments-ledger
+      rto_seconds: 600
+      rpo_seconds: 0
+      window_seconds: 600
+      stable_checks: 3
+- id: S02
+  title: Ledger latency +2,000 ms (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - ledger-db-proxy
+    faults:
+    - type: latency
+      target: ledger-db-proxy
+      duration_seconds: 300
+      latency_ms: 2000
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 600
+      rpo_seconds: 0
+      window_seconds: 600
+      stable_checks: 3
+- id: S03
+  title: Ledger calls time out (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - ledger-db-proxy
+    faults:
+    - type: timeout
+      target: ledger-db-proxy
+      duration_seconds: 120
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 600
+      rpo_seconds: 0
+      window_seconds: 600
+      stable_checks: 3
+- id: S04
+  title: Warehouse calls time out (P2)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - analytics-db-proxy
+    faults:
+    - type: timeout
+      target: analytics-db-proxy
+      duration_seconds: 300
+    recovery:
+      probes: &id002
+      - etl-ready
+      ledger: payments-ledger
+      rto_seconds: 1800
+      rpo_seconds: 0
+      window_seconds: 1800
+      stable_checks: 3
+- id: S05
+  title: Ledger connection drop, 1 min (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - ledger-db-proxy
+    faults:
+    - type: connection_drop
+      target: ledger-db-proxy
+      duration_seconds: 60
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 900
+      rpo_seconds: 0
+      window_seconds: 900
+      stable_checks: 3
+- id: S06
+  title: Ledger connection drop, 5 min (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - ledger-db-proxy
+    faults:
+    - type: connection_drop
+      target: ledger-db-proxy
+      duration_seconds: 300
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 1800
+      rpo_seconds: 0
+      window_seconds: 1800
+      stable_checks: 3
+- id: S07
+  title: Warehouse connection drop (P2)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - analytics-db-proxy
+    faults:
+    - type: connection_drop
+      target: analytics-db-proxy
+      duration_seconds: 300
+    recovery:
+      probes: *id002
+      ledger: payments-ledger
+      rto_seconds: 1800
+      rpo_seconds: 0
+      window_seconds: 1800
+      stable_checks: 3
+- id: S08
+  title: payments-api partitioned (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - payments-api
+    faults:
+    - type: network_partition
+      target: payments-api
+      duration_seconds: 120
+      network: sandbox_net
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 900
+      rpo_seconds: 0
+      window_seconds: 900
+      stable_checks: 3
+- id: S09
+  title: ETL partitioned (P2)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - etl-job
+    faults:
+    - type: network_partition
+      target: etl-job
+      duration_seconds: 600
+      network: sandbox_net
+    recovery:
+      probes: *id002
+      ledger: payments-ledger
+      rto_seconds: 2700
+      rpo_seconds: 0
+      window_seconds: 2700
+      stable_checks: 3
+- id: S10
+  title: Scoring latency +2,000 ms (P3)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - model-api-proxy
+    faults:
+    - type: latency
+      target: model-api-proxy
+      duration_seconds: 300
+      latency_ms: 2000
+    recovery:
+      probes: &id003
+      - features-ready
+      ledger: payments-ledger
+      rto_seconds: 900
+      rpo_seconds: 0
+      window_seconds: 900
+      stable_checks: 3
+- id: S11
+  title: payments-api stopped (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - payments-api
+    faults:
+    - type: container_stop
+      target: payments-api
+      duration_seconds: 60
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 600
+      rpo_seconds: 0
+      window_seconds: 600
+      stable_checks: 3
+- id: S12
+  title: ETL stopped mid-load (P2)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - etl-job
+    faults:
+    - type: container_stop
+      target: etl-job
+      duration_seconds: 600
+    recovery:
+      probes: *id002
+      ledger: payments-ledger
+      rto_seconds: 2700
+      rpo_seconds: 0
+      window_seconds: 2700
+      stable_checks: 3
+- id: S13
+  title: Scoring unreachable (P3)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - model-api-proxy
+    faults:
+    - type: connection_drop
+      target: model-api-proxy
+      duration_seconds: 300
+    recovery:
+      probes: *id003
+      ledger: payments-ledger
+      rto_seconds: 900
+      rpo_seconds: 0
+      window_seconds: 900
+      stable_checks: 3
+- id: S14
+  title: Ledger database restarted (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - ledger-db
+    faults:
+    - type: container_restart
+      target: ledger-db
+      duration_seconds: 1
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 600
+      rpo_seconds: 0
+      window_seconds: 600
+      stable_checks: 3
+- id: S15
+  title: payments-api restarted mid-delivery (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - payments-api
+    faults:
+    - type: container_restart
+      target: payments-api
+      duration_seconds: 1
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 300
+      rpo_seconds: 0
+      window_seconds: 300
+      stable_checks: 3
+- id: S16
+  title: ETL restarted mid-load (P2)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - etl-job
+    faults:
+    - type: container_restart
+      target: etl-job
+      duration_seconds: 1
+    recovery:
+      probes: *id002
+      ledger: payments-ledger
+      rto_seconds: 1800
+      rpo_seconds: 0
+      window_seconds: 1800
+      stable_checks: 3
+- id: S17
+  title: 'ETL paused: settlement stops, state kept (P2)'
+  repetitions: 10
+  definition:
+    blast_radius:
+    - etl-job
+    faults:
+    - type: stale_upstream
+      target: etl-job
+      duration_seconds: 900
+    recovery:
+      probes: *id002
+      ledger: payments-ledger
+      rto_seconds: 1800
+      rpo_seconds: 0
+      window_seconds: 1800
+      stable_checks: 3
+- id: S18
+  title: feature-job restarted mid-chunk (P3)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - feature-job
+    faults:
+    - type: container_restart
+      target: feature-job
+      duration_seconds: 1
+    recovery:
+      probes: *id003
+      ledger: payments-ledger
+      rto_seconds: 300
+      rpo_seconds: 0
+      window_seconds: 300
+      stable_checks: 3
+- id: S19
+  title: Ledger latency, then payments-api restart (P1)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - ledger-db-proxy
+    - payments-api
+    faults:
+    - type: latency
+      target: ledger-db-proxy
+      duration_seconds: 300
+      latency_ms: 2000
+    - type: container_restart
+      target: payments-api
+      duration_seconds: 1
+    recovery:
+      probes: *id001
+      ledger: payments-ledger
+      rto_seconds: 900
+      rpo_seconds: 0
+      window_seconds: 900
+      stable_checks: 3
+- id: S20
+  title: Ledger connection drop, then ETL paused (P1, P2)
+  repetitions: 10
+  definition:
+    blast_radius:
+    - ledger-db-proxy
+    - etl-job
+    faults:
+    - type: connection_drop
+      target: ledger-db-proxy
+      duration_seconds: 300
+    - type: stale_upstream
+      target: etl-job
+      duration_seconds: 300
+    recovery:
+      probes:
+      - payments-health
+      - etl-ready
+      ledger: payments-ledger
+      rto_seconds: 2700
+      rpo_seconds: 0
+      window_seconds: 2700
+      stable_checks: 3

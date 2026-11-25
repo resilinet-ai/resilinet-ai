@@ -101,7 +101,9 @@ Repetitions are shuffled by the seed, and a seeded gap (60 to 600 s by default) 
 
 `chaos-seal` exits 1 if the fault log no longer matches its SEAL, the manifest or the public hash, or if a scenario in `registry.json` no longer matches the definition the log was planned from (a loosened RTO, say). Rewriting the log, its SEAL and the manifest together passes the local checks, which is why the SEAL must be committed publicly first.
 
-**Not here yet:** the S01–S20 registry itself (to be restored from v0.1 or written by the author; Protocol section 5), and the runner that injects a plan and scores the arms' injection alerts.
+**The sealed registry** is [`registry/chaos-registry.yaml`](registry/chaos-registry.yaml): S01–S20 as the author approved them on 2026-11-25. Its `registry_sha256` is `01483388aec94ed63ebd0e953dba6b704172929a23f0ec3a701a7e35b6b4b06c`, and `tests/unit/test_chaos_registry.py` fails if it changes. To build the evaluation plan at registration, choose an evaluation seed privately, run `rai-bench chaos-plan registry/chaos-registry.yaml --out <private folder> --seed <seed>`, and commit only the printed SEAL.
+
+**Not here yet:** the runner that injects a plan and scores the arms' injection alerts.
 
 ## Protocol H3: RTO against the independent observer (B-44)
 

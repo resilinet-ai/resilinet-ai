@@ -75,7 +75,7 @@ Twelve classes, with their rates fixed by the protocol:
   - D10 makes `scored_at` late;
   - D12 fans a transaction out to two account-dimension rows (the same `txn_id` with a different `account_type`). Its answer key names both `txn_id` and `account_type`, so an arm that checks key uniqueness is credited.
 
-  *Proposed* until the author's review of the S01–S20 table and this mapping.
+  Approved by the author on 2026-11-25, with the S01–S20 table.
 - **The answer key** names exactly the changed rows (0-based rows of the delivered file), columns and keys, with each batch's window start and onset. It lives in its own folder, which the arms never see.
 - Injection rules are recorded in decisions SBX-INJECT and SBX-INJECT-2. For example, the freshness window is 1 h (D10), and D11 re-delivers the previous delivered file exactly.
 
@@ -99,30 +99,34 @@ Seven fault types, applied by the chaos agent only in a registered sandbox:
 | --- | --- | --- | --- | --- | --- | --- |
 | S01 | latency | `ledger-db-proxy` (P1) | +200 ms | 5 min | 10 min | 0 |
 | S02 | latency | `ledger-db-proxy` (P1) | +2,000 ms | 5 min | 10 min | 0 |
-| S03 | timeout | `ledger-db-proxy` (P1) | all calls time out | 2 min | 10 min | 1 min |
-| S04 | timeout | `analytics-db-proxy` (P2) | all calls time out | 5 min | 30 min | 5 min |
-| S05 | connection_drop | `ledger-db-proxy` (P1) | proxy disabled | 1 min | 15 min | 1 min |
-| S06 | connection_drop | `ledger-db-proxy` (P1) | proxy disabled | 5 min | 30 min | 5 min |
-| S07 | connection_drop | `analytics-db-proxy` (P2) | proxy disabled | 5 min | 30 min | 5 min |
-| S08 | network_partition | `payments-api` (P1) | disconnected from the sandbox network | 2 min | 15 min | 2 min |
-| S09 | network_partition | `etl-job` (P2) | disconnected from the sandbox network | 10 min | 45 min | 15 min |
-| S10 | latency | `model-api-proxy` (P3) | +2,000 ms per scoring call | 5 min | 15 min *(proposed)* | 0 *(proposed)* |
+| S03 | timeout | `ledger-db-proxy` (P1) | all calls time out | 2 min | 10 min | 0 |
+| S04 | timeout | `analytics-db-proxy` (P2) | all calls time out | 5 min | 30 min | 0 |
+| S05 | connection_drop | `ledger-db-proxy` (P1) | proxy disabled | 1 min | 15 min | 0 |
+| S06 | connection_drop | `ledger-db-proxy` (P1) | proxy disabled | 5 min | 30 min | 0 |
+| S07 | connection_drop | `analytics-db-proxy` (P2) | proxy disabled | 5 min | 30 min | 0 |
+| S08 | network_partition | `payments-api` (P1) | disconnected from the sandbox network | 2 min | 15 min | 0 |
+| S09 | network_partition | `etl-job` (P2) | disconnected from the sandbox network | 10 min | 45 min | 0 |
+| S10 | latency | `model-api-proxy` (P3) | +2,000 ms per scoring call | 5 min | 15 min | 0 |
 | S11 | container_stop | `payments-api` (P1) | stop | 1 min | 10 min | 0 |
-| S12 | container_stop | `etl-job` (P2) | stop mid-load | 10 min | 45 min | 15 min |
-| S13 | connection_drop | `model-api-proxy` (P3) | proxy disabled: no scores | 5 min | 15 min *(proposed)* | 0 *(proposed)* |
-| S14 | container_restart | `ledger-db` (P1) | restart | instant | 10 min | 1 min |
+| S12 | container_stop | `etl-job` (P2) | stop mid-load | 10 min | 45 min | 0 |
+| S13 | connection_drop | `model-api-proxy` (P3) | proxy disabled: no scores | 5 min | 15 min | 0 |
+| S14 | container_restart | `ledger-db` (P1) | restart | instant | 10 min | 0 |
 | S15 | container_restart | `payments-api` (P1) | restart mid-delivery | instant | 5 min | 0 |
-| S16 | container_restart | `etl-job` (P2) | restart mid-load | instant | 30 min | 5 min |
-| S17 | stale_upstream | `etl-job` (P2) | paused: settlement stops, state kept | 15 min | 30 min | 15 min |
-| S18 | container_restart | `feature-job` (P3) | restart mid-chunk | instant | 5 min *(proposed)* | 0 *(proposed)* |
-| S19 | compound | `ledger-db-proxy`, then `payments-api` (P1) | +2,000 ms latency, then restart | 5 min | 15 min | 1 min |
-| S20 | compound | `ledger-db-proxy`, then `etl-job` (P1, P2) | connection drop, then paused ETL | 10 min | 45 min | 15 min |
+| S16 | container_restart | `etl-job` (P2) | restart mid-load | instant | 30 min | 0 |
+| S17 | stale_upstream | `etl-job` (P2) | paused: settlement stops, state kept | 15 min | 30 min | 0 |
+| S18 | container_restart | `feature-job` (P3) | restart mid-chunk | instant | 5 min | 0 |
+| S19 | compound | `ledger-db-proxy`, then `payments-api` (P1) | +2,000 ms latency, then restart | 5 min | 15 min | 0 |
+| S20 | compound | `ledger-db-proxy`, then `etl-job` (P1, P2) | connection drop, then paused ETL | 10 min | 45 min | 0 |
 
-- **P3 rows.** S10, S13 and S18 target the P3 fraud feature pipeline, specified on 2026-11-21 once P3 ran as a service. Their objectives are proposals until the author's review of the whole table. P3 stores a chunk only together with its scores and its watermark move, and recomputes from the warehouse. So a scoring outage or a restart delays features but loses none, and the proposed RPO is 0. In S10 and S13 the feature-job must retry until scoring returns; in S18 it must resume with nothing lost or doubled.
+- **The author's review** (2026-11-25) approved every RTO as listed and set **RPO 0 for all twenty scenarios**, decision REGISTRY-SEAL:
+  - **P1:** the ledger commits before payments-api acknowledges a write, so no acknowledged write may be lost.
+  - **P2 and P3:** RAI's RPO is read on the ledger and labelled so. Data lost downstream is caught by the consistency checks that run after recovery (FR-08.3).
+- **P3 rows.** S10, S13 and S18 target the P3 fraud feature pipeline, specified on 2026-11-21 once P3 ran as a service. P3 stores a chunk only together with its scores and its watermark move, and recomputes from the warehouse. So a scoring outage or a restart delays features but loses none. In S10 and S13 the feature-job must retry until scoring returns; in S18 it must resume with nothing lost or doubled.
 - **Compound scenarios.** S19 and S20 are faults in sequence within one scenario's blast radius. If the chaos path cannot run them when RAI v1.0 is frozen, they are dropped and logged as a deviation, not replaced.
 - **How P2 and P3 recovery is probed** (the author's review, Q1). The ETL and the feature-job each serve a freshness probe, `/readyz`. It answers 200 only while the job is caught up: its last cycle succeeded, drained its backlog, and finished within two minutes. So RTO for a P2 or P3 scenario runs until the job has caught up again, not merely until its process is back.
 - **What each scenario must show.** In S04, S07 and S09 the database becomes unreachable and the ETL must retry until the fault clears. In S12 and S16 the ETL is stopped or restarted mid-load and must resume with nothing lost or doubled.
-- **The registry.** The table becomes the sealed registry `rai-bench-chaos-registry/1` (B-28), with each scenario's blast radius, recovery probes and objectives in the API's scenario shape.
+- **The registry is sealed.** The table is `benchmarks/registry/chaos-registry.yaml` (`rai-bench-chaos-registry/1`, B-28), with each scenario's blast radius, faults, recovery probes and objectives in the API's scenario shape, and 10 repetitions each. Its canonical SHA-256, the `registry_sha256` of any plan built from it, is **`01483388aec94ed63ebd0e953dba6b704172929a23f0ec3a701a7e35b6b4b06c`** (sealed 2026-11-25). `tests/unit/test_chaos_registry.py` fails if it changes. A change after the seal is a deviation (section 10).
+- **The evaluation fault plan** is built by the author at registration, with an evaluation seed chosen privately (`rai-bench chaos-plan … --seed <100,000–199,999>`). Only its fault-log SEAL is committed and registered; the seed and the log stay with the author until the analysis, so no arm can learn the schedule.
 
 ## 6. Metrics
 
@@ -152,7 +156,7 @@ Every metric is computed by a script from raw logs, and published with its numer
 | H3 | Share of injections with absolute RTO error ≤ 2 s; exact RPO match rate | Clopper–Pearson 95% CI; Bland–Altman plot of RTO error | Point estimate ≥ 95% and lower 95% bound ≥ 90% |
 | H4–H6 | Descriptive | Rates and medians with 95% CIs | Reported, not used for a headline claim |
 
-**Sample and power.** Two pipelines (P1, P2) give 360 batches: 288 seeded defect instances and 72 clean controls, 1,080 batch validations across three arms. With 17 active scenarios × 10 repetitions there are 170 injections. If about 15% of the 288 paired instances are discordant (about 43 pairs) and RAI wins 70% of them, an exact McNemar test at the strictest Holm level (α = 0.0167) has roughly 60% power. The study is therefore sized for estimation: if discordance is low, the result is reported with its interval as inconclusive, never topped up with extra runs. Adding P3 before the freeze would raise the defect instances to 432 and the power to about 80%; the frozen text states which applies.
+**Sample and power.** Three pipelines (P1, P2, P3; P3 joined on 2026-11-21) give 540 batches: 432 seeded defect instances and 108 clean controls, 1,620 batch validations across three arms. With 20 scenarios × 10 repetitions there are 200 injections. If about 15% of the 432 paired instances are discordant (about 65 pairs) and RAI wins 70% of them, an exact McNemar test at the strictest Holm level (α = 0.0167) has roughly 80% power. If discordance is low, the result is reported with its interval as inconclusive, never topped up with extra runs.
 
 ## 8. Alerts, matching, sealing and adjudication
 
@@ -193,5 +197,6 @@ The protocol is registered on OSF under embargo before the evaluation runs (deci
 
 ## Open before registration
 
-- P3 joins the study (decided 2026-11-21), and S10, S13 and S18 are specified. Still open: P3's defect fixtures and baseline suites, and P2's (the fixture builder produces P1 only so far).
-- Author review of every objective in the S01–S20 table.
+- Done: P3 joins the study (2026-11-21); P2 and P3 fixtures and baselines (2026-11-24); the author's review of every objective and the S01–S20 registry sealed (2026-11-25).
+- The external review of baselines B1 and B2 for all three pipelines, then their freezes (day 45 and day 50).
+- The evaluation fault plan and the evaluation fixture sets, built by the author with privately chosen evaluation seeds; their SEALs committed and registered on OSF (day 60).
