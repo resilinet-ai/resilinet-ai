@@ -8,11 +8,15 @@ onset_at   the fault's onset as RAI recorded it (UTC, ISO 8601)
 reverted_at the last revert
 rto_seconds RAI's RTO, or null when RAI found it not restored within its window
 window_seconds optional: RAI's recovery window, used for the ground truth too
+probes     optional: the injection's recovery probes (``payments-health``,
+           ``etl-ready``, ``features-ready``); ``["payments-health"]`` if absent
 ========== ===================================================================
 
 These are the fields of ``GET /v1/assurance/recovery`` (and ``recovery_measurements``).
-The observer's log (``sandboxbank observe``) gives the ground truth for the same onset
-and revert, by the same restoration rule (:func:`sandboxbank.observer.restoration`).
+The observer's log (``sandboxbank observe``) gives the ground truth for the same onset,
+revert and recovery probes, by the same restoration rule
+(:func:`sandboxbank.observer.restoration`): a P2 scenario's truth comes from the
+observer's check of the etl-job's ``/readyz``, as RAI's comes from ``etl-ready``.
 
 Per injection, RAI **agrees** with the truth when both found it restored and
 ``|RAI - truth| <= 2 s``, or when neither did. Injections the observer did not watch are
@@ -30,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from rai_bench.runner import HarnessError
-from sandboxbank.observer import HOLD, Sample, read, restoration
+from sandboxbank.observer import HOLD, P1_PROBES, PROBES, Sample, read, restoration
 
 FORMAT = "rai-bench-recovery/1"
 TOLERANCE = 2.0  # seconds (Protocol H3)
@@ -122,8 +126,13 @@ def read_measurements(path: Path) -> list[dict[str, Any]]:
             window = row.get("window_seconds")
             if window is not None and (not isinstance(window, int | float) or window <= 0):
                 raise HarnessError(f"{where}: window_seconds must be a number > 0")
+            probes = row.get("probes", list(P1_PROBES))
+            if (not isinstance(probes, list) or not probes
+                    or any(p not in PROBES for p in probes)):  # fmt: skip
+                raise HarnessError(f"{where}: probes must be a list drawn from {sorted(PROBES)}")
             rows.append({
                 "injection": injection,
+                "probes": tuple(probes),
                 "onset": _when(row.get("onset_at"), where),
                 "reverted": _when(row.get("reverted_at"), where),
                 "rto": None if rto is None else float(rto),
@@ -142,7 +151,7 @@ def score_h3(
     for row in measurements:
         try:
             truth = restoration(samples, row["onset"], row["reverted"], hold=hold,
-                                window=row["window"])  # fmt: skip
+                                window=row["window"], probes=row["probes"])  # fmt: skip
         except ValueError as error:
             raise HarnessError(f"injection {row['injection']}: {error}") from None
         result: dict[str, Any] = {

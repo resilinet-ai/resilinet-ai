@@ -12,9 +12,11 @@ sandboxbank seal data/fixtures [--expect <sha256>]
 sandboxbank etl [--once]          (needs SANDBOXBANK_LEDGER_DSN and SANDBOXBANK_ANALYTICS_DSN)
 sandboxbank seed --data data/sandboxbank --log acks/acks.csv --rate 10
 sandboxbank verify-acks acks/acks.csv
-sandboxbank observe --log obs/observations.csv               (needs SANDBOXBANK_LEDGER_DSN)
+sandboxbank observe --log obs/observations.csv [--etl URL] [--features URL]
+                                                            (needs SANDBOXBANK_LEDGER_DSN)
 sandboxbank verify-observations obs/observations.csv
 sandboxbank observed-rto obs/observations.csv --onset <ISO 8601> --reverted <ISO 8601>
+                         [--probe etl-ready]
 sandboxbank model card --out sandboxbank/MODEL_CARD.md      (needs the `model` extra)
 sandboxbank model score --feed data/slice/feed --batch B000001 --out scores.csv
 sandboxbank model features --feed data/slice/feed --batch B000001 --out features.csv
@@ -138,9 +140,12 @@ def _parser() -> argparse.ArgumentParser:
     acks.add_argument("log", type=Path, help="Seeding log")
 
     observe = commands.add_parser(
-        "observe", help="Sample the payments-api and ledger every 250 ms: RTO ground truth (B-44)."
+        "observe",
+        help="Sample the payments-api, the jobs and the ledger every 250 ms: RTO truth (B-44).",
     )
     observe.add_argument("--api", default="http://127.0.0.1:18080", help="payments-api base URL")
+    observe.add_argument("--etl", help="etl-job health base URL (its /readyz is checked too)")
+    observe.add_argument("--features", help="feature-job health base URL (/readyz checked too)")
     observe.add_argument("--log", type=Path, required=True, help="Observation log (CSV, appended)")
     observe.add_argument("--interval", type=float, default=0.25, help="Seconds between samples")
     observe.add_argument("--timeout", type=float, default=2.0, help="Seconds each check may take")
@@ -160,6 +165,9 @@ def _parser() -> argparse.ArgumentParser:
     observed.add_argument("--hold", type=float, default=2.0,
                           help="Seconds healthy before it counts (stable_checks - 1)")  # fmt: skip
     observed.add_argument("--window", type=float, help="Seconds after the revert to look")
+    observed.add_argument("--probe", action="append", dest="probes",
+                          help="The injection's recovery probe, repeatable: payments-health "
+                               "(the default), etl-ready or features-ready")  # fmt: skip
 
     canaries = commands.add_parser(
         "canaries", help="Fake customers for RAI's privacy sentinel (FR-05.1)."
@@ -446,8 +454,8 @@ def _observe(args: argparse.Namespace) -> int:  # pragma: no cover - runs until 
     ledger = LedgerQuery(dsn)
     try:
         log = ObservationLog(args.log)
-        observe(args.api, ledger, log, interval=args.interval, timeout=args.timeout,
-                samples=args.samples)  # fmt: skip
+        observe(args.api, ledger, log, etl_url=args.etl, features_url=args.features,
+                interval=args.interval, timeout=args.timeout, samples=args.samples)  # fmt: skip
     except (ValueError, OSError) as error:
         return _error(error)
     except KeyboardInterrupt:
@@ -477,11 +485,12 @@ def _zoned(text: str) -> datetime:
 
 
 def _observed_rto(args: argparse.Namespace) -> int:
-    from sandboxbank.observer import read, restoration
+    from sandboxbank.observer import P1_PROBES, read, restoration
 
+    probes = tuple(args.probes or P1_PROBES)
     try:
         truth = restoration(read(args.log), _zoned(args.onset), _zoned(args.reverted),
-                            hold=args.hold, window=args.window)  # fmt: skip
+                            hold=args.hold, window=args.window, probes=probes)  # fmt: skip
     except (ValueError, OSError) as error:
         return _error(error)
     if not truth.observed:

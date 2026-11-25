@@ -138,3 +138,23 @@ def test_the_cli_prints_the_verdict_and_writes_the_result(tmp_path: Path) -> Non
     assert json.loads(out.read_text())["summary"]["agreed"] == 1
     missing = CliRunner().invoke(app, ["h3", str(tmp_path / "none"), str(tmp_path / "obs.csv")])
     assert missing.exit_code == 2
+
+
+def test_a_p2_injection_is_scored_on_the_etl_check(tmp_path: Path) -> None:
+    # The API is up throughout; the ETL is behind from 10 s to 90 s.
+    log = ObservationLog(tmp_path / "obs.csv")
+    for i in range(int(200 / 0.25)):
+        t = i * 0.25
+        log.append(Sample(at(t), 200, True, i, etl=503 if 10 <= t < 90 else 200, features=200))
+    (tmp_path / "rai.jsonl").write_text(
+        record("P2", 10, 60, 81.0, probes=["etl-ready"]) + "\n"
+        + record("P1", 10, 60, 50.0) + "\n"  # default probe: the API, healthy all along
+    )  # fmt: skip
+    result = h3(tmp_path / "rai.jsonl", tmp_path / "obs.csv")
+    by_id = {r["injection"]: r for r in result["injections"]}
+    assert by_id["P2"]["truth_rto_seconds"] == 80.0
+    assert by_id["P2"]["agrees"] is True
+    assert by_id["P1"]["truth_rto_seconds"] == 50.0
+    (tmp_path / "bad.jsonl").write_text(record("X", 10, 60, 1.0, probes=["model-api"]) + "\n")
+    with pytest.raises(HarnessError, match="probes must be"):
+        h3(tmp_path / "bad.jsonl", tmp_path / "obs.csv")

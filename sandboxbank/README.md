@@ -66,14 +66,15 @@ python -m uv run sandboxbank observed-rto obs/observations.csv --onset 2026-11-2
 
 - **What one sample checks:**
   - the payments-api's `/readyz`, the way clients reach it;
+  - the etl-job's and feature-job's `/readyz` (`--etl`, `--features`; compose passes both), the freshness probes that P2 and P3 scenarios recover by;
   - the **consistency query**: `max(seq)` on ledger-db, read directly rather than through Toxiproxy, in a read-only session.
 
-  A sample is healthy when both answer within 2 s, the same timeout RAI's probes use.
-- **Columns:** `n, at, api, ledger, seq, healthy, chain`. The `at` column is the wall clock read once at start-up plus the monotonic time since then, so a clock step during a run cannot move it.
+  Each check has 2 s, the same timeout RAI's probes use. A sample is `healthy` when every check it made passed.
+- **Columns:** `n, at, api, etl, features, ledger, seq, healthy, chain` (`etl` and `features` are empty when not watched). Logs from before the job checks (no `etl` and `features` columns) are still read and verified, but the observer will not append to one. The `at` column is the wall clock read once at start-up plus the monotonic time since then, so a clock step during a run cannot move it.
 - **The schedule never drifts.** A slow sample skips the ticks it missed rather than making them up.
 - **The log is append-only and hash-chained,** like the seeding log, and fsynced line by line. A restarted observer continues the same chain.
-- **`observed-rto`** applies RAI's restoration rule to the samples: ignore everything before the last revert, then take the first healthy sample from which the system stayed healthy for `--hold` seconds. The default hold is 2 s, which matches RAI's default of 3 probe rounds 1 s apart. Only the clock and the sampling rate differ from RAI's measurement, so any difference is measurement error, not a different definition.
-- **Unobserved is not "not restored".** If the observer started after the revert, or its samples have a gap of more than 5 s before restoration, the answer is *unobserved* (exit 1), and `rai-bench h3` excludes that injection rather than scoring it.
+- **`observed-rto`** applies RAI's restoration rule to the samples, for the injection's recovery probes (`--probe`, repeatable: `payments-health` by default, `etl-ready`, `features-ready`). A sample counts as healthy when the checks behind those probes passed and the ledger answered. Ignore everything before the last revert, then take the first healthy sample from which the system stayed healthy for `--hold` seconds. The default hold is 2 s, which matches RAI's default of 3 probe rounds 1 s apart. Only the clock and the sampling rate differ from RAI's measurement, so any difference is measurement error, not a different definition.
+- **Unobserved is not "not restored".** If the observer started after the revert, did not check one of the injection's probes, or its samples have a gap of more than 5 s before restoration, the answer is *unobserved* (exit 1), and `rai-bench h3` excludes that injection rather than scoring it.
 
 ## Settlement ETL and analytics warehouse (B-04, pipeline P2)
 
