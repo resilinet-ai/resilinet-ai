@@ -76,7 +76,7 @@
 | — | Privacy sentinel, part 2: the `privacy_canary` test type searches data assets, every hit masked | FR-05.1 | Done |
 | — | Privacy sentinel, part 3: `rai canary scan` sweeps logs and evidence bundles; CI sweeps RAI's logs, the gate runs' bundles and the sandbox services' logs | FR-05.1 | Done |
 | — | Redshift connector: read-only sessions set after connecting, a server-side cursor instead of `COPY`, TLS required. Tested on PostgreSQL 16; a run against a live cluster is still owed | FR-02.2 | In progress |
-| B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07). The sealing mechanism is done (`rai-bench chaos-plan`, `chaos-seal`). P3 joins the study (decided 2026-11-21): the P3 feature pipeline is built and S10, S13 and S18 are specified. Still to come: P2 and P3 defect fixtures, the objectives review page, and the seal after the author approves | NFR-REP-1 | In progress |
+| B-28 | Benchmark sealing for the chaos benchmark (threat T-06, with B-07). The sealing mechanism is done (`rai-bench chaos-plan`, `chaos-seal`). P3 joins the study (decided 2026-11-21): the P3 feature pipeline is built and S10, S13 and S18 are specified. The P2 and P3 defect fixtures, their RAI contracts and arm R are done, with all twelve classes adapted (decided 2026-11-24). Still to come: the P2 and P3 baseline suites (B1, B2) for the same external review as P1's, the review page, and the seal after the author approves | NFR-REP-1 | In progress |
 | B-29 | Append-only recovery measurements (threat T-03) | FR-08.1, FR-08.2, NFR-AUD-1 | Done |
 | B-30 | RPO ground truth from a seeding log (threat T-07) | FR-08.2 | Done |
 | B-31, B-32 | Not used (section 9) | — | — |

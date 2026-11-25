@@ -87,6 +87,15 @@ def record(row: tuple[Any, ...]) -> dict[str, Value]:
     """A warehouse row as the model's named inputs (see ``sandboxbank.model``)."""
     (_txn, _seq, _date, amount, channel, direction, merchant_id, _fraud,
      account_type, limit, category) = row  # fmt: skip
+    return named(amount, channel, direction, merchant_id, account_type, limit, category)
+
+
+def named(
+    amount: float, channel: str | None, direction: str, merchant_id: str | None,
+    account_type: str | None, limit: float | None, category: str | None,
+) -> dict[str, Value]:  # fmt: skip
+    """The model's named inputs from a posted transaction and its dimensions. The P3
+    fixtures (``sandboxbank.fixtures``) use the same function, so they cannot drift."""
     return {
         "amount": float(amount),
         "amount_to_limit": float(amount) / limit if limit else None,

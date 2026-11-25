@@ -25,12 +25,13 @@ from rai_bench.chaos import (
     check_plan,
 )
 from rai_bench.h3 import h3
-from rai_bench.runner import HarnessError, run
+from rai_bench.runner import HarnessError, delivered_table, run
 from rai_bench.scale import history_scale
 from rai_bench.scoring import score
 from sandboxbank.dataset import write_dataset
 from sandboxbank.fixtures import build_fixtures
 from sandboxbank.generator import GeneratorConfig
+from sandboxbank.schema import PIPELINE_TABLES
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help=__doc__)
 
@@ -40,11 +41,16 @@ PROFILE_SEED = 45_000  # development range; the 30 clean batches B2 is profiled 
 ARM_NAMES = ("B1", "B2", "R")
 
 
-def _arms(names: list[str], contracts: Path) -> list[Arm]:
+def _arms(names: list[str], contracts: Path, table: str = "transactions_raw") -> list[Arm]:
     arms: list[Arm] = []
     for name in names:
         if name not in ARM_NAMES:
             raise HarnessError(f"unknown arm {name!r}; choose from {', '.join(ARM_NAMES)}")
+        if name in ("B1", "B2") and table != "transactions_raw":
+            raise HarnessError(
+                f"arm {name} has no suite for {table} yet: the P2 and P3 baselines come "
+                "with B-28 part 2b, for the same external review as P1's"
+            )
         if name == "B1":
             arms.append(B1Arm())
             continue
@@ -55,12 +61,20 @@ def _arms(names: list[str], contracts: Path) -> list[Arm]:
                 raise HarnessError("arm B2 needs Great Expectations: uv sync --extra b2") from None
             continue
         try:
-            arms.append(RaiArm(contracts))
+            arms.append(RaiArm(contracts, table))
         except (OSError, ContractError) as error:
             raise HarnessError(
                 f"could not load the RAI contracts from {contracts}: {error}"
             ) from None
     return arms
+
+
+def _fixture_table(fixtures: Path) -> str:
+    """The table a fixture set delivers; a missing manifest is left to the runner's check."""
+    try:
+        return delivered_table(json.loads((fixtures / "manifest.json").read_text("utf-8")))
+    except (OSError, ValueError):
+        return "transactions_raw"
 
 
 def _fail(problem: Exception) -> typer.Exit:
@@ -102,8 +116,9 @@ def run_command(
 ) -> None:
     """Deliver every batch to every arm and record their alerts."""
     try:
+        table = _fixture_table(fixtures)
         summary = run(
-            fixtures, out, _arms(arm or ["R"], contracts), allow_evaluation=allow_evaluation
+            fixtures, out, _arms(arm or ["R"], contracts, table), allow_evaluation=allow_evaluation
         )
     except HarnessError as problem:
         raise _fail(problem) from None
@@ -133,6 +148,7 @@ def dry_run_command(
     rows: Annotated[int, typer.Option(help="Rows per batch")] = 10_000,
     arm: Annotated[list[str] | None, typer.Option(help="Arm to run (repeatable)")] = None,
     contracts: Annotated[Path, typer.Option(help="RAI contracts folder")] = DEFAULT_CONTRACTS,
+    pipeline: Annotated[str, typer.Option(help="P1, P2 or P3 (P3 needs the model extra)")] = "P1",
 ) -> None:
     """Whole chain on a small development fixture set: one batch per defect class,
     three clean controls, run and score. No evaluation seeds are ever used."""
@@ -142,7 +158,10 @@ def dry_run_command(
     try:
         if out.exists() and any(out.iterdir()):
             raise HarnessError(f"{out} is not empty; results are never overwritten")
-        arms = _arms(arm or ["R"], contracts)
+        table = PIPELINE_TABLES.get(pipeline)
+        if table is None:
+            raise HarnessError(f"unknown pipeline {pipeline!r}; choose P1, P2 or P3")
+        arms = _arms(arm or ["R"], contracts, table)
         data_seed, injector_seed = DRY_RUN_SEEDS
         build_fixtures(
             out / "fixtures",
@@ -153,6 +172,7 @@ def dry_run_command(
             rows_per_batch=rows,
             batches_per_class=1,
             clean=3,
+            pipeline=pipeline,
         )
         summary = run(out / "fixtures", out / "run", arms)
         names = ", ".join(a.name for a in arms)

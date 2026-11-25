@@ -70,9 +70,10 @@ def deliveries(fixtures: Path, manifest: dict[str, Any]) -> list[Delivery]:
     """The batches in delivery order, each with its arrival time on SandboxBank's
     public schedule (the end of the batch's window)."""
     feed = fixtures / "feed"
+    batches = feed / delivered_table(manifest)
     schedule = GeneratorConfig(seed=int(manifest["data_seed"]))
     found: list[Delivery] = []
-    for path in sorted((feed / "transactions_raw").glob("B*.csv")):
+    for path in sorted(batches.glob("B*.csv")):
         match = _BATCH_FILE.match(path.name)
         if match is None:
             continue
@@ -88,8 +89,13 @@ def deliveries(fixtures: Path, manifest: dict[str, Any]) -> list[Delivery]:
             )
         )
     if not found:
-        raise HarnessError(f"no batches in {feed / 'transactions_raw'}")
+        raise HarnessError(f"no batches in {batches}")
     return found
+
+
+def delivered_table(manifest: dict[str, Any]) -> str:
+    """The table a fixture set's batches are: P1 sets made before B-28 name none."""
+    return str(manifest.get("table") or "transactions_raw")
 
 
 def _utc_now() -> datetime:

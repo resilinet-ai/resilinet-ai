@@ -60,10 +60,64 @@ TRANSACTIONS_RAW: tuple[Column, ...] = (
     Column("is_fraud", "boolean", True, "Synthetic fraud label for the P3 feature pipeline"),
 )
 
+# P2's delivery: one load of posted transactions into the analytics warehouse
+# (warehouse.fact_transaction, without the warehouse's own loaded_at).
+FACT_TRANSACTION: tuple[Column, ...] = (
+    Column("business_date", "date", True, "UTC date of created_at"),
+    Column("ledger_seq", "integer", True, "The ledger's sequence number; increases"),
+    Column("txn_id", "uuid", True, "Primary key; unique within and across loads"),
+    Column("account_id", "string", True, "References accounts.account_id"),
+    Column(
+        "merchant_id",
+        "string",
+        False,
+        "References merchants.merchant_id; empty for ach, wire and p2p channels",
+    ),
+    Column("channel", "string", True, "card_present, ecommerce, ach, wire or p2p"),
+    Column("direction", "string", True, "debit or credit"),
+    Column("amount", "decimal", True, "Positive, 2 dp, at most the account txn_limit"),
+    Column("currency", "string", True, "ISO 4217 code; always USD in schema v1"),
+    Column("created_at", "timestamp", True, "UTC, millisecond precision"),
+    Column("is_fraud", "boolean", True, "Synthetic fraud label"),
+    Column("committed_at", "timestamp", True, "When the ledger committed it; after created_at"),
+)
+
+# P3's delivery: one chunk of the fraud feature table (features.fraud_features).
+FRAUD_FEATURES: tuple[Column, ...] = (
+    Column("txn_id", "uuid", True, "Primary key; one feature row per posted transaction"),
+    Column("ledger_seq", "integer", True, "The ledger's sequence number"),
+    Column("business_date", "date", True, "UTC date of the transaction"),
+    Column("amount", "decimal", True, "Positive, 2 dp"),
+    Column("amount_to_limit", "decimal", False, "amount / the account's txn_limit, in (0, 1]"),
+    Column("channel", "string", True, "card_present, ecommerce, ach, wire or p2p"),
+    Column("credit", "integer", True, "1 for a credit, 0 for a debit"),
+    Column("status", "string", True, "posted: the warehouse holds posted transactions only"),
+    Column("account_type", "string", False, "checking, savings or business"),
+    Column("has_merchant", "integer", True, "1 when the transaction names a merchant, else 0"),
+    Column(
+        "merchant_category",
+        "string",
+        False,
+        "A category of the merchants catalogue; empty when has_merchant is 0",
+    ),
+    Column("is_fraud", "boolean", True, "Synthetic fraud label"),
+    Column("score", "decimal", True, "The model's fraud probability, in [0, 1], 6 dp"),
+    Column("model_recipe_sha256", "string", True, "SHA-256 of the model recipe that scored it"),
+    Column("scored_at", "timestamp", True, "When the feature-job scored it"),
+)
+
 TABLES: dict[str, tuple[Column, ...]] = {
     "accounts": ACCOUNTS,
     "merchants": MERCHANTS,
     "transactions_raw": TRANSACTIONS_RAW,
+    "fact_transaction": FACT_TRANSACTION,
+    "fraud_features": FRAUD_FEATURES,
+}
+# The table each pipeline delivers, batch by batch, in the defect study (Protocol 4).
+PIPELINE_TABLES: dict[str, str] = {
+    "P1": "transactions_raw",
+    "P2": "fact_transaction",
+    "P3": "fraud_features",
 }
 
 

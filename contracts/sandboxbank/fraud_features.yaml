@@ -1,0 +1,43 @@
+# SandboxBank P3: one chunk of the fraud feature table (features.fraud_features, schema
+# v1): the model's inputs for each posted transaction, its label and its score. Every
+# Protocol section 4 defect class is caught by at least one rule here, as adapted to P3
+# (author's decision, 2026-11-24); see contracts/README.md for the mapping.
+contract: fraud_features
+version: 1
+owner: sandboxbank-fraud-ml
+description: Fraud model inputs and scores from the P3 feature pipeline. Synthetic data only.
+freshness: { column: scored_at, max_lag: 1h }
+primary_key: [txn_id]
+unique_across_batches: [txn_id]
+columns:
+  txn_id:              { type: uuid, required: true }
+  ledger_seq:          { type: integer, required: true, min: 1 }
+  business_date:       { type: date, required: true }
+  amount:
+    type: decimal(14,2)
+    required: true
+    min: 0.01
+    max: 25000
+  amount_to_limit:
+    type: decimal(9,6)
+    min: 0
+    max: 1
+  channel:             { type: string, required: true, allowed: [card_present, ecommerce, ach, wire, p2p] }
+  credit:              { type: integer, required: true, min: 0, max: 1 }
+  status:              { type: string, required: true, allowed: [posted] }
+  account_type:        { type: string, allowed: [checking, savings, business] }
+  has_merchant:        { type: integer, required: true, min: 0, max: 1 }
+  merchant_category:   { type: string, references: merchants.category }
+  is_fraud:            { type: boolean, required: true, severity: warn }
+  score:
+    type: decimal(7,6)
+    required: true
+    min: 0
+    max: 1
+  model_recipe_sha256: { type: string, required: true, pattern: "^[0-9a-f]{64}$" }
+  scored_at:           { type: timestamp, required: true }
+schema_change_policy:
+  added_column: non_breaking
+  removed_or_renamed_column: breaking
+  type_change: breaking
+severity_default: critical

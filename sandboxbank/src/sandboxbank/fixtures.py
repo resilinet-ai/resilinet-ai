@@ -3,7 +3,7 @@
 Layout::
 
     <out>/feed/accounts.csv, merchants.csv      reference data, clean
-    <out>/feed/transactions_raw/B000000.csv ... one file per batch, some defective
+    <out>/feed/<table>/B000000.csv ...           one file per batch, some defective
     <out>/feed/merchants_by_batch/Bnnnnnn.csv   D12 only: the dimension sent with that batch
     <out>/answer_key/ground_truth.jsonl         one line per batch; clean batches included
     <out>/answer_key/SEAL                        SHA-256 of ground_truth.jsonl
@@ -11,6 +11,14 @@ Layout::
 
 Arms under test read only ``feed/``. The answer key is opened only for scoring;
 committing the SEAL hash publicly before the runs proves it was not changed later.
+
+**One set per pipeline** (Protocol section 4: 180 batches each). The delivered table is
+``transactions_raw`` for P1, ``fact_transaction`` for P2 (the posted transactions of
+each window, as the ETL loads them into the warehouse, with ``ledger_seq`` and
+``committed_at``) and ``fraud_features`` for P3 (P2's rows as the feature-job turns
+them into the model's inputs, scored by the fraud model). P3 fixtures need the
+``model`` extra. Each class acts on the columns its pipeline's profile names
+(``sandboxbank.injector.Profile``).
 
 Two seeds, two independent streams: ``data_seed`` drives the generator and
 ``injector_seed`` decides which batch gets which defect and where. Both must be
@@ -24,6 +32,7 @@ import csv
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -33,6 +42,7 @@ from sandboxbank.dataset import sha256_file
 from sandboxbank.generator import (
     GeneratorConfig,
     batch_id,
+    format_cents,
     format_timestamp,
     generate_accounts,
     generate_batch,
@@ -40,8 +50,8 @@ from sandboxbank.generator import (
     seed_purpose,
     stream,
 )
-from sandboxbank.injector import CLASS_NAMES, RATES, Context, inject
-from sandboxbank.schema import column_names
+from sandboxbank.injector import CLASS_NAMES, PROFILES, RATES, Context, inject
+from sandboxbank.schema import PIPELINE_TABLES, column_names
 
 PROTOCOL_BATCHES_PER_CLASS = 12
 PROTOCOL_CLEAN_BATCHES = 36
@@ -100,8 +110,13 @@ def build_fixtures(
     batches_per_class: int = PROTOCOL_BATCHES_PER_CLASS,
     clean: int = PROTOCOL_CLEAN_BATCHES,
     force: bool = False,
+    pipeline: str = "P1",
 ) -> dict[str, Any]:
-    """Write a fixture set and return its manifest. Same inputs give identical bytes."""
+    """Write a fixture set and return its manifest. Same inputs give identical bytes
+    (for P3, on the same platform: the model's scores can differ in the last digits
+    across platforms, as the model card says)."""
+    if pipeline not in PIPELINE_TABLES:
+        raise ValueError(f"pipeline must be one of {', '.join(PIPELINE_TABLES)}")
     purpose = seed_purpose(data_seed)
     if seed_purpose(injector_seed) != purpose:
         raise ValueError("data_seed and injector_seed must be in the same protocol range")
@@ -121,7 +136,9 @@ def build_fixtures(
     account_rows = generate_accounts(config)
     merchant_rows = generate_merchants(config)
     limits = {a.account_id: Decimal(a.txn_limit_cents).scaleb(-2) for a in account_rows}
-    txn_header = list(column_names("transactions_raw"))
+    table = PIPELINE_TABLES[pipeline]
+    txn_header = list(column_names(table))
+    shape = _Shaper(pipeline, data_seed, account_rows, merchant_rows)
     merchants_header = list(column_names("merchants"))
     merchants_table = [list(m.as_row()) for m in merchant_rows]
 
@@ -138,15 +155,14 @@ def build_fixtures(
     previous_rows: list[list[str]] = []
     reemit_pool: list[list[str]] = []
     for planned in batches:
-        clean_rows = [
-            list(t.as_row())
-            for t in generate_batch(config, account_rows, merchant_rows, planned.index)
-        ]
+        clean_rows = shape.rows(
+            planned.index, generate_batch(config, account_rows, merchant_rows, planned.index)
+        )
         name = batch_id(planned.index)
         window_start = config.batch_start(planned.index)
         record: dict[str, Any] = {
             "batch_id": name,
-            "file": f"feed/transactions_raw/{name}.csv",
+            "file": f"feed/{table}/{name}.csv",
             "defect_class": planned.defect_class,
             "class_name": CLASS_NAMES.get(planned.defect_class or ""),
             "rate": planned.rate,
@@ -167,6 +183,7 @@ def build_fixtures(
                 merchants_header,
                 merchants_table,
                 reemit_rows=reemit_pool,
+                profile=PROFILES[pipeline],
             )
             result = inject(planned.defect_class, rng, txn_header, clean_rows, planned.rate, ctx)
             header, rows = result.header, result.rows
@@ -205,7 +222,8 @@ def build_fixtures(
         "generator": "rai-sandboxbank",
         "generator_version": __version__,
         "kind": "known-defect fixtures",
-        "pipeline": "P1",
+        "pipeline": pipeline,
+        "table": table,
         "synthetic": True,
         "seed_purpose": purpose,
         "data_seed": data_seed,
@@ -219,12 +237,79 @@ def build_fixtures(
             "batches": len(batches),
         },
         "answer_key_sha256": seal,
+        **({"model": shape.model_identity} if pipeline == "P3" else {}),
         "files": {path: sha256_file(out_dir / path) for path in files},
     }
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
     )
     return manifest
+
+
+class _Shaper:
+    """A clean batch of generated transactions as its pipeline delivers it."""
+
+    def __init__(
+        self, pipeline: str, data_seed: int, accounts: list[Any], merchants: list[Any]
+    ) -> None:
+        self.pipeline = pipeline
+        self.data_seed = data_seed
+        self.next_seq = 1  # the ledger numbers posted rows from 1, in delivery order
+        self.accounts = {a.account_id: (a.account_type, a.txn_limit_cents / 100) for a in accounts}
+        self.categories = {m.merchant_id: m.category for m in merchants}
+        self.model: Any = None
+        self.model_identity: dict[str, str] = {}
+        if pipeline == "P3":
+            from sandboxbank import model  # the `model` extra: scikit-learn
+
+            self.model = model.train()
+            self.model_identity = self.model.identity
+
+    def rows(self, index: int, batch: list[Any]) -> list[list[str]]:
+        if self.pipeline == "P1":
+            return [list(t.as_row()) for t in batch]
+        rng = stream(self.data_seed, f"{self.pipeline.lower()}/commit/{index}")
+        facts = []
+        for t in batch:
+            if t.status != "posted":  # the ledger and warehouse hold posted rows only
+                continue
+            committed = t.created_at + timedelta(milliseconds=rng.randrange(5, 2_000))
+            facts.append((self.next_seq, t, committed))
+            self.next_seq += 1
+        if self.pipeline == "P2":
+            return [
+                [t.created_at.date().isoformat(), str(seq), t.txn_id, t.account_id,
+                 t.merchant_id or "", t.channel, t.direction, format_cents(t.amount_cents),
+                 t.currency, format_timestamp(t.created_at), "true" if t.is_fraud else "false",
+                 format_timestamp(committed)]
+                for seq, t, committed in facts
+            ]  # fmt: skip
+        return self._features(rng, facts)
+
+    def _features(self, rng: Any, facts: list[tuple[int, Any, datetime]]) -> list[list[str]]:
+        from sandboxbank.features import named
+
+        inputs = []
+        for _, t, _ in facts:
+            kind, limit = self.accounts.get(t.account_id, (None, None))
+            category = self.categories.get(t.merchant_id) if t.merchant_id else None
+            inputs.append(named(t.amount_cents / 100, t.channel, t.direction, t.merchant_id,
+                                kind, limit, category))  # fmt: skip
+        scores = self.model.score_records(inputs) if inputs else []
+        recipe = self.model_identity["recipe_sha256"]
+        out = []
+        for (seq, t, committed), x, score in zip(facts, inputs, scores, strict=True):
+            scored = committed + timedelta(milliseconds=rng.randrange(50, 5_000))
+            ratio = x["amount_to_limit"]
+            out.append([
+                t.txn_id, str(seq), t.created_at.date().isoformat(), format_cents(t.amount_cents),
+                "" if ratio is None else f"{ratio:.6f}", t.channel,
+                "1" if x["credit"] else "0", "posted", x["account_type"] or "",
+                "1" if x["has_merchant"] else "0", x["merchant_category"] or "",
+                "true" if t.is_fraud else "false", f"{score:.6f}", recipe,
+                format_timestamp(scored),
+            ])  # fmt: skip
+        return out
 
 
 def verify_seal(out_dir: Path, expected: str | None = None) -> bool:

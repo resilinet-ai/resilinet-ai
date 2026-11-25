@@ -7,7 +7,7 @@ sandboxbank canaries write --accounts data/sandboxbank/accounts.csv --seed 7 --o
 sandboxbank canaries load --dir data/canaries               (needs SANDBOXBANK_LEDGER_DSN)
 sandboxbank post --data data/sandboxbank --api http://127.0.0.1:18080
 sandboxbank serve --port 8080                              (needs SANDBOXBANK_LEDGER_DSN)
-sandboxbank fixtures --data-seed 1 --injector-seed 2 --out data/fixtures
+sandboxbank fixtures --data-seed 1 --injector-seed 2 --out data/fixtures [--pipeline P2]
 sandboxbank seal data/fixtures [--expect <sha256>]
 sandboxbank etl [--once]          (needs SANDBOXBANK_LEDGER_DSN and SANDBOXBANK_ANALYTICS_DSN)
 sandboxbank seed --data data/sandboxbank --log acks/acks.csv --rate 10
@@ -82,6 +82,9 @@ def _parser() -> argparse.ArgumentParser:
     fixtures.add_argument("--per-class", type=int, default=12, help="Batches per defect class")
     fixtures.add_argument("--clean", type=int, default=36, help="Clean control batches")
     fixtures.add_argument("--force", action="store_true", help="Overwrite a non-empty directory")
+    fixtures.add_argument("--pipeline", choices=["P1", "P2", "P3"], default="P1",
+                          help="Whose deliveries: P1 transactions_raw, P2 fact_transaction, "
+                          "P3 fraud_features (P3 needs the model extra)")  # fmt: skip
 
     slice_ = commands.add_parser(
         "slice", help="First runnable slice: a clean batch, then one re-sending 0.1%% of it."
@@ -281,6 +284,7 @@ def _fixtures(args: argparse.Namespace) -> int:
             batches_per_class=args.per_class,
             clean=args.clean,
             force=args.force,
+            pipeline=args.pipeline,
         )
     except (ValueError, FileExistsError) as error:
         return _error(error)

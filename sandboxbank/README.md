@@ -119,10 +119,18 @@ In Compose, SandboxBank's database traffic goes through Toxiproxy ([`toxiproxy.j
 
 ```
 python -m uv run sandboxbank fixtures --data-seed 42 --injector-seed 43 --out data/fixtures
+python -m uv run sandboxbank fixtures --data-seed 44 --injector-seed 45 --out data/fixtures-p2 --pipeline P2
 python -m uv run sandboxbank seal data/fixtures --expect <sha256 committed earlier>
 ```
 
-This builds one Protocol §4 fixture set for pipeline P1:
+`--pipeline` chooses whose deliveries (B-28):
+- **P1** (default): `transactions_raw`, the payments feed.
+- **P2:** `fact_transaction`, the posted transactions of each window as the ETL loads them, with `ledger_seq` and `committed_at`.
+- **P3:** `fraud_features`, P2's rows as the feature-job turns them into the model's inputs, scored by the fraud model. It needs the `model` extra and trains the model first, which takes about 20 s.
+
+The classes are adapted to each pipeline's columns (`sandboxbank.injector.Profile`; [contracts/README.md](../contracts/README.md) maps them to RAI's rules). P1's output is unchanged byte for byte.
+
+This builds one Protocol §4 fixture set per pipeline:
 - **180 batches**: 12 for each of the 12 defect classes, spread evenly across that class's rates, plus 36 clean control batches;
 - **100,000 rows per batch**, in a seeded random order;
 - **batch 0 is always clean**, because classes D02 and D11 need a previous batch.
@@ -131,7 +139,7 @@ At the full protocol size it takes a few minutes and about 2 GB. Use `--rows`, `
 
 | Folder | Who reads it |
 | --- | --- |
-| `feed/` | The arms under test: reference data, `transactions_raw/Bnnnnnn.csv`, and `merchants_by_batch/` for D12 |
+| `feed/` | The arms under test: reference data, `<table>/Bnnnnnn.csv`, and (P1, P2) `merchants_by_batch/` for D12 |
 | `answer_key/ground_truth.jsonl` | Scoring only. One line per batch, clean batches included: class, rate, rows changed (0-based rows of the delivered file), columns, keys, window start and onset |
 | `answer_key/SEAL` | The SHA-256 of the answer key. **Commit it publicly before any arm runs** (Protocol §8) |
 

@@ -163,7 +163,8 @@ def test_rows_match_the_schema_column_order(reference: Reference) -> None:
     assert row["txn_id"] == txn.txn_id
     assert Decimal(row["amount"]) == txn.amount
     assert row["is_fraud"] in {"true", "false"}
-    assert set(TABLES) == {"accounts", "merchants", "transactions_raw"}
+    assert set(TABLES) == {"accounts", "merchants", "transactions_raw", "fact_transaction",
+                           "fraud_features"}  # fmt: skip
 
 
 def test_formatting_is_exact() -> None:
