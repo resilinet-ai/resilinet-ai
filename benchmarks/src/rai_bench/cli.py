@@ -29,7 +29,7 @@ from rai_bench.runner import HarnessError, delivered_table, run
 from rai_bench.scale import history_scale
 from rai_bench.scoring import score
 from sandboxbank.dataset import write_dataset
-from sandboxbank.fixtures import build_fixtures
+from sandboxbank.fixtures import build_fixtures, write_clean_deliveries
 from sandboxbank.generator import GeneratorConfig
 from sandboxbank.schema import PIPELINE_TABLES
 
@@ -46,17 +46,14 @@ def _arms(names: list[str], contracts: Path, table: str = "transactions_raw") ->
     for name in names:
         if name not in ARM_NAMES:
             raise HarnessError(f"unknown arm {name!r}; choose from {', '.join(ARM_NAMES)}")
-        if name in ("B1", "B2") and table != "transactions_raw":
-            raise HarnessError(
-                f"arm {name} has no suite for {table} yet: the P2 and P3 baselines come "
-                "with B-28 part 2b, for the same external review as P1's"
-            )
         if name == "B1":
-            arms.append(B1Arm())
+            arms.append(B1Arm(table=table))
             continue
         if name == "B2":
+            if not (B2_DIR / f"{table}.suite.json").is_file():
+                raise HarnessError(f"arm B2 has no suite for {table}: run rai-bench b2-profile")
             try:
-                arms.append(B2Arm())
+                arms.append(B2Arm(table=table))
             except ImportError:
                 raise HarnessError("arm B2 needs Great Expectations: uv sync --extra b2") from None
             continue
@@ -259,15 +256,23 @@ def b2_profile_command(
     out: Annotated[Path, typer.Option(help="Where to write the suites")] = B2_DIR,
     batches: Annotated[int, typer.Option(help="Clean development batches")] = 30,
     rows: Annotated[int, typer.Option(help="Rows per batch")] = 100_000,
+    pipeline: Annotated[str, typer.Option(help="P1, P2 or P3 (P3 needs the model extra)")] = "P1",
 ) -> None:
     """Generate the clean development batches and write B2's profiled and tightened
     suites (Protocol section 3). Development seed only; never evaluation data."""
     try:
         if work.exists() and any(work.iterdir()):
             raise HarnessError(f"{work} is not empty")
-        config = GeneratorConfig(seed=PROFILE_SEED, batches=batches, rows_per_batch=rows)
-        write_dataset(config, work)
-        written = write_suites(work, out)
+        table = PIPELINE_TABLES.get(pipeline)
+        if table is None:
+            raise HarnessError(f"unknown pipeline {pipeline!r}; choose P1, P2 or P3")
+        if pipeline == "P1":
+            config = GeneratorConfig(seed=PROFILE_SEED, batches=batches, rows_per_batch=rows)
+            write_dataset(config, work)
+        else:  # the same seed and shape, delivered as the pipeline delivers it
+            write_clean_deliveries(work, data_seed=PROFILE_SEED, pipeline=pipeline,
+                                   batches=batches, rows_per_batch=rows)  # fmt: skip
+        written = write_suites(work, out, table)
     except HarnessError as problem:
         raise _fail(problem) from None
     for name, path in written.items():

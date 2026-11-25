@@ -1,4 +1,4 @@
-"""Arm B1: the conventional test suite for the SandboxBank transactions feed.
+"""Arm B1: the conventional test suite for the SandboxBank pipelines' deliveries.
 
 Protocol section 3: "pytest unit and integration tests written from the
 pipeline's requirements: required fields, types, a primary-key check per batch".
@@ -14,9 +14,10 @@ never from defect fixtures. Each delivered file is tested on its own:
 * the primary key is unique within the file.
 
 The harness runs this file once per delivery (``rai_bench.baselines.B1Arm``):
-``RAI_B1_BATCH`` names the batch file, ``RAI_B1_DIMENSION`` the merchants file
-delivered with it, if any. Frozen after the external review; do not edit after
-the freeze (Protocol section 3).
+``RAI_B1_BATCH`` names the batch file, ``RAI_B1_TABLE`` its table (P1
+``transactions_raw``, the default; P2 ``fact_transaction``; P3 ``fraud_features``, added
+for B-28), and ``RAI_B1_DIMENSION`` the merchants file delivered with it, if any.
+Frozen after the external review; do not edit after the freeze (Protocol section 3).
 """
 
 from __future__ import annotations
@@ -46,6 +47,37 @@ SPEC: dict[str, dict[str, tuple[str, bool]]] = {
         "created_at": ("timestamp", True),
         "is_fraud": ("boolean", True),
     },
+    "fact_transaction": {
+        "business_date": ("date", True),
+        "ledger_seq": ("integer", True),
+        "txn_id": ("uuid", True),
+        "account_id": ("string", True),
+        "merchant_id": ("string", False),  # empty for ach, wire and p2p
+        "channel": ("string", True),
+        "direction": ("string", True),
+        "amount": ("decimal", True),
+        "currency": ("string", True),
+        "created_at": ("timestamp", True),
+        "is_fraud": ("boolean", True),
+        "committed_at": ("timestamp", True),
+    },
+    "fraud_features": {
+        "txn_id": ("uuid", True),
+        "ledger_seq": ("integer", True),
+        "business_date": ("date", True),
+        "amount": ("decimal", True),
+        "amount_to_limit": ("decimal", False),
+        "channel": ("string", True),
+        "credit": ("integer", True),
+        "status": ("string", True),
+        "account_type": ("string", False),
+        "has_merchant": ("integer", True),
+        "merchant_category": ("string", False),  # empty when has_merchant is 0
+        "is_fraud": ("boolean", True),
+        "score": ("decimal", True),
+        "model_recipe_sha256": ("string", True),
+        "scored_at": ("timestamp", True),
+    },
     "merchants": {
         "merchant_id": ("string", True),
         "name": ("string", True),
@@ -54,9 +86,11 @@ SPEC: dict[str, dict[str, tuple[str, bool]]] = {
         "country": ("string", True),
     },
 }
-PRIMARY_KEY = {"transactions_raw": "txn_id", "merchants": "merchant_id"}
+PRIMARY_KEY = {"transactions_raw": "txn_id", "fact_transaction": "txn_id",
+               "fraud_features": "txn_id", "merchants": "merchant_id"}  # fmt: skip
+TABLE = os.environ.get("RAI_B1_TABLE") or "transactions_raw"
 FILES = {
-    "transactions_raw": os.environ.get("RAI_B1_BATCH"),
+    TABLE: os.environ.get("RAI_B1_BATCH"),
     "merchants": os.environ.get("RAI_B1_DIMENSION"),
 }
 DELIVERED = [table for table, path in FILES.items() if path]

@@ -114,8 +114,9 @@ class B1Arm:
 
     name = "B1"
 
-    def __init__(self, suite: Path = B1_DIR) -> None:
+    def __init__(self, suite: Path = B1_DIR, table: str = "transactions_raw") -> None:
         self._suite = suite
+        self._table = table  # the delivered table (B-28: P2, P3)
         self._workdir: Path | None = None
 
     def describe(self) -> dict[str, Any]:
@@ -136,7 +137,7 @@ class B1Arm:
         if self._workdir is None:
             raise RuntimeError("open() the arm before observing batches")
         junit = self._workdir / f"junit-{delivery.batch_id}.xml"
-        env = os.environ | {"RAI_B1_BATCH": str(delivery.file)}
+        env = os.environ | {"RAI_B1_BATCH": str(delivery.file), "RAI_B1_TABLE": self._table}
         env.pop("RAI_B1_DIMENSION", None)
         if delivery.dimension is not None:
             env["RAI_B1_DIMENSION"] = str(delivery.dimension)
@@ -166,7 +167,13 @@ def _gx() -> Any:
 
 
 # Columns schema v1 gives as timestamps: read as such, as a pandas team would.
-TIMESTAMPS = {"transactions_raw": ["created_at"]}
+TIMESTAMPS = {
+    "transactions_raw": ["created_at"],
+    "fact_transaction": ["created_at", "committed_at"],
+    "fraud_features": ["scored_at"],
+}
+UUID_REGEX = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+SCORE_GRACE = timedelta(seconds=10)  # fraud_features.scored_at: "at most 10 s after it"
 
 
 def _read(path: Path, table: str = "") -> Any:
@@ -278,6 +285,72 @@ TIGHTENINGS: dict[str, list[dict[str, Any]]] = {
          "reason": "Great Expectations 1.24 cannot match the type of a time-zone-aware "
                    "timestamp column, so the profiled check fails on every clean batch"},
     ],
+    # B-28, P2 and P3: written from SandboxBank schema v1 (``sandboxbank.schema``) before
+    # either suite ran on a defect fixture, under the same rules as P1's.
+    "fact_transaction": [
+        {"id": "K1", "spec": "account_id: References accounts.account_id",
+         "type": "expect_column_values_to_be_in_set",
+         "kwargs": {"column": "account_id", "value_set": {"$PARAMETER": "account_ids"}}},
+        {"id": "K2",
+         "spec": "merchant_id: References merchants.merchant_id; empty for ach, wire and p2p",
+         "type": "expect_column_values_to_be_in_set",
+         "kwargs": {"column": "merchant_id", "value_set": {"$PARAMETER": "merchant_ids"}}},
+        {"id": "K3", "spec": "txn_id (UUID)", "type": "expect_column_values_to_match_regex",
+         "kwargs": {"column": "txn_id", "regex": UUID_REGEX}},
+        {"id": "K4", "spec": "created_at: UTC, millisecond precision, inside the load's batch "
+                             "window",
+         "type": "expect_column_values_to_be_between",
+         "kwargs": {"column": "created_at", "min_value": {"$PARAMETER": "window_start"},
+                    "max_value": {"$PARAMETER": "window_end"}}},
+        {"id": "K5", "spec": "amount: Positive, 2 dp, at most the account txn_limit",
+         "replaces": {"type": "expect_column_values_to_be_between", "column": "amount"},
+         "type": "expect_column_values_to_be_between",
+         "kwargs": {"column": "amount", "min_value": 0.01,
+                    "max_value": {"$PARAMETER": "max_txn_limit"}}},
+        {"id": "K8", "spec": "committed_at: When the ledger committed it; after created_at",
+         "type": "expect_column_pair_values_a_to_be_greater_than_b",
+         "kwargs": {"column_A": "committed_at", "column_B": "created_at"}},
+        {"id": "K9", "spec": "ledger_seq: The ledger's sequence number; increases",
+         "type": "expect_column_values_to_be_increasing", "kwargs": {"column": "ledger_seq"}},
+        {"id": "R1", "spec": "created_at (UTC, ms): parsed as a timestamp",
+         "removes": {"type": "expect_column_values_to_be_in_type_list", "column": "created_at"},
+         "reason": "as P1's R1: GX 1.24 cannot match a time-zone-aware timestamp's type"},
+        {"id": "R2", "spec": "committed_at (timestamp): parsed as a timestamp",
+         "removes": {"type": "expect_column_values_to_be_in_type_list",
+                     "column": "committed_at"},
+         "reason": "as R1"},
+    ],
+    "fraud_features": [
+        {"id": "K3", "spec": "txn_id (UUID)", "type": "expect_column_values_to_match_regex",
+         "kwargs": {"column": "txn_id", "regex": UUID_REGEX}},
+        {"id": "K4", "spec": "scored_at: inside the batch window, or at most 10 s after it",
+         "type": "expect_column_values_to_be_between",
+         "kwargs": {"column": "scored_at", "min_value": {"$PARAMETER": "window_start"},
+                    "max_value": {"$PARAMETER": "window_end_grace"}}},
+        {"id": "K5", "spec": "amount: Positive, 2 dp",
+         "replaces": {"type": "expect_column_values_to_be_between", "column": "amount"},
+         "type": "expect_column_values_to_be_between",
+         "kwargs": {"column": "amount", "min_value": 0.01}},
+        {"id": "K10", "spec": "merchant_category: A category of the merchants catalogue",
+         "type": "expect_column_values_to_be_in_set",
+         "kwargs": {"column": "merchant_category", "value_set": {"$PARAMETER": "categories"}}},
+        {"id": "K11", "spec": "score: The model's fraud probability, in [0, 1]",
+         "replaces": {"type": "expect_column_values_to_be_between", "column": "score"},
+         "type": "expect_column_values_to_be_between",
+         "kwargs": {"column": "score", "min_value": 0, "max_value": 1}},
+        {"id": "K12", "spec": "amount_to_limit: amount / the account's txn_limit, in (0, 1]",
+         "replaces": {"type": "expect_column_values_to_be_between",
+                      "column": "amount_to_limit"},
+         "type": "expect_column_values_to_be_between",
+         "kwargs": {"column": "amount_to_limit", "min_value": 0, "max_value": 1,
+                    "strict_min": True}},
+        {"id": "K13", "spec": "model_recipe_sha256: SHA-256 of the model recipe",
+         "type": "expect_column_values_to_match_regex",
+         "kwargs": {"column": "model_recipe_sha256", "regex": r"^[0-9a-f]{64}$"}},
+        {"id": "R1", "spec": "scored_at (timestamp): parsed as a timestamp",
+         "removes": {"type": "expect_column_values_to_be_in_type_list", "column": "scored_at"},
+         "reason": "as P1's R1: GX 1.24 cannot match a time-zone-aware timestamp's type"},
+    ],
     "merchants": [
         {"id": "K7", "spec": "merchant_id: Primary key, MER- followed by 6 digits",
          "type": "expect_column_values_to_match_regex",
@@ -306,17 +379,18 @@ def tighten(profiled: dict[str, Any], table: str) -> dict[str, Any]:
     return {"name": profiled["name"], "expectations": expectations, "meta": meta}
 
 
-def write_suites(dataset: Path, out: Path) -> dict[str, Path]:
-    """Profile the clean development dataset (written by ``sandboxbank generate``) and
-    write the profiled and the tightened suites, in a reviewable, stable JSON form."""
+def write_suites(dataset: Path, out: Path, table: str = "transactions_raw") -> dict[str, Path]:
+    """Profile the clean development dataset (``sandboxbank generate`` for P1, the clean
+    deliveries of ``sandboxbank.fixtures.write_clean_deliveries`` for P2 and P3) and
+    write the profiled and the tightened suites, in a reviewable, stable JSON form. The
+    merchants suite is P1's: it is written only with P1's."""
     manifest = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("seed_purpose") != "development":
         raise ValueError("B2 is profiled on development data only (Protocol section 3)")
-    batches = sorted((dataset / "transactions_raw").glob("B*.csv"))
-    frames = {
-        "transactions_raw": [_read(p, "transactions_raw") for p in batches],
-        "merchants": [_read(dataset / "merchants.csv")],
-    }
+    batches = sorted((dataset / table).glob("B*.csv"))
+    frames = {table: [_read(p, table) for p in batches]}
+    if table == "transactions_raw":
+        frames["merchants"] = [_read(dataset / "merchants.csv")]
     out.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
     for table, table_frames in frames.items():
@@ -358,9 +432,11 @@ def b2_claim(expectation: dict[str, Any], result: dict[str, Any], *, dimension: 
         expected = set(expectation["kwargs"]["column_list"])
         missing, unexpected = expected - observed, observed - expected
         return "D07" if missing and unexpected else "D08" if missing else None
-    if tightening in ("K1", "K2"):
+    if tightening in ("K1", "K2", "K10"):
         return "D06"
-    if tightening == "K5" or (kind == "expect_column_values_to_be_between" and column == "amount"):
+    if tightening in ("K5", "K11", "K12") or (
+        kind == "expect_column_values_to_be_between" and column in ("amount", "score")
+    ):
         return "D05"
     if tightening == "K4":
         whole = result.get("unexpected_count") == result.get("element_count")
@@ -375,8 +451,9 @@ class B2Arm:
 
     name = "B2"
 
-    def __init__(self, suites: Path = B2_DIR) -> None:
-        self._paths = {t: suites / f"{t}.suite.json" for t in ("transactions_raw", "merchants")}
+    def __init__(self, suites: Path = B2_DIR, table: str = "transactions_raw") -> None:
+        self._table = table  # the delivered table (B-28: P2, P3)
+        self._paths = {t: suites / f"{t}.suite.json" for t in (table, "merchants")}
         self._suites = {
             t: json.loads(p.read_text(encoding="utf-8")) for t, p in self._paths.items()
         }
@@ -424,6 +501,7 @@ class B2Arm:
             "account_ids": sorted(accounts["account_id"].dropna().astype(str)),
             "merchant_ids": sorted(merchants["merchant_id"].dropna().astype(str)),
             "max_txn_limit": float(accounts["txn_limit"].max()),
+            "categories": sorted(merchants["category"].dropna().astype(str).unique()),
         }
 
     def _validate(
@@ -454,11 +532,10 @@ class B2Arm:
         start = delivery.arrival - WINDOW
         parameters = self._parameters | {
             "window_start": _timestamp(start), "window_end": _timestamp(delivery.arrival),
+            "window_end_grace": _timestamp(delivery.arrival + SCORE_GRACE),
             "batch_ids": [delivery.batch_id],
         }  # fmt: skip
-        found = [
-            (e, r, False) for e, r in self._validate("transactions_raw", delivery.file, parameters)
-        ]
+        found = [(e, r, False) for e, r in self._validate(self._table, delivery.file, parameters)]
         if delivery.dimension is not None:
             found += [(e, r, True) for e, r in self._validate("merchants", delivery.dimension, {})]
         moment = clock()
@@ -469,6 +546,8 @@ class B2Arm:
                 observed = set(result.get("observed_value") or [])
                 expected = set(kwargs["column_list"])
                 location = tuple(sorted((expected - observed) | (observed - expected)))
+            elif "column_A" in kwargs:
+                location = (kwargs["column_A"], kwargs["column_B"])
             else:
                 location = (kwargs["column"],) if kwargs.get("column") else ()
             counted = (
@@ -540,8 +619,8 @@ def effort(contracts: Path) -> dict[str, Any]:
         for table, spec in b1.SPEC.items()
     }
     suites = {
-        t: json.loads((B2_DIR / f"{t}.suite.json").read_text(encoding="utf-8"))
-        for t in ("transactions_raw", "merchants")
+        p.name.removesuffix(".suite.json"): json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(B2_DIR.glob("*.suite.json"))
     }
     sources = {t: [e["meta"]["source"] for e in s["expectations"]] for t, s in suites.items()}
     edits = [e for table in TIGHTENINGS.values() for e in table]

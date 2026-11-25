@@ -1,0 +1,449 @@
+{
+  "expectations": [
+    {
+      "kwargs": {
+        "column_list": [
+          "business_date",
+          "ledger_seq",
+          "txn_id",
+          "account_id",
+          "merchant_id",
+          "channel",
+          "direction",
+          "amount",
+          "currency",
+          "created_at",
+          "is_fraud",
+          "committed_at"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_table_columns_to_match_ordered_list"
+    },
+    {
+      "kwargs": {
+        "max_value": 95075,
+        "min_value": 94769
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_table_row_count_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "business_date",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "business_date"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "business_date",
+        "value_set": [
+          "2026-01-01"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "ledger_seq",
+        "type_list": [
+          "int64"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "ledger_seq"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "ledger_seq"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_unique"
+    },
+    {
+      "kwargs": {
+        "column": "ledger_seq",
+        "max_value": 2847673.0,
+        "min_value": 1.0
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "txn_id",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "txn_id"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "txn_id"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_unique"
+    },
+    {
+      "kwargs": {
+        "column": "account_id",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "account_id"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "merchant_id",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "channel",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "channel"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "channel",
+        "value_set": [
+          "ach",
+          "card_present",
+          "ecommerce",
+          "p2p",
+          "wire"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "direction",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "direction"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "direction",
+        "value_set": [
+          "credit",
+          "debit"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "amount",
+        "type_list": [
+          "float64"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "amount"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "currency",
+        "type_list": [
+          "str"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "currency"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "currency",
+        "value_set": [
+          "USD"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "created_at"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "is_fraud",
+        "type_list": [
+          "bool"
+        ]
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_be_in_type_list"
+    },
+    {
+      "kwargs": {
+        "column": "is_fraud"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "committed_at"
+      },
+      "meta": {
+        "source": "profiled"
+      },
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "account_id",
+        "value_set": {
+          "$PARAMETER": "account_ids"
+        }
+      },
+      "meta": {
+        "id": "K1",
+        "source": "tightened",
+        "spec": "account_id: References accounts.account_id"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "merchant_id",
+        "value_set": {
+          "$PARAMETER": "merchant_ids"
+        }
+      },
+      "meta": {
+        "id": "K2",
+        "source": "tightened",
+        "spec": "merchant_id: References merchants.merchant_id; empty for ach, wire and p2p"
+      },
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "txn_id",
+        "regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "meta": {
+        "id": "K3",
+        "source": "tightened",
+        "spec": "txn_id (UUID)"
+      },
+      "type": "expect_column_values_to_match_regex"
+    },
+    {
+      "kwargs": {
+        "column": "created_at",
+        "max_value": {
+          "$PARAMETER": "window_end"
+        },
+        "min_value": {
+          "$PARAMETER": "window_start"
+        }
+      },
+      "meta": {
+        "id": "K4",
+        "source": "tightened",
+        "spec": "created_at: UTC, millisecond precision, inside the load's batch window"
+      },
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "amount",
+        "max_value": {
+          "$PARAMETER": "max_txn_limit"
+        },
+        "min_value": 0.01
+      },
+      "meta": {
+        "id": "K5",
+        "source": "tightened",
+        "spec": "amount: Positive, 2 dp, at most the account txn_limit"
+      },
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column_A": "committed_at",
+        "column_B": "created_at"
+      },
+      "meta": {
+        "id": "K8",
+        "source": "tightened",
+        "spec": "committed_at: When the ledger committed it; after created_at"
+      },
+      "type": "expect_column_pair_values_a_to_be_greater_than_b"
+    },
+    {
+      "kwargs": {
+        "column": "ledger_seq"
+      },
+      "meta": {
+        "id": "K9",
+        "source": "tightened",
+        "spec": "ledger_seq: The ledger's sequence number; increases"
+      },
+      "type": "expect_column_values_to_be_increasing"
+    }
+  ],
+  "meta": {
+    "dataset": {
+      "config": {
+        "accounts": 5000,
+        "batch_window_seconds": 900,
+        "batches": 30,
+        "merchants": 500,
+        "rows_per_batch": 100000,
+        "start": "2026-01-01T00:00:00.000Z"
+      },
+      "schema_version": "1",
+      "seed": 45000,
+      "seed_purpose": "development"
+    },
+    "profiled_from": "30 clean development file(s)"
+  },
+  "name": "fact_transaction"
+}

@@ -259,8 +259,10 @@ def test_the_cli_offers_every_arm_and_reports_effort() -> None:
     from rai_bench.baselines import effort
 
     counted = effort(contracts)
-    assert counted["B1"]["checks"] == {"transactions_raw": 16, "merchants": 7}
-    assert counted["B2"]["hand_edits"] == {"added": 7, "replaced": 1, "removed": 1}
+    assert counted["B1"]["checks"] == {"transactions_raw": 16, "fact_transaction": 20,
+                                       "fraud_features": 24, "merchants": 7}  # fmt: skip
+    # P1's 7 added, 1 replaced and 1 removed, plus P2's and P3's (B-28).
+    assert counted["B2"]["hand_edits"] == {"added": 21, "replaced": 5, "removed": 4}
     assert counted["R"]["rules"]["transactions_raw"] == 36
 
 

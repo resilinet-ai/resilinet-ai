@@ -77,7 +77,12 @@ FACT_TRANSACTION: tuple[Column, ...] = (
     Column("direction", "string", True, "debit or credit"),
     Column("amount", "decimal", True, "Positive, 2 dp, at most the account txn_limit"),
     Column("currency", "string", True, "ISO 4217 code; always USD in schema v1"),
-    Column("created_at", "timestamp", True, "UTC, millisecond precision"),
+    Column(
+        "created_at",
+        "timestamp",
+        True,
+        "UTC, millisecond precision, inside the load's batch window",
+    ),
     Column("is_fraud", "boolean", True, "Synthetic fraud label"),
     Column("committed_at", "timestamp", True, "When the ledger committed it; after created_at"),
 )
@@ -103,7 +108,12 @@ FRAUD_FEATURES: tuple[Column, ...] = (
     Column("is_fraud", "boolean", True, "Synthetic fraud label"),
     Column("score", "decimal", True, "The model's fraud probability, in [0, 1], 6 dp"),
     Column("model_recipe_sha256", "string", True, "SHA-256 of the model recipe that scored it"),
-    Column("scored_at", "timestamp", True, "When the feature-job scored it"),
+    Column(
+        "scored_at",
+        "timestamp",
+        True,
+        "When the feature-job scored it: inside the batch window, or at most 10 s after it",
+    ),
 )
 
 TABLES: dict[str, tuple[Column, ...]] = {
