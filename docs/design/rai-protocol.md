@@ -42,6 +42,10 @@ SandboxBank (Spec section 5), synthetic data only. Pipeline **P1**: the payments
 | **B2**, Great Expectations | Suites profiled on 30 clean **development** batches, "then hand-tightened (documented)" from the specification. Every hand edit quotes the specification it comes from |
 | **R**, RAI | The SandboxBank contracts through RAI's validation engine, with a persistent cross-batch key history |
 
+- **During the chaos benchmark** (the author's decisions, 2026-11-25):
+  - B1 reruns its integration tests every 60 s (`benchmarks/baselines/b1/test_live.py`). They are **read-only**, so its checks never touch the seeding log that is RPO's ground truth.
+  - B2 is a 1-second health monitor of **liveness only**: payments-api `/readyz`, and the ETL's and feature-job's `/healthz`, never their freshness `/readyz`. It raises one alert per outage.
+  - Each alert names the component it concerns (`rai_bench.live`).
 - **External review and freeze.** An external engineer reviews both baselines before they are frozen: B1 on day 45, B2 on day 50. Nothing is edited after the freeze. The review packet is `benchmarks/baselines/REVIEW.md`.
 - **Effort.** Rule counts and lines of code per arm are reported (`rai-bench effort`).
 - **Fair claims.** Every arm may claim a defect class for an alert, derived from what the check is, never from the fixtures.
@@ -162,6 +166,11 @@ Every metric is computed by a script from raw logs, and published with its numer
 
 - **Common alert format.** "Each arm writes alerts in one common format: time, batch or injection, location, message." One JSON object per line (`rai-bench-alert/1`): arm, subject (batch or injection), time, location, message and an optional claimed defect class.
 - **Matching rule, fixed before any run:** an alert matches a seeded defect if it names the same batch and either the affected column or the defect class. The scorer applies it automatically before human review.
+- **Matching rule for injections** (the author's decision, 2026-11-25):
+  - **Match:** an alert matches an injection if it was raised between the fault's onset and five minutes after the observer's restoration time (or the end of the recovery window, if never restored), and it names a component the injection affects.
+  - **Affected components:** those of the injection's blast radius and of its recovery probes, using the public mapping in `rai_bench.live.COMPONENT_OF` (for example, `ledger-db-proxy` and `payments-ledger` belong to `ledger-db`, and `etl-ready` to `etl-job`).
+  - **Detection time** is the first matching alert minus the onset.
+  - Any other alert raised during a run is a false alarm.
 - **Sealing.** The SHA-256 of each answer key (its SEAL) and of the fault log are **committed publicly before any arm runs**. The scorer refuses a key that no longer matches its seal.
 - **Blind adjudication.** Arms are replaced by random codes; adjudicators relabel alerts without knowing which arm raised them.
 - **Roles.** Reviewer and adjudicator roles are defined by criteria, not by name, and a key custodian holds the answer keys until scoring (decision PROTO).

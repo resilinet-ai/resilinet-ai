@@ -19,7 +19,7 @@ The protocol compares RAI (arm R) with two baselines "so a win cannot come from 
 
 The specification is SandboxBank schema v1: [`sandboxbank/README.md`](../../sandboxbank/README.md) ("Schema v1") and [`schema.py`](../../sandboxbank/src/sandboxbank/schema.py).
 
-This packet covers the data-defect checks. The failure-scenario halves (B1 reruns integration tests every 60 s; B2 runs a 1-second health monitor) come with the chaos items.
+This packet covers the data-defect checks and, since 2026-11-25, the failure-scenario halves (B1 reruns integration tests every 60 s; B2 runs a 1-second health monitor): see "During the chaos benchmark" below.
 
 ## B1: the conventional suite
 
@@ -169,6 +169,34 @@ So an arm that checks key uniqueness is credited for D12 on P3.
 
 **Why B2 misses D11 on P3.** The re-sent previous chunk was partly scored in the seconds after its own window closed, so some of its rows fall inside the new window allowed by K4's 10 s grace. B2 therefore sees *some* rows out of window and claims D10, not D11, and the alert matches nothing. This is a consequence of the rule as written from the specification, left as is; please say whether you see it differently.
 
+## During the chaos benchmark (added 2026-11-25)
+
+While faults are injected (Protocol section 5), the baselines watch the live system as a team would. The author decided three things before either half was written:
+- B1 is read-only;
+- B2 watches liveness only;
+- the injection matching rule (Protocol section 8).
+
+**B1, every 60 s** ([`b1/test_live.py`](b1/test_live.py), its own pytest process per run, read-only):
+
+| Test | Checks | Names |
+| --- | --- | --- |
+| `test_payments_api_is_ready` | payments-api `/readyz` is 200 | `payments-api` |
+| `test_ledger_head_is_readable_and_never_falls` | `/v1/ledger/head` answers, and `seq` never falls between runs | `ledger-db` |
+| `test_warehouse_answers` | analytics-db answers a query | `analytics-db` |
+| `test_warehouse_keeps_up_with_the_ledger` | The warehouse's newest row is at most 5 min behind the ledger's | `etl-job` |
+| `test_feature_table_keeps_up_with_the_warehouse` | The feature table is at most 5 min behind the warehouse | `feature-job` |
+
+Each failing test in a run is one alert. Five minutes allows a few of the ETL's 60 s cycles, as a team writing these checks from the README would.
+
+**B2, every 1 s** (`rai_bench.live.B2Monitor`): payments-api `/readyz`, and `/healthz` of the ETL and the feature-job. It raises one alert when a component goes from healthy to failing, and the next only after it has been healthy again, as paging monitoring does.
+
+B2 does not watch the jobs' freshness `/readyz`. Health-check-only monitoring is what H4 compares RAI against, so a job that is alive but behind looks healthy to B2. That is the gap H4 tests.
+
+**Matching** (Protocol section 8):
+- an alert matches an injection if it is raised between the fault's onset and five minutes after the observer's restoration;
+- it must name a component of the injection's blast radius or recovery probes;
+- any other alert during a run is a false alarm.
+
 ## Questions for you
 
 1. **Conflict of interest.** The same assistant drafted RAI and both baselines. Do the baselines look like an honest best effort?
@@ -179,6 +207,7 @@ So an arm that checks key uniqueness is credited for D12 on P3.
 6. **Exact row count.** The profiled row-count range is exactly 100,000. Keep it as the profiler made it, or loosen it?
 7. **Reading choices.** pandas below 3, because GX 1.24 misreads pandas 3 string types; the timestamp column parsed on read.
 8. **P2 and P3.** Are the new hand edits (P2 K1–K9, P3 K3–K13) what a competent team would add from those specifications? Was it fair to state the window properties of P2 `created_at` and P3 `scored_at` in the specification before the suites were written?
+9. **The chaos halves.** Is a 60 s read-only integration suite, with a 5-minute lag allowance, what a small institution would run? Is a liveness-only 1 s monitor a fair stand-in for health-check monitoring?
 
 ## How to run
 

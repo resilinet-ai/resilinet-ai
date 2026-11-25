@@ -103,7 +103,9 @@ Repetitions are shuffled by the seed, and a seeded gap (60 to 600 s by default) 
 
 **The sealed registry** is [`registry/chaos-registry.yaml`](registry/chaos-registry.yaml): S01–S20 as the author approved them on 2026-11-25. Its `registry_sha256` is `01483388aec94ed63ebd0e953dba6b704172929a23f0ec3a701a7e35b6b4b06c`, and `tests/unit/test_chaos_registry.py` fails if it changes. To build the evaluation plan at registration, choose an evaluation seed privately, run `rai-bench chaos-plan registry/chaos-registry.yaml --out <private folder> --seed <seed>`, and commit only the printed SEAL.
 
-**Not here yet:** the runner that injects a plan and scores the arms' injection alerts.
+**The baselines during chaos** run from `rai_bench.live`: `B1Live` (B1's read-only integration tests, every 60 s) and `B2Monitor` (a 1 s liveness monitor). Both write common-format alerts naming components, and `assign` matches them to injections by Protocol section 8's rule.
+
+**Not here yet:** the runner that injects a plan, runs RAI and the baselines alongside it, and scores recovery, H3 and H4.
 
 ## Protocol H3: RTO against the independent observer (B-44)
 
