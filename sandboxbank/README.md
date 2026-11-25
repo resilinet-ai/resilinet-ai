@@ -111,6 +111,19 @@ uv run sandboxbank features --once --model-api http://127.0.0.1:18081   # one cy
 - **Faults reach it through Toxiproxy.** It calls the model-api through `model-api-proxy` (`toxiproxy:18082`), so latency and connection drops apply to scoring, and it reaches analytics-db through `analytics-db-proxy`. The container carries `rai.target=feature-job`.
 - **Checked live:** with `model-api-proxy` disabled, the warehouse grew to 2,794 rows while the feature table held at 1,919, and the job logged three scoring outages. Once re-enabled, it caught up to 2,794 with no duplicates.
 
+## Freshness probes (B-28)
+
+The ETL (P2) and the feature-job (P3) each serve two endpoints, so RAI can time their recovery (the author's review, Q1):
+
+| Job | Host port | `/healthz` | `/readyz` |
+| --- | --- | --- | --- |
+| `etl-job` | `127.0.0.1:18083` | 200 while the process runs | 200 only while caught up |
+| `feature-job` | `127.0.0.1:18084` | 200 while the process runs | 200 only while caught up |
+
+**Caught up** means the last cycle succeeded, loaded everything available, and finished within the last two minutes (or two intervals, if longer). A failed cycle makes `/readyz` answer 503 at once, naming the cause. A paused or disconnected container does not answer, which a probe also counts as not ready.
+
+Checked live: with `analytics-db-proxy` disabled, both answered 503 within one cycle. They were back to 200 about 8 s after it was re-enabled. Run by hand with `sandboxbank etl --health-port 8080` or `sandboxbank features --health-port 8080`.
+
 ## Fault paths (B-23)
 
 In Compose, SandboxBank's database traffic goes through Toxiproxy ([`toxiproxy.json`](toxiproxy.json)): `ledger-db-proxy` (payments-api and the ETL to ledger-db) and `analytics-db-proxy` (the ETL to analytics-db). Every service the chaos agent may act on carries `rai.sandbox=true` and a `rai.target` label. See [docs/chaos-agent.md](../docs/chaos-agent.md).

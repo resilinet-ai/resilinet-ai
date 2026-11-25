@@ -106,6 +106,7 @@ def _parser() -> argparse.ArgumentParser:
     etl.add_argument(
         "--lag", type=float, default=5.0, help="Only read rows committed this long ago"
     )
+    etl.add_argument("--health-port", type=int, help="Serve /healthz and /readyz on this port")
 
     features = commands.add_parser(
         "features", help="Run the P3 fraud feature pipeline (warehouse to feature table)."
@@ -120,6 +121,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     features.add_argument("--model-api", default="http://127.0.0.1:18081",
                           help="The model-api's base URL")  # fmt: skip
+    features.add_argument("--health-port", type=int,
+                          help="Serve /healthz and /readyz on this port")  # fmt: skip
 
     seed = commands.add_parser(
         "seed", help="Post transactions one by one at a steady rate, logging every answer."
@@ -328,6 +331,18 @@ def _seal(args: argparse.Namespace) -> int:
     return 1
 
 
+def _probe(args: argparse.Namespace) -> Any:
+    """The freshness probe (B-28) when ``--health-port`` is given: caught up means a
+    drained cycle within two minutes, or two intervals if those are longer."""
+    if args.health_port is None:
+        return None
+    from sandboxbank.health import DEFAULT_MAX_AGE, Readiness, serve
+
+    readiness = Readiness(max_age=max(DEFAULT_MAX_AGE, 2 * args.interval))
+    serve(readiness, "0.0.0.0", args.health_port)  # noqa: S104 - inside its container
+    return readiness
+
+
 def _features(args: argparse.Namespace) -> int:
     import threading
 
@@ -349,6 +364,7 @@ def _features(args: argparse.Namespace) -> int:
         interval=args.interval,
         chunk_size=args.chunk,
         stop=stop,
+        readiness=_probe(args),
     )
 
 
@@ -373,6 +389,7 @@ def _etl(args: argparse.Namespace) -> int:
         chunk_size=args.chunk,
         lag_seconds=args.lag,
         stop=stop,
+        readiness=_probe(args),
     )
 
 

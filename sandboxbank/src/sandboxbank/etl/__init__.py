@@ -32,6 +32,8 @@ from typing import Any
 
 import psycopg
 
+from sandboxbank.health import Readiness
+
 PIPELINE = "p2_settlement"
 DEFAULT_CHUNK = 10_000
 DEFAULT_LAG_SECONDS = 5.0
@@ -310,8 +312,10 @@ def run_service(
     chunk_size: int = DEFAULT_CHUNK,
     lag_seconds: float = DEFAULT_LAG_SECONDS,
     stop: threading.Event | None = None,
+    readiness: Readiness | None = None,
 ) -> int:
-    """Run cycles until stopped. With ``once``, run one cycle and return its exit code."""
+    """Run cycles until stopped. With ``once``, run one cycle and return its exit code.
+    ``readiness`` (the freshness probe, ``sandboxbank.health``) learns each outcome."""
     stop = stop or threading.Event()
     while True:
         try:
@@ -324,6 +328,8 @@ def run_service(
                 while True:
                     summary = run_cycle(ledger, wh, chunk_size=chunk_size, lag_seconds=lag_seconds)
                     log("cycle", **asdict(summary))
+                    if readiness is not None:  # run_cycle loads every chunk: caught up
+                        readiness.cycle_succeeded()
                     if once:
                         return 0
                     if stop.wait(interval):
@@ -331,6 +337,8 @@ def run_service(
                         return 0
         except psycopg.OperationalError as error:
             log("database_unavailable", error=str(error).splitlines()[0] if str(error) else "")
+            if readiness is not None:
+                readiness.cycle_failed("ledger-db or analytics-db unavailable")
             if once:
                 return 1
             if stop.wait(interval):
