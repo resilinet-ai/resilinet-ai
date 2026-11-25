@@ -1,0 +1,33 @@
+# SandboxBank P2: one load of posted transactions into the analytics warehouse
+# (warehouse.fact_transaction, schema v1). Every Protocol section 4 defect class is
+# caught by at least one rule here; see contracts/README.md for the mapping.
+contract: fact_transaction
+version: 1
+owner: sandboxbank-settlement
+description: Posted transactions as the settlement ETL loads them into the warehouse. Synthetic data only.
+freshness: { column: created_at, max_lag: 1h }
+primary_key: [txn_id]
+unique_across_batches: [txn_id]
+columns:
+  business_date: { type: date, required: true }
+  ledger_seq:    { type: integer, required: true, min: 1 }
+  txn_id:        { type: uuid, required: true }
+  account_id:    { type: string, required: true, pattern: "^ACC-[0-9]{7}$", references: accounts.account_id }
+  merchant_id:   { type: string, pattern: "^MER-[0-9]{6}$", references: merchants.merchant_id }
+  channel:       { type: string, required: true, allowed: [card_present, ecommerce, ach, wire, p2p] }
+  direction:     { type: string, required: true, allowed: [debit, credit] }
+  amount:
+    type: decimal(14,2)
+    required: true
+    min: 0.01
+    max: 25000
+    max_lookup: { ref: accounts.txn_limit, key: account_id }
+  currency:      { type: string, required: true, allowed: [USD] }
+  created_at:    { type: timestamp, required: true }
+  is_fraud:      { type: boolean, required: true, severity: warn }
+  committed_at:  { type: timestamp, required: true }
+schema_change_policy:
+  added_column: non_breaking
+  removed_or_renamed_column: breaking
+  type_change: breaking
+severity_default: critical

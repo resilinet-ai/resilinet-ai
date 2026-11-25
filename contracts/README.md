@@ -77,3 +77,16 @@ A run made of several batches or contracts fails if any one of them fails. Its e
 | D10 late-arriving rows | `freshness` |
 | D11 stale feed | `unique_across_batches:txn_id` and `freshness` |
 | D12 join fan-out | `merchants` contract: `merchant_id.unique` (primary key) |
+
+**P2 and P3** (B-28: the author decided on 2026-11-24 that all twelve classes run on every pipeline, adapted). `fact_transaction.yaml` is P2's warehouse load, and `fraud_features.yaml` is P3's feature chunk.
+
+| Defect | P2 `fact_transaction` | P3 `fraud_features` |
+| --- | --- | --- |
+| D01, D02, D11 | as P1 | as P1 |
+| D03 | `<column>.required`, including `committed_at` | `<column>.required`, including `score` and `scored_at` |
+| D04 | `amount.type` | `score.type` (text in the score) |
+| D05 | `amount.range` and `amount.max_lookup` | `amount.range` (negative amount) and `score.range` (outside [0, 1]) |
+| D06 | `account_id.references` | `merchant_category.references` (a category outside the merchants catalogue) |
+| D07, D08, D09 | `schema` | `schema` |
+| D10 | `freshness` on `created_at` | `freshness` on `scored_at` |
+| D12 | `merchants` contract: `merchant_id.unique` | `txn_id.unique`: a transaction fanned out to two account-dimension rows appears twice |

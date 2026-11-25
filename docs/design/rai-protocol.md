@@ -65,7 +65,17 @@ Twelve classes, with their rates fixed by the protocol:
 | D11 | Stale feed | whole batch |
 | D12 | Join fan-out (duplicated dimension key) | 0.1%, 1% |
 
-- **A fixture set per pipeline** has **180 batches** of 100,000 rows: 12 per defect class, spread evenly over that class's rates, plus **36 clean control batches**.
+- **A fixture set per pipeline** has **180 batches**: 12 per defect class, spread evenly over that class's rates, plus **36 clean control batches**. A P1 batch is 100,000 transactions. P2 and P3 batches are the posted ones among them (about 95%), because only posted transactions reach the warehouse:
+  - P2 delivers a warehouse load, `fact_transaction`, with `ledger_seq` and `committed_at`;
+  - P3 delivers a chunk of the feature table, `fraud_features`, scored by the fraud model.
+- **Every class on every pipeline** (author's decision, 2026-11-24). P2 takes the classes directly. In P3:
+  - D04 writes text into `score`;
+  - D05 makes `amount` negative or `score` fall outside [0, 1];
+  - D06 puts a `merchant_category` outside the merchants catalogue;
+  - D10 makes `scored_at` late;
+  - D12 fans a transaction out to two account-dimension rows (the same `txn_id` with a different `account_type`). Its answer key names both `txn_id` and `account_type`, so an arm that checks key uniqueness is credited.
+
+  *Proposed* until the author's review of the S01–S20 table and this mapping.
 - **The answer key** names exactly the changed rows (0-based rows of the delivered file), columns and keys, with each batch's window start and onset. It lives in its own folder, which the arms never see.
 - Injection rules are recorded in decisions SBX-INJECT and SBX-INJECT-2. For example, the freshness window is 1 h (D10), and D11 re-delivers the previous delivered file exactly.
 

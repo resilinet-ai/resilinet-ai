@@ -147,8 +147,10 @@ class RaiArm:
 
     name = "R"
 
-    def __init__(self, contracts: Path) -> None:
-        self._batch_path = contracts / "transactions_raw.yaml"
+    def __init__(self, contracts: Path, table: str = "transactions_raw") -> None:
+        # The delivered table's contract: transactions_raw (P1), fact_transaction (P2) or
+        # fraud_features (P3). The merchants dimension is checked when one is delivered.
+        self._batch_path = contracts / f"{table}.yaml"
         self._dimension_path = contracts / "merchants.yaml"
         self._batch_contract: Contract = load_contract(self._batch_path)
         self._dimension_contract: Contract = load_contract(self._dimension_path)

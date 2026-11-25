@@ -43,7 +43,8 @@ def problems(text: str) -> list[str]:
 
 def test_sandboxbank_contracts_parse_and_expand() -> None:
     counts = {path.stem: len(load_contract(path).rules()) for path in SANDBOXBANK.glob("*.yaml")}
-    assert counts == {"transactions_raw": 36, "accounts": 22, "merchants": 15}
+    assert counts == {"transactions_raw": 36, "accounts": 22, "merchants": 15,
+                      "fact_transaction": 37, "fraud_features": 42}  # fmt: skip
 
 
 def test_every_defect_class_has_a_rule_in_the_sandboxbank_contracts() -> None:
@@ -64,6 +65,32 @@ def test_every_defect_class_has_a_rule_in_the_sandboxbank_contracts() -> None:
         "D12": "merchant_id.unique" in merchants,
     }
     assert all(catches.values()), [d for d, ok in catches.items() if not ok]
+
+
+def test_every_defect_class_has_a_rule_in_the_p2_and_p3_contracts() -> None:
+    # B-28: each pipeline's delivered table, with the classes adapted to it (Protocol 4).
+    fact = {rule.id for rule in load_contract(SANDBOXBANK / "fact_transaction.yaml").rules()}
+    features = {rule.id for rule in load_contract(SANDBOXBANK / "fraud_features.yaml").rules()}
+    merchants = {rule.id for rule in load_contract(SANDBOXBANK / "merchants.yaml").rules()}
+    p2 = {
+        "D01": "txn_id.unique" in fact, "D02": "unique_across_batches:txn_id" in fact,
+        "D03": {"txn_id.required", "amount.required", "committed_at.required"} <= fact,
+        "D04": "amount.type" in fact, "D05": {"amount.range", "amount.max_lookup"} <= fact,
+        "D06": "account_id.references" in fact, "D07": "schema" in fact,
+        "D08": "schema" in fact, "D09": "schema" in fact, "D10": "freshness" in fact,
+        "D11": "unique_across_batches:txn_id" in fact, "D12": "merchant_id.unique" in merchants,
+    }  # fmt: skip
+    p3 = {
+        "D01": "txn_id.unique" in features, "D02": "unique_across_batches:txn_id" in features,
+        "D03": {"txn_id.required", "score.required", "scored_at.required"} <= features,
+        "D04": "score.type" in features, "D05": {"amount.range", "score.range"} <= features,
+        "D06": "merchant_category.references" in features, "D07": "schema" in features,
+        "D08": "schema" in features, "D09": "schema" in features,
+        "D10": "freshness" in features, "D11": "unique_across_batches:txn_id" in features,
+        "D12": "txn_id.unique" in features,  # the fan-out duplicates the key in the batch
+    }  # fmt: skip
+    assert all(p2.values()), [d for d, ok in p2.items() if not ok]
+    assert all(p3.values()), [d for d, ok in p3.items() if not ok]
 
 
 def test_rule_details_follow_the_contract() -> None:
