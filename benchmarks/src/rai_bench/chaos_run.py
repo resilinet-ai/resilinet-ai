@@ -27,8 +27,21 @@ Three steps, each its own command:
    * the baselines' detection of each injection by Protocol section 8's matching rule,
      with false alarms.
 
-   H3's RPO half and H4 (post-recovery damage) need ground truth from the seeding log
-   and the databases. That truth is the next part.
+   * H3's RPO half: RAI's loss verdict against the seeding log's (``rai_bench.truth``);
+   * H4: injections that left new damage, and which arms flagged it.
+
+With ``truth`` (``rai_bench.truth.Reconciler``), play also reconciles SandboxBank itself
+after each injection's run, read-only and outside every arm, and keeps the result in
+the injection's line. Per the author's decisions of 2026-11-26:
+
+* **H3's RPO half** scores the loss verdict. RAI matches when it agrees with the
+  seeding log on whether any acknowledged write was lost (RAI's ``lost_rows`` > 0).
+  The seconds are reported where both found a loss.
+* **H4: flagging damage.** RAI flags an injection's damage when one of its consistency
+  checks failed or its RPO found lost rows. B1 or B2 flag it only with a matching
+  alert (section 8) raised **after** the observer's restoration, while the system
+  looked healthy again. An outage alert during the fault is detection, not damage
+  detection.
 """
 
 from __future__ import annotations
@@ -290,6 +303,7 @@ def play(
     expected: str | None = None, allow_evaluation: bool = False, arms: Arms | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep, poll: float = POLL,
+    truth: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> int:  # fmt: skip
     """Play every injection of the sealed plan not yet in ``injections.jsonl``; return
     how many were played now."""
@@ -318,6 +332,7 @@ def play(
             if entry["injection_id"] in done:
                 continue
             row = _inject(api, setup, entry, t0, now=now, sleep=sleep, poll=poll)
+            row["truth"] = None if truth is None else truth(row)
             with log.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
             played += 1
@@ -428,9 +443,74 @@ def score_chaos(injections: Path, observations: Path, alerts: Path | None = None
     h3["summary"]["not_measured"] = len(rows) - len(measured)
     result: dict[str, Any] = {"format": SCORE_FORMAT, "injections": len(rows),
                               "recovery": attainment(rows), "h3_rto": h3}  # fmt: skip
+    found = None
     if alerts is not None:
-        result["detection"] = detection(measured, samples, read_alerts(alerts), hold=hold)
+        found = detection(measured, samples, read_alerts(alerts), hold=hold)
+        result["detection"] = found
+    if any(r.get("truth") for r in rows):
+        result["h3_rpo"] = rpo_agreement(rows)
+        result["h4"] = damage_flagged(rows, found)
     return result
+
+
+def _rai_lost(row: dict[str, Any]) -> bool:
+    return (row.get("lost_rows") or 0) > 0
+
+
+def rpo_agreement(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """H3's RPO half: RAI's loss verdict against the seeding log's, per injection with
+    both a measurement and ground truth."""
+    from rai_bench.h3 import clopper_pearson
+
+    scored = [r for r in rows if r["measured"] and r.get("truth")]
+    per: dict[str, Any] = {}
+    agreed = 0
+    for r in scored:
+        rai, true = _rai_lost(r), bool(r["truth"]["lost"])
+        agrees = rai == true
+        agreed += agrees
+        entry: dict[str, Any] = {"rai_lost": rai, "truth_lost": true, "agrees": agrees}
+        if rai and true and r["truth"]["rpo_truth_seconds"] is not None:
+            entry["error_seconds"] = round(float(r["rpo_seconds"] or 0)
+                                           - r["truth"]["rpo_truth_seconds"], 3)  # fmt: skip
+        per[r["injection_id"]] = entry
+    summary: dict[str, Any] = {"scored": len(scored), "agreed": agreed,
+                               "not_scored": len(rows) - len(scored)}  # fmt: skip
+    if scored:
+        lower, upper = clopper_pearson(agreed, len(scored))
+        summary.update(share=round(agreed / len(scored), 4),
+                       ci95=[round(lower, 4), round(upper, 4)])  # fmt: skip
+    else:
+        summary.update(share=None, ci95=None)
+    return {"summary": summary, "injections": per}
+
+
+def damage_flagged(rows: list[dict[str, Any]], found: dict[str, Any] | None) -> dict[str, Any]:
+    """H4: injections that left new damage, and which arms flagged it."""
+    late = (found or {}).get("post_restoration", {})
+    arms = sorted({"R", "B1", "B2"})
+    per: dict[str, Any] = {}
+    for r in rows:
+        if not r.get("truth"):
+            continue
+        checks_failed = any(f["outcome"] == "fail" for step in r["consistency"].values()
+                            for f in step.values())  # fmt: skip
+        flagged = {"R": checks_failed or _rai_lost(r)}
+        for arm in ("B1", "B2"):
+            flagged[arm] = arm in late.get(r["injection_id"], [])
+        per[r["injection_id"]] = {"damaged": bool(r["truth"]["damaged"]),
+                                  "new": r["truth"]["new"], "flagged": flagged}  # fmt: skip
+    damaged = [i for i, v in per.items() if v["damaged"]]
+    clean = [i for i, v in per.items() if not v["damaged"]]
+    summary = {
+        "injections": len(per), "damaged": len(damaged),
+        "arms": {arm: {"flagged_damaged": sum(per[i]["flagged"][arm] for i in damaged),
+                       "flagged_clean": sum(per[i]["flagged"][arm] for i in clean)}
+                 for arm in arms},
+        "r_not_b2": sum(per[i]["flagged"]["R"] and not per[i]["flagged"]["B2"]
+                        for i in damaged),
+    }  # fmt: skip
+    return {"summary": summary, "injections": per}
 
 
 def detection(
@@ -464,7 +544,12 @@ def detection(
             "median_detection_seconds": round(statistics.median(times), 3) if times else None,
             "false_alarms": sum(a.arm == arm for a in assigned["false_alarms"]),
         }  # fmt: skip
-    return {"arms": per_arm, "injections": {
+    post: dict[str, list[str]] = {}
+    for i in injections:
+        for arm, matched in assigned["matched"].get(i.injection_id, {}).items():
+            if i.restored is not None and any(a.time > i.restored for a in matched):
+                post.setdefault(i.injection_id, []).append(arm)
+    return {"arms": per_arm, "post_restoration": post, "injections": {
         i.injection_id: {arm: detection_seconds(i, assigned["matched"].get(i.injection_id, {})
                                                 .get(arm, [])) for arm in arms}
         for i in injections}}  # fmt: skip
