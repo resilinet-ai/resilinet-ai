@@ -1,5 +1,6 @@
 """``rai-bench``: run the arms, score a run, dry-run the whole chain (B-15), profile B2 (B-21),
-score RTO against the independent observer (B-44).
+score RTO against the independent observer (B-44), and set up, play and score the chaos
+benchmark (B-28).
 
 Exit codes: 0 done, 1 ``chaos-seal`` found a plan that does not match its seal,
 2 the command could not run (bad inputs, broken seal, evaluation fixtures without
@@ -9,6 +10,7 @@ Exit codes: 0 done, 1 ``chaos-seal`` found a plan that does not match its seal,
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -24,7 +26,9 @@ from rai_bench.chaos import (
     build_plan,
     check_plan,
 )
+from rai_bench.chaos_run import AlertLog, Api, Arms, load_setup, play, score_chaos, setup_rai
 from rai_bench.h3 import h3
+from rai_bench.live import B1Live, B2Monitor, b2_endpoints
 from rai_bench.runner import HarnessError, delivered_table, run
 from rai_bench.scale import history_scale
 from rai_bench.scoring import score
@@ -220,6 +224,103 @@ def chaos_seal_command(
             typer.echo(f"{plan}: {problem}", err=True)
         raise typer.Exit(1)
     typer.echo(f"{plan}: fault log matches its seal")
+
+
+def _secret(name: str) -> str:
+    value = os.environ.get(name, "")
+    if not value:
+        raise _fail(HarnessError(f"set {name} (a secret: never pass it on the command line)"))
+    return value
+
+
+@app.command("chaos-setup")
+def chaos_setup_command(
+    plan: Annotated[Path, typer.Argument(help="Sealed plan folder (its public registry.json)")],
+    out: Annotated[Path, typer.Option(help="Where to write setup.json")],
+    project: Annotated[str, typer.Option(help="RAI project id (a fresh one)")],
+    environment_id: Annotated[str, typer.Option(help="SANDBOX-01's environment id")],
+    api: Annotated[str, typer.Option(help="RAI API base URL")] = "http://127.0.0.1:8000",
+) -> None:
+    """Publish every registered scenario in RAI, have the reviewer approve it, and plan it
+    with the post-recovery consistency checks. Needs RAI_BENCH_TENANT and two people's
+    session tokens: RAI_BENCH_ENGINEER_TOKEN and RAI_BENCH_REVIEWER_TOKEN."""
+    tenant = _secret("RAI_BENCH_TENANT")
+    engineer = Api(api, _secret("RAI_BENCH_ENGINEER_TOKEN"), tenant=tenant)
+    reviewer = Api(api, _secret("RAI_BENCH_REVIEWER_TOKEN"), tenant=tenant)
+    try:
+        setup = setup_rai(engineer, reviewer, plan, out, project=project,
+                          environment_id=environment_id)  # fmt: skip
+    except HarnessError as problem:
+        raise _fail(problem) from None
+    typer.echo(f"{len(setup['scenarios'])} scenarios published, approved and planned: {out}")
+
+
+@app.command("chaos-play")
+def chaos_play_command(
+    plan: Annotated[Path, typer.Argument(help="Sealed plan folder")],
+    setup: Annotated[Path, typer.Argument(help="setup.json from chaos-setup")],
+    out: Annotated[Path, typer.Option(help="Run folder (resumed if it exists)")],
+    expect: Annotated[str | None, typer.Option(help="Publicly committed fault-log SHA-256")] = None,
+    allow_evaluation: Annotated[
+        bool, typer.Option(help="Allow an evaluation plan (the registered benchmark only)")
+    ] = False,
+    api: Annotated[str, typer.Option(help="RAI API base URL")] = "http://127.0.0.1:8000",
+    payments: Annotated[str, typer.Option(help="payments-api, as B1 and B2 see it")] = (
+        "http://127.0.0.1:18080"
+    ),
+    etl: Annotated[str, typer.Option(help="etl-job health port")] = "http://127.0.0.1:18083",
+    features: Annotated[str, typer.Option(help="feature-job health port")] = (
+        "http://127.0.0.1:18084"
+    ),
+    baselines: Annotated[bool, typer.Option(help="Run B1 and B2 alongside")] = True,
+) -> None:
+    """Play the sealed plan through RAI, one injection at a time, with B1 and B2 watching.
+    Needs RAI_BENCH_API_KEY (runs:start, runs:read) and, for B1, RAI_B1_ANALYTICS_DSN."""
+    key = _secret("RAI_BENCH_API_KEY")
+    arms = Arms()
+    if baselines:
+        dsn = _secret("RAI_B1_ANALYTICS_DSN")
+        alerts = AlertLog(out / "alerts.jsonl")
+        arms = Arms(
+            B2Monitor(b2_endpoints(payments, etl, features), alerts),
+            B1Live(out / "b1", {"RAI_B1_PAYMENTS": payments, "RAI_B1_ANALYTICS_DSN": dsn}, alerts),
+        )
+    try:
+        played = play(Api(api, key), plan, load_setup(setup), out, expected=expect,
+                      allow_evaluation=allow_evaluation, arms=arms)  # fmt: skip
+    except HarnessError as problem:
+        raise _fail(problem) from None
+    typer.echo(f"{played} injections played; results in {out / 'injections.jsonl'}")
+
+
+@app.command("chaos-score")
+def chaos_score_command(
+    run_dir: Annotated[Path, typer.Argument(help="Run folder from chaos-play")],
+    observations: Annotated[Path, typer.Argument(help="The observer's log (sandboxbank observe)")],
+    out: Annotated[Path | None, typer.Option(help="Write the full result here (JSON)")] = None,
+) -> None:
+    """Recovery attainment, H3's RTO half and the baselines' detection of each injection."""
+    alerts = run_dir / "alerts.jsonl"
+    try:
+        result = score_chaos(run_dir / "injections.jsonl", observations,
+                             alerts if alerts.is_file() else None)  # fmt: skip
+    except HarnessError as problem:
+        raise _fail(problem) from None
+    overall = result["recovery"]["overall"]
+    s = result["h3_rto"]["summary"]
+    typer.echo(f"Recovery: RTO met {overall['rto']['met']}/{overall['runs']}, "
+               f"RPO met {overall['rpo']['met']}/{overall['runs']} "
+               f"({overall['measured']} measured)")  # fmt: skip
+    typer.echo(f"H3 (RTO): {s['agreed']}/{s['scored']} within +/- {s['tolerance_seconds']:g} s; "
+               f"{s['unobserved']} unobserved, {s['not_measured']} not measured; "
+               f"{'supported' if s['supported'] else 'not supported'}")  # fmt: skip
+    for arm, d in result.get("detection", {}).get("arms", {}).items():
+        median = d["median_detection_seconds"]
+        typer.echo(f"{arm}: detected {d['detected']}/{d['injections']}, median {median} s, "
+                   f"{d['false_alarms']} false alarms")  # fmt: skip
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
 
 @app.command("h3")

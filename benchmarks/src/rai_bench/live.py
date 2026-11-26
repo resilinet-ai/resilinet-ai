@@ -247,7 +247,11 @@ class B1Live:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            self.run_once()
+            try:
+                self.run_once()
+            except RuntimeError as error:  # the suite could not run: noted, never an alert
+                with (self.workdir / "b1-live-errors.log").open("a", encoding="utf-8") as log:
+                    log.write(f"{self._clock().isoformat()} {error}\n")
             self._stop.wait(self.interval)
 
     def start(self) -> None:

@@ -105,7 +105,39 @@ Repetitions are shuffled by the seed, and a seeded gap (60 to 600 s by default) 
 
 **The baselines during chaos** run from `rai_bench.live`: `B1Live` (B1's read-only integration tests, every 60 s) and `B2Monitor` (a 1 s liveness monitor). Both write common-format alerts naming components, and `assign` matches them to injections by Protocol section 8's rule.
 
-**Not here yet:** the runner that injects a plan, runs RAI and the baselines alongside it, and scores recovery, H3 and H4.
+### Running the chaos benchmark (`rai_bench.chaos_run`)
+
+Three commands. Secrets come only from the environment, never the command line:
+
+```bash
+# 1. Publish S01-S20 in a fresh RAI project, have a reviewer approve them, and plan each one.
+#    Needs RAI_BENCH_TENANT, RAI_BENCH_ENGINEER_TOKEN and RAI_BENCH_REVIEWER_TOKEN (two people).
+uv run rai-bench chaos-setup <plan> --out <run>/setup.json --project <id> --environment-id <id>
+# 2. Play the sealed plan, with B1 and B2 watching. Resumes if stopped.
+#    Needs RAI_BENCH_API_KEY (runs:start, runs:read) and RAI_B1_ANALYTICS_DSN.
+uv run rai-bench chaos-play <plan> <run>/setup.json --out <run> --expect <SEAL> [--allow-evaluation]
+# 3. Score against the observer's log.
+uv run rai-bench chaos-score <run> observations.csv --out <run>/score.json
+```
+
+- **Setup** publishes every scenario of the plan's public `registry.json` exactly as registered, and refuses if RAI stored one differently. Each scenario's plan is the scenario, then two post-recovery consistency checks (FR-08.3):
+  - `bench.p2.consistency`: the warehouse's `fact_transaction` against the ledger's posted rows;
+  - `bench.p3.consistency`: `fraud_features` against `fact_transaction`.
+
+  They run after **every** injection, since a P1 fault can damage the pipelines downstream (the author's decision, 2026-11-26). The worker needs three connectors: `ledger`, `warehouse` (schema `warehouse`) and `features` (schema `features`). RAI is **not** given the seeding log: it is the ground truth for RPO and damage.
+- **Play** starts each injection's run no earlier than its `start_offset_seconds` after the run began, with an `Idempotency-Key` per injection, and waits for it to finish. Meanwhile B1 and B2 write `alerts.jsonl`. Each injection becomes one line of `injections.jsonl` (`rai-bench-chaos-run/1`), with:
+  - RAI's run state and verdict;
+  - its recovery measurement (onset, revert, RTO, RPO, objectives met);
+  - its consistency findings;
+  - the scenario's recovery probes.
+
+  A run that hasn't finished by its faults, window and checks plus 10 minutes stops the runner. Resolve the run, then resume.
+- **Score** gives:
+  - recovery attainment per scenario and overall: objectives met over runs **attempted**, so a refused, aborted or unmeasured run counts as not met;
+  - H3's RTO half: each injection is judged on its own probes, and unmeasured injections are counted;
+  - each baseline's detection by Protocol section 8: share of injections detected, median detection time and false alarms.
+
+**Not here yet:** ground truth from the seeding log and the databases, for H3's RPO half and H4 (post-recovery damage).
 
 ## Protocol H3: RTO against the independent observer (B-44)
 
