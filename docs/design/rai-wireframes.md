@@ -121,4 +121,4 @@ The same dashboard in the three other themes (Midnight is above):
 
 ## 6. Traceability
 
-Every requirement cited here is in `docs/traceability.csv`. The UI itself is not built, so no requirement is marked as satisfied by these wireframes. They are the design input for `rai-web` (ADR-004) and for B-37 (the banner in the UI).
+Every requirement cited here is in `docs/traceability.csv`. No requirement is marked as satisfied by these wireframes: the matrix credits the tests of the built UI, not the designs. The UI (`rai-web`, ADR-004) has sign-in, the shell with the synthetic-data banner, Runs and the Dashboard built (B-37, FR-11.1); the other screens are placeholders, and these wireframes remain their design input.

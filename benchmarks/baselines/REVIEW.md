@@ -186,7 +186,7 @@ While faults are injected (Protocol section 5), the baselines watch the live sys
 | `test_warehouse_keeps_up_with_the_ledger` | The warehouse's newest row is at most 5 min behind the ledger's | `etl-job` |
 | `test_feature_table_keeps_up_with_the_warehouse` | The feature table is at most 5 min behind the warehouse | `feature-job` |
 
-Each failing test in a run is one alert. Five minutes allows a few of the ETL's 60 s cycles, as a team writing these checks from the README would.
+Each failing test in a run is one alert. Five minutes allows a few of the ETL's 60 s cycles, as a team writing these checks from the README would. If the suite itself cannot run (pytest crashes), that is logged to `b1-live-errors.log` and raises no alert, as a broken CI job pages no one about the system.
 
 **B2, every 1 s** (`rai_bench.live.B2Monitor`): payments-api `/readyz`, and `/healthz` of the ETL and the feature-job. It raises one alert when a component goes from healthy to failing, and the next only after it has been healthy again, as paging monitoring does.
 
