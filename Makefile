@@ -1,4 +1,4 @@
-.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e tls-e2e journeys reproduce
+.PHONY: setup lint format typecheck test test-db test-db-stop check up down demo benchmark chaos-e2e tls-e2e journeys chaos-dry-run reproduce
 
 setup:
 	uv sync --all-packages
@@ -78,6 +78,21 @@ journeys:
 	status=0; docker compose --profile core --profile sandbox --profile chaos up -d --build --wait $(JOURNEY_SERVICES) \
 	&& uv run pytest tests/e2e -v || status=$$?; \
 	docker compose --profile core --profile sandbox --profile chaos down -v; exit $$status
+
+# NFR-REP-1: the chaos benchmark end to end on the live stack with a 3-scenario development
+# plan (tests/e2e/test_chaos_dry_run.py): the journeys' stack plus P3 (model-api,
+# feature-job). The API, worker, seeder, observer and rai-bench run as processes.
+CHAOS_DRY_RUN_SERVICES = $(JOURNEY_SERVICES) model-api feature-job
+chaos-dry-run:
+	secret() { uv run python -c 'import secrets; print(secrets.token_urlsafe(36))'; }; \
+	key="$$(mktemp -d)/worker.pem"; \
+	export COMPOSE_PROJECT_NAME=rai-chaos-dry-run RAI_E2E_WORKER_KEY="$$key" RAI_AGENT_ENVIRONMENT=SANDBOX-01 ETL_INTERVAL_SECONDS=2 FEATURE_INTERVAL_SECONDS=2 RAI_E2E_CHAOS_DRY_RUN=1; \
+	export RAI_DB_PASSWORD="$$(secret)" LEDGER_DB_PASSWORD="$$(secret)" ANALYTICS_DB_PASSWORD="$$(secret)" RAI_API_DB_PASSWORD=unused RAI_JWT_SECRET=unused; \
+	export RAI_AGENT_WORKER_KEYS="$$(uv run rai admin chaos-keygen --out "$$key")"; \
+	export RAI_E2E_DATABASE_URL="postgresql://rai:$$RAI_DB_PASSWORD@127.0.0.1:55431/rai"; \
+	status=0; docker compose --profile core --profile sandbox --profile chaos --profile model up -d --build --wait $(CHAOS_DRY_RUN_SERVICES) \
+	&& uv run pytest tests/e2e/test_chaos_dry_run.py -v -s || status=$$?; \
+	docker compose --profile core --profile sandbox --profile chaos --profile model down -v; exit $$status
 
 # B-41 (NFR-REP-2): reproduce a release on this machine, on a clean checkout of its tag:
 # the locked install, the demo and the journeys, with a report of the machine, each step and

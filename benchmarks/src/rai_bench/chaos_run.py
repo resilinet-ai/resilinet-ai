@@ -189,7 +189,7 @@ def setup_rai(
     for scenario in registry.scenarios:
         definition = scenario.definition.model_dump(mode="json")
         published = engineer.post(f"/v1/projects/{project}/scenarios", {
-            "name": f"bench-{scenario.id}", "description": scenario.title,
+            "name": f"bench-{scenario.id.lower()}", "description": scenario.title,
             "blast_radius": definition["blast_radius"], "faults": definition["faults"],
             "recovery": definition["recovery"],
         })  # fmt: skip
@@ -203,7 +203,8 @@ def setup_rai(
         items = [{"item_type": "scenario", "scenario_id": sid},
                  *({"test_id": test_id} for test_id in checks.values())]  # fmt: skip
         plan = engineer.post(f"/v1/projects/{project}/plans", {
-            "name": f"bench-{scenario.id}", "items": items, "environment_id": environment_id,
+            "name": f"bench-{scenario.id.lower()}", "items": items,
+            "environment_id": environment_id,
         })  # fmt: skip
         scenarios[scenario.id] = {"scenario_id": sid, "scenario_sha256": scenario.sha256(),
                                   "plan_id": plan["plan_id"], **_probes(scenario)}  # fmt: skip
