@@ -32,6 +32,7 @@ from rai_bench.live import B1Live, B2Monitor, b2_endpoints
 from rai_bench.runner import HarnessError, delivered_table, run
 from rai_bench.scale import history_scale
 from rai_bench.scoring import score
+from rai_bench.truth import DbSources, Reconciler
 from sandboxbank.dataset import write_dataset
 from sandboxbank.fixtures import build_fixtures, write_clean_deliveries
 from sandboxbank.generator import GeneratorConfig
@@ -273,10 +274,20 @@ def chaos_play_command(
         "http://127.0.0.1:18084"
     ),
     baselines: Annotated[bool, typer.Option(help="Run B1 and B2 alongside")] = True,
+    acks: Annotated[
+        Path | None,
+        typer.Option(help="The seeding log (sandboxbank seed): reconcile after each injection"),
+    ] = None,
 ) -> None:
     """Play the sealed plan through RAI, one injection at a time, with B1 and B2 watching.
-    Needs RAI_BENCH_API_KEY (runs:start, runs:read) and, for B1, RAI_B1_ANALYTICS_DSN."""
+    Needs RAI_BENCH_API_KEY (runs:start, runs:read) and, for B1, RAI_B1_ANALYTICS_DSN.
+    With --acks, the ground truth reads SandboxBank read-only through RAI_TRUTH_LEDGER_DSN
+    and RAI_TRUTH_ANALYTICS_DSN."""
     key = _secret("RAI_BENCH_API_KEY")
+    truth = None
+    if acks is not None:
+        sources = DbSources(_secret("RAI_TRUTH_LEDGER_DSN"), _secret("RAI_TRUTH_ANALYTICS_DSN"))
+        truth = Reconciler(sources, acks, out / "truth-state.json")
     arms = Arms()
     if baselines:
         dsn = _secret("RAI_B1_ANALYTICS_DSN")
@@ -287,7 +298,7 @@ def chaos_play_command(
         )
     try:
         played = play(Api(api, key), plan, load_setup(setup), out, expected=expect,
-                      allow_evaluation=allow_evaluation, arms=arms)  # fmt: skip
+                      allow_evaluation=allow_evaluation, arms=arms, truth=truth)  # fmt: skip
     except HarnessError as problem:
         raise _fail(problem) from None
     typer.echo(f"{played} injections played; results in {out / 'injections.jsonl'}")
@@ -318,6 +329,14 @@ def chaos_score_command(
         median = d["median_detection_seconds"]
         typer.echo(f"{arm}: detected {d['detected']}/{d['injections']}, median {median} s, "
                    f"{d['false_alarms']} false alarms")  # fmt: skip
+    if "h3_rpo" in result:
+        r = result["h3_rpo"]["summary"]
+        typer.echo(f"H3 (RPO): loss verdict agrees in {r['agreed']}/{r['scored']} "
+                   f"({r['not_scored']} without a measurement or truth)")  # fmt: skip
+        h4 = result["h4"]["summary"]
+        arms = ", ".join(f"{a} {v['flagged_damaged']}" for a, v in h4["arms"].items())
+        typer.echo(f"H4: {h4['damaged']}/{h4['injections']} injections left damage; "
+                   f"flagged by {arms}; RAI but not B2: {h4['r_not_b2']}")  # fmt: skip
     if out is not None:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
