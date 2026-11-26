@@ -344,6 +344,18 @@ def run_service(
             if stop.wait(interval):
                 log("stopped")
                 return 0
+        except psycopg.errors.UndefinedTable as error:
+            # The payments-api creates the ledger's tables when it starts. Until it has,
+            # wait like for an unavailable database rather than crash (compose starts
+            # both once ledger-db is healthy, in either order).
+            log("ledger_not_initialised", error=str(error).splitlines()[0])
+            if readiness is not None:
+                readiness.cycle_failed("the ledger is not initialised yet")
+            if once:
+                return 1
+            if stop.wait(interval):
+                log("stopped")
+                return 0
 
 
 def main_loop_signals(stop: threading.Event) -> None:  # pragma: no cover - process wiring

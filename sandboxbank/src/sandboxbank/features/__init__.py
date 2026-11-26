@@ -245,6 +245,12 @@ def run_service(
             log("database_unavailable", error=str(error).splitlines()[0] if str(error) else "")
             if readiness is not None:
                 readiness.cycle_failed("analytics-db unavailable")
+        except psycopg.errors.UndefinedTable as error:
+            # The etl-job creates the warehouse's tables on its first connection. Until it
+            # has, wait like for an unavailable database rather than crash.
+            log("warehouse_not_initialised", error=str(error).splitlines()[0])
+            if readiness is not None:
+                readiness.cycle_failed("the warehouse is not initialised yet")
         except ScoringUnavailable as error:
             log("scoring_unavailable", error=str(error)[:300])
             if readiness is not None:
