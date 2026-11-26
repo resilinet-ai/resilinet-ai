@@ -137,6 +137,16 @@ uv run rai-bench chaos-score <run> observations.csv --out <run>/score.json
   - H3's RTO half: each injection is judged on its own probes, and unmeasured injections are counted;
   - each baseline's detection by Protocol section 8: share of injections detected, median detection time and false alarms.
 
+### Dry run on the live stack
+
+`make chaos-dry-run` runs all three commands end to end on the real stack (`tests/e2e/test_chaos_dry_run.py`). It uses a development plan of three short scenarios, one per pipeline: the ledger connection dropped for 10 s, the ETL paused for 10 s, and the feature-job restarted. Alongside it run:
+
+- the real RAI API, worker and chaos agent;
+- B1 and B2;
+- `sandboxbank seed` and `sandboxbank observe`.
+
+It checks that the chain works: every injection is run, measured, watched and reconciled, and the score has every section. It never asserts what the chain finds. The workflow "Chaos dry run" runs it every night, and on pull requests that change the runner or the stack. It takes about 11 minutes.
+
 ### Ground truth for RPO and damage (`rai_bench.truth`)
 
 Run `sandboxbank seed` against the payments-api for the whole benchmark, and pass its log to play with `--acks <log>`. Play then reconciles SandboxBank **itself** after each injection's RAI run. It reads read-only, outside every arm, through `RAI_TRUTH_LEDGER_DSN` and `RAI_TRUTH_ANALYTICS_DSN`. It checks:

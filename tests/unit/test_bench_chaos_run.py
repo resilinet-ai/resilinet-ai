@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from rai.api.routes_scenarios import NAME
 from rai_bench.alerts import Alert, write_alerts
 from rai_bench.chaos import build_plan
 from rai_bench.chaos_run import AlertLog, Api, Arms, load_setup, play, score_chaos, setup_rai
@@ -75,6 +77,9 @@ class FakeRai:
         path, method = request.url.path, request.method
         self.sent.append((who, f"{method} {path}", body, dict(request.headers)))
         new = str(uuid4())
+        named = method == "POST" and isinstance(body, dict) and "name" in body
+        if named and not re.fullmatch(NAME, body["name"]):  # RAI's own name rule
+            return httpx.Response(422, json={"code": "request.invalid", "name": body["name"]})
         if method == "POST" and path.endswith("/assets"):
             return httpx.Response(201, json={"asset_id": new})
         if method == "POST" and (path.endswith("/inputs") or path.endswith("/approvals")):

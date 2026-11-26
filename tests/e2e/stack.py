@@ -250,8 +250,9 @@ def connectors(folder: Path, feed: Path) -> None:
     for name, port, database, schema in (
         ("ledger", LEDGER_PORT, "ledger", "public"),
         ("warehouse", ANALYTICS_PORT, "analytics", "warehouse"),
+        ("features", ANALYTICS_PORT, "analytics", "features"),  # P3 (the chaos dry run)
     ):
-        user = "ledger" if name == "ledger" else "analytics"
+        user = "ledger" if name == "ledger" else "analytics"  # warehouse and features
         secret = "LEDGER_DB_PASSWORD" if name == "ledger" else "ANALYTICS_DB_PASSWORD"
         (folder / f"{name}.yaml").write_text(
             f"name: {name}\nenvironment: {ENVIRONMENT}\ntype: postgres\nhost: 127.0.0.1\n"

@@ -1,0 +1,80 @@
+name: Chaos dry run
+
+# NFR-REP-1: the chaos benchmark end to end on the live stack, every night, with a
+# 3-scenario development plan (one short fault per pipeline): rai-bench chaos-setup,
+# chaos-play (real worker and chaos agent; B1 and B2 watching; the seeder and observer
+# running; ground truth after each injection) and chaos-score
+# (tests/e2e/test_chaos_dry_run.py). It checks the chain works, never what it finds.
+# Also on pull requests that change the runner, its ground truth or the stack.
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "benchmarks/src/rai_bench/chaos*.py"
+      - "benchmarks/src/rai_bench/live.py"
+      - "benchmarks/src/rai_bench/truth.py"
+      - "benchmarks/baselines/b1/test_live.py"
+      - "sandboxbank/src/sandboxbank/observer.py"
+      - "sandboxbank/src/sandboxbank/seeder.py"
+      - "tests/e2e/**"
+      - "compose.yaml"
+      - ".github/workflows/chaos-dry-run.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chaos-dry-run-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dry-run:
+    name: Chaos benchmark dry run (end to end)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      COMPOSE_PROJECT_NAME: rai-chaos-dry-run
+      RAI_AGENT_ENVIRONMENT: SANDBOX-01
+      ETL_INTERVAL_SECONDS: "2"
+      FEATURE_INTERVAL_SECONDS: "2"
+      RAI_API_DB_PASSWORD: unused-here
+      RAI_JWT_SECRET: unused-here
+      RAI_E2E_REQUIRED: "1"
+      RAI_E2E_CHAOS_DRY_RUN: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install (RAI, SandboxBank and rai-bench)
+        run: uv sync --all-packages --locked
+      - name: Generated credentials (masked)
+        run: |
+          for name in RAI_DB_PASSWORD LEDGER_DB_PASSWORD ANALYTICS_DB_PASSWORD; do
+            value="$(uv run python -c 'import secrets; print(secrets.token_urlsafe(36))')"
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+      - name: Start rai-db, SandboxBank (P1-P3) and the chaos agent
+        run: |
+          DOCKER_GID="$(stat -c %g /var/run/docker.sock)"
+          RAI_AGENT_WORKER_KEYS="$(uv run rai admin chaos-keygen --out "$RUNNER_TEMP/worker.pem")"
+          export DOCKER_GID RAI_AGENT_WORKER_KEYS
+          docker compose --profile core --profile sandbox --profile chaos --profile model \
+            up -d --build --wait rai-db ledger-db payments-api analytics-db etl-job toxiproxy \
+            socket-proxy rai-chaos-agent rai-chaos-watchdog model-api feature-job
+      - name: Dry run
+        env:
+          RAI_E2E_WORKER_KEY: ${{ runner.temp }}/worker.pem
+        run: |
+          export RAI_E2E_DATABASE_URL="postgresql://rai:${RAI_DB_PASSWORD}@127.0.0.1:55431/rai"
+          uv run pytest tests/e2e/test_chaos_dry_run.py -v -s --basetemp "$RUNNER_TEMP/chaos"
+      - name: RAI, runner and service logs
+        if: failure()
+        run: |
+          tail -n 80 "$RUNNER_TEMP"/chaos/journeys*/logs/*.log || true
+          docker compose --profile core --profile sandbox --profile chaos --profile model \
+            logs --tail 40 payments-api etl-job feature-job rai-chaos-agent rai-chaos-watchdog
+      - name: Stop
+        if: always()
+        run: docker compose --profile core --profile sandbox --profile chaos --profile model down -v
