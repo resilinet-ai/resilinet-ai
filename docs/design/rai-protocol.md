@@ -46,6 +46,7 @@ SandboxBank (Spec section 5), synthetic data only. Pipeline **P1**: the payments
   - B1 reruns its integration tests every 60 s (`benchmarks/baselines/b1/test_live.py`). They are **read-only**, so its checks never touch the seeding log that is RPO's ground truth.
   - B2 is a 1-second health monitor of **liveness only**: payments-api `/readyz`, and the ETL's and feature-job's `/healthz`, never their freshness `/readyz`. It raises one alert per outage.
   - Each alert names the component it concerns (`rai_bench.live`).
+  - **RAI during the chaos benchmark** (the author's decision, 2026-11-26): each injection runs a plan of its registered scenario, then consistency checks of P2 (the warehouse against the ledger) and P3 (the feature table against the warehouse). These run after every injection, because a P1 fault can damage the pipelines downstream. RAI is not given the seeding log, the ground truth for RPO and damage, so its RPO is the ledger-based one it always measures (`rai-bench chaos-setup`, `chaos-play`).
 - **External review and freeze.** An external engineer reviews both baselines before they are frozen: B1 on day 45, B2 on day 50. Nothing is edited after the freeze. The review packet is `benchmarks/baselines/REVIEW.md`.
 - **Effort.** Rule counts and lines of code per arm are reported (`rai-bench effort`).
 - **Fair claims.** Every arm may claim a defect class for an alert, derived from what the check is, never from the fixtures.
