@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import json
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from http.server import ThreadingHTTPServer
+from typing import Any
 
+import psycopg
 import pytest
 
 from sandboxbank import features
@@ -102,3 +105,37 @@ def test_the_feature_job_reports_each_outcome(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(features, "run_cycle", lambda *a, **k: features.CycleSummary())
     assert features.run_service("dsn", "http://x", once=True, readiness=readiness) == 0
     assert readiness.state()[0] is True
+
+
+@pytest.mark.parametrize("job", ["etl", "features"])
+def test_a_job_started_before_its_upstream_tables_exist_waits(
+    job: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Compose starts the payments-api, the etl-job and the feature-job together. The
+    tables they read may not exist yet; that is a failed cycle, never a crash."""
+    from sandboxbank import etl
+
+    module: Any = etl if job == "etl" else features
+    readiness = Readiness()
+
+    class Conn:
+        def __enter__(self) -> Conn:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    def not_yet(*_: object, **__: object) -> None:
+        raise psycopg.errors.UndefinedTable('relation "accounts" does not exist')
+
+    monkeypatch.setattr(module.psycopg, "connect", lambda *a, **k: Conn())
+    monkeypatch.setattr(module, "migrate_warehouse" if job == "etl" else "migrate_features",
+                        lambda wh: None)  # fmt: skip
+    monkeypatch.setattr(module, "run_cycle", not_yet)
+    args = ("ledger", "analytics") if job == "etl" else ("analytics", "http://x")
+    assert module.run_service(*args, once=True, readiness=readiness) == 1
+    assert "not initialised yet" in readiness.state()[1]["reason"]
+    stop = threading.Event()
+    stop.set()
+    assert module.run_service(*args, interval=0.01, stop=stop, readiness=readiness) == 0
+    assert "_not_initialised" in capsys.readouterr().out
