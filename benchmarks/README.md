@@ -137,7 +137,24 @@ uv run rai-bench chaos-score <run> observations.csv --out <run>/score.json
   - H3's RTO half: each injection is judged on its own probes, and unmeasured injections are counted;
   - each baseline's detection by Protocol section 8: share of injections detected, median detection time and false alarms.
 
-**Not here yet:** ground truth from the seeding log and the databases, for H3's RPO half and H4 (post-recovery damage).
+### Ground truth for RPO and damage (`rai_bench.truth`)
+
+Run `sandboxbank seed` against the payments-api for the whole benchmark, and pass its log to play with `--acks <log>`. Play then reconciles SandboxBank **itself** after each injection's RAI run. It reads read-only, outside every arm, through `RAI_TRUTH_LEDGER_DSN` and `RAI_TRUTH_ANALYTICS_DSN`. It checks:
+
+- **lost acknowledged writes:** writes in the seeding log (hash chain verified first) that are not in the ledger;
+- **the warehouse against the ledger's posted rows:** missing, duplicated or unexpected rows, by `ledger_seq`;
+- **the feature table against the warehouse:** the same three ways.
+
+A job catching up is not damage. *Missing* counts only rows that existed upstream when the check began, and the check waits up to 900 s for them, as RAI's own checks do. Damage belongs to an injection only when it is **new**, not reported after an earlier one. The reported keys are kept in `truth-state.json`, so a resumed run attributes nothing twice.
+
+`chaos-score` then adds two results, by the author's decisions of 2026-11-26:
+
+- **H3's RPO half:** RAI matches when it agrees with the seeding log on whether any acknowledged write was lost (RAI's `lost_rows` > 0). The share comes with its Clopper-Pearson 95% interval; where both found a loss, the seconds difference is descriptive.
+- **H4:** the injections that left new damage, and who flagged each one:
+  - RAI flags it when a consistency check failed or its RPO found lost rows.
+  - B1 or B2 flag it only with a matching alert raised **after** the observer's restoration, while the system looked healthy again. An outage alert during the fault is detection, not damage detection.
+
+  `r_not_b2` counts the damage RAI flagged and B2 missed. Each arm's flags on undamaged injections are reported as well.
 
 ## Protocol H3: RTO against the independent observer (B-44)
 

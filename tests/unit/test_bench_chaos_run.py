@@ -327,3 +327,21 @@ def test_the_cli_needs_its_secrets_from_the_environment(
                                      "--project", "p", "--environment-id", "e"])  # fmt: skip
     assert setup.exit_code == 2
     assert "set RAI_BENCH_TENANT" in setup.output
+
+
+def test_play_keeps_the_ground_truth_of_each_injection(plan_dir: Path, tmp_path: Path) -> None:
+    clock = Clock()
+    rai = FakeRai(clock)
+    setup = make_setup(rai, plan_dir, tmp_path)
+    seen: list[str] = []
+
+    def truth(row: dict[str, Any]) -> dict[str, Any]:
+        seen.append(row["injection_id"])  # after RAI's run finished
+        assert row["state"] == "passed"
+        return {"lost": False, "damaged": False, "new": {}, "rpo_truth_seconds": 0.0}
+
+    play(rai.client("key"), plan_dir, setup, tmp_path / "run", now=clock, sleep=clock.sleep,
+         truth=truth)  # fmt: skip
+    rows = [json.loads(x) for x in (tmp_path / "run" / "injections.jsonl").read_text().splitlines()]
+    assert [r["injection_id"] for r in rows] == seen
+    assert all(r["truth"]["damaged"] is False for r in rows)
