@@ -46,7 +46,7 @@ The wireframe set is one self-contained page, [`wireframes/rai-wireframes.html`]
 | W09 | Models & drift | M09 | FR-09.1, FR-09.2 | *planned* |
 | W10 | Sign-in and tenant choice | M01 | FR-01.1, NFR-SEC-1 | `POST /v1/auth/login`, `GET /v1/me` |
 
-**Built in the UI (`web/`):** W01 Dashboard (the landing screen; its benchmark and model-drift panels and the RTO chart are not built yet), W02 Runs, W05 Approvals & gates, W08 Recovery and W10 Sign-in, with the synthetic-data banner on every screen; the rest appear in the navigation marked *planned*. Screenshots: `docs/ui/`.
+**Built in the UI (`web/`):** W01 Dashboard (the landing screen; its benchmark and model-drift panels and the RTO chart are not built yet), W02 Runs, W03 Chaos scenarios, W05 Approvals & gates, W08 Recovery and W10 Sign-in, with the synthetic-data banner on every screen; the rest appear in the navigation marked *planned*. Screenshots: `docs/ui/`.
 
 W01–W07 follow the order of the v0.1 navigation. W08–W10 are added: v0.1 had no screen for recovery (M08) or model drift (M09) in its navigation, and sign-in sits outside it. **Module coverage:** every module M01–M13 has a screen. M14 (docs site, quick-start and playbooks) is documentation, not a screen.
 
@@ -69,7 +69,7 @@ The RTO chart now shows only runs of scenarios that share its 30-minute target, 
 
 ![W03 Chaos scenario review](wireframes/png/scenario.png)
 
-The viewer is a reviewer who did not write the scenario, so the decision buttons are enabled. The author sees them disabled, with the reason, and the database refuses self-approval too.
+*Built*, with a list of every version in front of it. Three differences from the image: a scenario is not bound to an environment, so the header names none and the faults table has no *Ceiling* column (the agent enforces each environment's ceiling when it runs); an approval carries the expiry the reviewer chooses (B-43, default 30 days, at most 90); and the review panel says what changed from the previous version. The viewer is a reviewer who did not write the scenario, so the decision buttons are enabled. The author sees them disabled, with the reason, and the database refuses self-approval too.
 
 ### W04. Contracts & data
 
@@ -121,4 +121,4 @@ The same dashboard in the three other themes (Midnight is above):
 
 ## 6. Traceability
 
-Every requirement cited here is in `docs/traceability.csv`. No requirement is marked as satisfied by these wireframes: the matrix credits the tests of the built UI, not the designs. The UI (`rai-web`, ADR-004) has sign-in, the shell with the synthetic-data banner, Runs, the Dashboard, Approvals & gates and Recovery built (B-37, FR-11.1, FR-10, FR-12, FR-08); the other screens are placeholders, and these wireframes remain their design input.
+Every requirement cited here is in `docs/traceability.csv`. No requirement is marked as satisfied by these wireframes: the matrix credits the tests of the built UI, not the designs. The UI (`rai-web`, ADR-004) has sign-in, the shell with the synthetic-data banner, Runs, the Dashboard, Chaos scenarios, Approvals & gates and Recovery built (B-37, FR-11.1, FR-07, FR-10, FR-12, FR-08); the other screens are placeholders, and these wireframes remain their design input.

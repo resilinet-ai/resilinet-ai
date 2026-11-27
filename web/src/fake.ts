@@ -121,9 +121,33 @@ export const RECOVERY = {
   truncated: false,
 };
 
-export const SCENARIOS = {
-  items: [{ scenario_id: "s-1", name: "ledger-resilience", version: 3 }],
-  next_cursor: null,
+const SCENARIO_V2 = {
+  scenario_id: "s-0", project_id: "p-1", name: "ledger-resilience", version: 2, description: null,
+  blast_radius: ["ledger-db"],
+  faults: [{ type: "container_stop", target: "ledger-db", duration_seconds: 600, latency_ms: null,
+    jitter_ms: 0, network: null }],
+  recovery: { probes: ["payments-health"], ledger: "payments-ledger", rto_seconds: 1800, rpo_seconds: 300,
+    window_seconds: 2700, stable_checks: 3 },
+  status: "approved", created_by: "u-1", created_at: "2026-11-04T10:00:00Z",
+};
+
+export const SCENARIO = {
+  ...SCENARIO_V2, scenario_id: "s-1", version: 3, status: "pending", created_at: "2026-11-11T15:02:00Z",
+  blast_radius: ["ledger-db", "ledger-db-proxy"],
+  faults: [
+    ...SCENARIO_V2.faults,
+    { type: "latency", target: "ledger-db-proxy", duration_seconds: 120, latency_ms: 800, jitter_ms: 50,
+      network: null },
+  ],
+};
+
+export const SCENARIOS = { items: [SCENARIO, SCENARIO_V2], next_cursor: null };
+
+export const SCENARIO_DETAILS = {
+  "s-1": { ...SCENARIO, approvals: [] },
+  "s-0": { ...SCENARIO_V2, approvals: [{ approval_id: "a-1", scenario_id: "s-0", reviewer_id: "u-2",
+    decision: "approve", comment: "radius limited to P1", created_at: "2026-11-04T12:00:00Z",
+    expires_at: "2026-12-04T12:00:00Z", expired: false }] },
 };
 
 // The Approvals & gates screen (W05). Ada (u-1) is the signed-in user.

@@ -7,8 +7,8 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { Api } from "./api";
 import { App } from "./App";
-import { fakeFetch, FINDINGS, json, ME, MEMBERS, PROJECT, RECOVERY, RELEASES, RUN, SCENARIOS, SUMMARY,
-  WAIVER } from "./fake";
+import { fakeFetch, FINDINGS, json, ME, MEMBERS, PROJECT, RECOVERY, RELEASES, RUN, SCENARIO_DETAILS, SCENARIOS,
+  SUMMARY, WAIVER } from "./fake";
 import { THEMES } from "./theme";
 
 const PAIR = { access_token: "a1", refresh_token: "r1" };
@@ -28,6 +28,8 @@ function api() {
     "GET /v1/assurance/recovery": json(RECOVERY),
     "GET /v1/projects/p-1/scenarios": json(SCENARIOS),
     "GET /v1/members": json(MEMBERS),
+    "GET /v1/scenarios/s-1": json(SCENARIO_DETAILS["s-1"]),
+    "GET /v1/scenarios/s-0": json(SCENARIO_DETAILS["s-0"]),
     "GET /v1/projects/p-1/findings": json(FINDINGS),
     "GET /v1/projects/p-1/releases": json(RELEASES),
     "GET /v1/findings/f-1": json(FINDINGS.items[0]),
@@ -122,11 +124,22 @@ describe("WCAG 2.2 AA (axe-core)", () => {
     expect(await violations()).toEqual([]);
   });
 
-  it("a planned screen", async () => {
+  it("chaos scenarios: the list, and a version under review", async () => {
     window.location.hash = "#/scenarios";
     render(<App api={new Api("", api())} />);
+    const user = await signIn();
+    await screen.findByRole("link", { name: "ledger-resilience@3" });
+    expect(await violations()).toEqual([]);
+    await user.click(screen.getByRole("link", { name: "ledger-resilience@3" }));
+    await screen.findByText(/Changed in v3/);
+    expect(await violations()).toEqual([]);
+  });
+
+  it("a planned screen", async () => {
+    window.location.hash = "#/evidence";
+    render(<App api={new Api("", api())} />);
     await signIn();
-    await screen.findByRole("heading", { name: "Chaos scenarios" });
+    await screen.findByRole("heading", { name: "Evidence" });
     expect(await violations()).toEqual([]);
   });
 
