@@ -207,13 +207,22 @@ curl -s "$API/v1/assurance/recovery?project_id=$PROJECT&since=2026-10-19T00:00:0
 # {"since": "...", "until": "...", "measurements": 16, "not_restored": 1,
 #  "rto": {"met": 14, "with_objective": 16, "definition": "First fault onset to ..."},
 #  "rpo": {"met": 15, "with_objective": 16, "definition": "0 s if no committed ..."},
+#  "consistency": {"met": 15, "with_objective": 15, "definition": "Runs whose post-recovery ..."},
 #  "items": [{"run_id": "...", "scenario_name": "ledger-resilience", "rto_seconds": "1452.300",
-#             "rto_objective_seconds": 1800, "rto_met": true, ...}], "truncated": false}
+#             "rto_objective_seconds": 1800, "rto_met": true, ...,
+#             "consistency": {"missing": 0, "duplicated": 0, "unexpected": 3, "mismatched": 0,
+#                             "passed": true},
+#             "rpo_truth": {"seconds": 0.0, "lost_acknowledged": 0, "agrees": true}}],
+#  "truncated": false}
 ```
 
 - **Window:** onset in `[since, until)`. The default is the last 30 days; at most 366 days.
 - **Filters:** `?scenario_id=` narrows the measurements; `?limit=` caps the items (at most 200; the counts always cover the whole window).
 - **Denominators:** `with_objective` counts the measurements whose scenario set that objective. A run that was never restored, or whose ledger could not be read after recovery, counts as a miss, not as missing.
+- **After recovery** (the Recovery screen, W08), each item also carries what its run found:
+  - `consistency` (FR-08.3): the run's post-recovery findings, summed over its `consistency_check` steps. `passed` is false if any finding failed; extra rows a check allows are counted but do not fail it. It is `null` when the run checked no consistency.
+  - `rpo_truth` (B-30): the seeding-log RPO, when the run had a seeding-log check. `agrees` says whether it and the ledger agree on whether anything was lost; it is `null` when the ledger could not be read.
+- **Consistency attainment:** `consistency.with_objective` counts the measurements whose run checked consistency, and `met` those whose checks all passed.
 - **API keys:** a key with `runs:read` sees its own project only.
 
 ### Dashboard summary

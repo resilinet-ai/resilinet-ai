@@ -6,6 +6,7 @@ import { ThemePicker } from "./components/ThemePicker";
 import { SCREENS, useRoute } from "./routes";
 import { Dashboard } from "./screens/Dashboard";
 import { Planned } from "./screens/Planned";
+import { Recovery } from "./screens/Recovery";
 import { Runs } from "./screens/Runs";
 import { SignIn } from "./screens/SignIn";
 import { applyTheme, savedTheme, type ThemeId } from "./theme";
@@ -86,6 +87,8 @@ export function App({ api: given }: { api?: Api }) {
         <Dashboard api={api} project={project} />
       ) : screen.id === "runs" ? (
         <Runs api={api} project={project} runId={route.id} />
+      ) : screen.id === "recovery" ? (
+        <Recovery api={api} project={project} />
       ) : (
         <Planned screen={screen} />
       )}

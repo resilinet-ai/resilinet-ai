@@ -310,6 +310,19 @@ def test_after_a_scenario_the_ground_truth_is_set_beside_the_ledgers_own_rpo(
             step = next(s for s in done["steps"] if s["step_key"] == "item-2")
             assert "the ledger's own head reported 0 lost row(s), but the seeding log shows " \
                    "1 lost acknowledged write(s)" in step["error"]  # fmt: skip
+        # The Recovery screen's view (W08): the measurement carries what the run found
+        # after recovery, and consistency is counted over the runs that checked it.
+        recovery = client.get("/v1/assurance/recovery", params={"project_id": lab.project},
+                              headers=lab.viewer).json()  # fmt: skip
+        [item] = recovery["items"]
+        assert item["rpo_truth"]["lost_acknowledged"] == int(lost)
+        assert item["rpo_truth"]["agrees"] is (not lost)  # the ledger said nothing was lost
+        consistency = item["consistency"]
+        assert (consistency["missing"], consistency["passed"]) == (int(lost), not lost)
+        assert consistency["unexpected"] == 3  # other writers: counted, allowed
+        attained = recovery["consistency"]
+        assert (attained["met"], attained["with_objective"]) == (int(not lost), 1)
+        assert "FR-08.3" in attained["definition"]
     finally:
         chaos.server.shutdown()
         system.server.shutdown()
