@@ -234,6 +234,7 @@ function Panels({ summary: s, gate, recent }: { summary: Summary; gate: Gate | n
           </dl>
           <p className="small">Open now · {s.findings.opened_in_window} opened in the window</p>
           <Definition text={s.findings.definition} />
+          <a className="small" href="#/approvals">Review findings and the release gate</a>
         </article>
 
         <article className="card" aria-labelledby="later-h">
