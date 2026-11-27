@@ -25,8 +25,8 @@ export const SCREENS: Screen[] = [
     purpose: "Signed evidence bundles and how to verify them." },
   { id: "environments", label: "Environments", built: false, requirements: "FR-07.2, NFR-SAF-1",
     purpose: "Where faults may run, and the target allow-list (admins)." },
-  { id: "recovery", label: "Recovery", built: false, requirements: "FR-08.1, FR-08.2",
-    purpose: "RTO and RPO attainment against each objective." },
+  { id: "recovery", label: "Recovery", built: true, requirements: "FR-08.1, FR-08.2, FR-08.3",
+    purpose: "RTO and RPO attainment against each objective, and consistency after recovery." },
   { id: "models", label: "Models & drift", built: false, requirements: "FR-09.1, FR-09.2",
     purpose: "Model checks and drift." },
 ];

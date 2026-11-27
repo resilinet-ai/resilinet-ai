@@ -86,3 +86,42 @@ export const SUMMARY = {
   recovery_measurements: 16,
   findings: { open: { critical: 2, high: 1, medium: 0, low: 0 }, opened_in_window: 5, definition: "Open now." },
 };
+
+const MEASURED = {
+  run_id: RUN.run_id, step_key: "item-1", scenario_id: "s-1", scenario_version: 3,
+  reverted_at: "2026-11-18T09:05:00Z", rto_objective_seconds: 1800, rpo_attempted: true,
+  rpo_objective_seconds: 0, lost_rows: 0,
+};
+
+export const RECOVERY = {
+  project_id: "p-1",
+  scenario_id: null,
+  since: "2026-10-20T09:00:00Z",
+  until: "2026-11-19T09:00:00Z",
+  measurements: 3,
+  not_restored: 1,
+  rto: { met: 1, with_objective: 3, definition: "First fault onset to stable restoration." },
+  rpo: { met: 2, with_objective: 3, definition: "0 s if no committed ledger row was lost." },
+  consistency: { met: 1, with_objective: 2, definition: "Runs whose consistency checks found nothing (FR-08.3)." },
+  items: [
+    { ...MEASURED, measurement_id: "m-1", scenario_name: "ledger-resilience", onset_at: "2026-11-18T09:00:00Z",
+      restored_at: "2026-11-18T09:24:12Z", rto_seconds: "1452.000", rto_met: true, rpo_seconds: "0.000",
+      rpo_met: true,
+      consistency: { missing: 0, duplicated: 0, unexpected: 3, mismatched: 0, passed: true },
+      rpo_truth: { seconds: 0, lost_acknowledged: 0, agrees: true } },
+    { ...MEASURED, measurement_id: "m-2", scenario_name: "etl-stale-feed", onset_at: "2026-11-17T09:00:00Z",
+      restored_at: "2026-11-17T09:34:36Z", rto_seconds: "2076.000", rto_met: false, rpo_seconds: "372.000",
+      rpo_met: false, lost_rows: 14,
+      consistency: { missing: 14, duplicated: 0, unexpected: 0, mismatched: 0, passed: false },
+      rpo_truth: { seconds: 372, lost_acknowledged: 0, agrees: false } },
+    { ...MEASURED, measurement_id: "m-3", scenario_name: "api-latency", onset_at: "2026-11-16T09:00:00Z",
+      restored_at: null, rto_seconds: null, rto_met: false, rpo_seconds: "0.000", rpo_met: true,
+      consistency: null, rpo_truth: null },
+  ],
+  truncated: false,
+};
+
+export const SCENARIOS = {
+  items: [{ scenario_id: "s-1", name: "ledger-resilience", version: 3 }],
+  next_cursor: null,
+};

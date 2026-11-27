@@ -292,3 +292,47 @@ export interface Summary {
   recovery_measurements: number;
   findings: { open: Record<Severity, number>; opened_in_window: number; definition: string };
 }
+
+// GET /v1/assurance/recovery (FR-08.1, FR-08.2, FR-08.3): the Recovery screen (W08).
+export interface Measurement {
+  measurement_id: string;
+  run_id: string;
+  step_key: string;
+  scenario_id: string;
+  scenario_name: string;
+  scenario_version: number;
+  onset_at: string;
+  reverted_at: string;
+  restored_at: string | null;
+  rto_seconds: string | number | null; // a decimal, sent as a string
+  rto_objective_seconds: number | null;
+  rto_met: boolean | null;
+  rpo_attempted: boolean;
+  rpo_seconds: string | number | null;
+  rpo_objective_seconds: number | null;
+  rpo_met: boolean | null;
+  lost_rows: number | null;
+  consistency: { missing: number; duplicated: number; unexpected: number; mismatched: number;
+    passed: boolean } | null;
+  rpo_truth: { seconds: number | null; lost_acknowledged: number; agrees: boolean | null } | null;
+}
+
+export interface Recovery {
+  project_id: string;
+  scenario_id: string | null;
+  since: string;
+  until: string;
+  measurements: number;
+  not_restored: number;
+  rto: Attainment;
+  rpo: Attainment;
+  consistency: Attainment;
+  items: Measurement[];
+  truncated: boolean;
+}
+
+export interface ScenarioRef {
+  scenario_id: string;
+  name: string;
+  version: number;
+}

@@ -157,3 +157,15 @@ def test_the_window_and_tenancy(
     hidden = client.get(URL, params={"project_id": lab.project}, headers=other.viewer)
     assert hidden.status_code == 404
     assert summary(client, other)["measurements"] == 0
+
+
+def test_a_run_without_post_recovery_checks_has_none(
+    setup: tuple[Chaos, System], worker_engine: Engine, feed: Path, tmp_path: Path,
+    client: TestClient,
+) -> None:  # fmt: skip
+    chaos, _ = setup
+    run(chaos, worker_engine, feed, tmp_path, rto_seconds=30)
+    out = summary(client, chaos.lab)
+    [item] = out["items"]
+    assert (item["consistency"], item["rpo_truth"]) == (None, None)
+    assert (out["consistency"]["met"], out["consistency"]["with_objective"]) == (0, 0)
