@@ -84,7 +84,7 @@ export function Runs({ api, project, runId }: { api: Api; project: Project | nul
           <ul className="plain">
             {gate.blocking.map((f) => (
               <li key={f.finding_id}>
-                <span className="pill fail">critical</span> {f.title} <span className="mono dim">{f.finding_id}</span>
+                <span className="pill fail">critical</span> <a href={`#/approvals/${f.finding_id}`}>{f.title}</a>
               </li>
             ))}
           </ul>

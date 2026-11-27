@@ -90,15 +90,20 @@ export interface Observation {
 export interface GateFinding {
   finding_id: string;
   title: string;
+  owner_id?: string;
+  source_run_id?: string;
+  waiver_id?: string | null;
   waiver_expires_at: string | null;
 }
 
 export interface Gate {
   verdict: "pass" | "blocked";
+  evaluated_at?: string;
   blocking_count: number;
   waived_count: number;
   blocking: GateFinding[];
   waived: GateFinding[];
+  definition?: string;
 }
 
 interface Tokens {
@@ -195,6 +200,14 @@ export class Api {
 
   get<T>(path: string): Promise<T> {
     return this.send<T>("GET", path);
+  }
+
+  post<T>(path: string, body: unknown): Promise<T> {
+    return this.send<T>("POST", path, body);
+  }
+
+  patch<T>(path: string, body: unknown): Promise<T> {
+    return this.send<T>("PATCH", path, body);
   }
 
   /** A file the API returns (for example an evidence bundle), with its file name. */
@@ -335,4 +348,62 @@ export interface ScenarioRef {
   scenario_id: string;
   name: string;
   version: number;
+}
+
+// Findings, waivers and release decisions (FR-10.1, FR-12.1, FR-12.2): the Approvals &
+// gates screen (W05).
+export interface Member {
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: string;
+}
+
+export interface Finding {
+  finding_id: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  severity: Severity;
+  status: "open" | "closed" | "dismissed";
+  source_run_id: string;
+  source_step_key: string;
+  source_rule: string;
+  owner_id: string;
+  fix_ref: string | null;
+  retest_run_id: string | null;
+  resolution: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WaiverDecision {
+  decision_id: string;
+  reviewer_id: string;
+  decision: "approve" | "reject";
+  comment: string | null;
+  created_at: string;
+}
+
+export interface Waiver {
+  waiver_id: string;
+  finding_id: string;
+  reason: string;
+  expires_at: string;
+  requested_by: string;
+  created_at: string;
+  status: "pending" | "approved" | "rejected";
+  expired: boolean;
+  in_force: boolean;
+  decisions: WaiverDecision[];
+}
+
+export interface ReleaseSummary {
+  release_label: string;
+  status: "approved" | "rejected";
+  decided_at: string;
+  reviewer_id: string;
 }

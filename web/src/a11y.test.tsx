@@ -7,7 +7,8 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { Api } from "./api";
 import { App } from "./App";
-import { fakeFetch, json, ME, PROJECT, RECOVERY, RUN, SCENARIOS, SUMMARY } from "./fake";
+import { fakeFetch, FINDINGS, json, ME, MEMBERS, PROJECT, RECOVERY, RELEASES, RUN, SCENARIOS, SUMMARY,
+  WAIVER } from "./fake";
 import { THEMES } from "./theme";
 
 const PAIR = { access_token: "a1", refresh_token: "r1" };
@@ -26,6 +27,11 @@ function api() {
     "GET /v1/assurance/summary": json(SUMMARY),
     "GET /v1/assurance/recovery": json(RECOVERY),
     "GET /v1/projects/p-1/scenarios": json(SCENARIOS),
+    "GET /v1/members": json(MEMBERS),
+    "GET /v1/projects/p-1/findings": json(FINDINGS),
+    "GET /v1/projects/p-1/releases": json(RELEASES),
+    "GET /v1/findings/f-1": json(FINDINGS.items[0]),
+    "GET /v1/findings/f-1/waivers": json([WAIVER]),
     [`GET /v1/assurance/runs/${RUN.run_id}`]: json({
       ...RUN,
       steps: [{ step_key: "item-1", plan_position: 1, state: "done", verdict: "fail", error: null }],
@@ -105,6 +111,14 @@ describe("WCAG 2.2 AA (axe-core)", () => {
     render(<App api={new Api("", api())} />);
     await signIn();
     await screen.findByText("1 / 3");
+    expect(await violations()).toEqual([]);
+  });
+
+  it("approvals & gates, with a finding open", async () => {
+    window.location.hash = "#/approvals/f-1";
+    render(<App api={new Api("", api())} />);
+    await signIn();
+    await screen.findByRole("region", { name: "Waivers" });
     expect(await violations()).toEqual([]);
   });
 

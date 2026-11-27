@@ -4,6 +4,7 @@ import { Banner } from "./components/Banner";
 import { Shell } from "./components/Shell";
 import { ThemePicker } from "./components/ThemePicker";
 import { SCREENS, useRoute } from "./routes";
+import { Approvals } from "./screens/Approvals";
 import { Dashboard } from "./screens/Dashboard";
 import { Planned } from "./screens/Planned";
 import { Recovery } from "./screens/Recovery";
@@ -87,6 +88,9 @@ export function App({ api: given }: { api?: Api }) {
         <Dashboard api={api} project={project} />
       ) : screen.id === "runs" ? (
         <Runs api={api} project={project} runId={route.id} />
+      ) : screen.id === "approvals" ? (
+        <Approvals api={api} project={project} userId={session.me.user_id} role={session.tenant.role}
+          findingId={route.id} />
       ) : screen.id === "recovery" ? (
         <Recovery api={api} project={project} />
       ) : (

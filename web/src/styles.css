@@ -50,6 +50,7 @@ a { color: var(--accent); } a:hover { color: var(--accent-ink); }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 h1 { margin: 0; font-size: 26px; font-weight: 700; }
 h2 { margin: 0; font-size: 16px; font-weight: 650; }
+h3 { margin: 0; font-size: 14px; font-weight: 650; }
 p { margin: 0; }
 .skip { position: absolute; left: -999px; } .skip:focus { left: 12px; top: 12px; z-index: 9;
   background: var(--surface); padding: 8px 12px; }
@@ -195,3 +196,5 @@ details.small p { margin-top: 6px; }
 .meter::-webkit-meter-bar { background: var(--neutral-bg); border: 0; border-radius: 5px; height: 10px; }
 .meter::-webkit-meter-optimum-value { background: var(--warn); border-radius: 5px; }
 .meter::-moz-meter-bar { background: var(--warn); border-radius: 5px; }
+.stack { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: var(--line-w) solid var(--rule); }
+.plain .stack { padding-top: 8px; }

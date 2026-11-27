@@ -46,7 +46,7 @@ The wireframe set is one self-contained page, [`wireframes/rai-wireframes.html`]
 | W09 | Models & drift | M09 | FR-09.1, FR-09.2 | *planned* |
 | W10 | Sign-in and tenant choice | M01 | FR-01.1, NFR-SEC-1 | `POST /v1/auth/login`, `GET /v1/me` |
 
-**Built in the UI (`web/`):** W01 Dashboard (the landing screen; its benchmark and model-drift panels and the RTO chart are not built yet), W02 Runs, W08 Recovery and W10 Sign-in, with the synthetic-data banner on every screen; the rest appear in the navigation marked *planned*. Screenshots: `docs/ui/`.
+**Built in the UI (`web/`):** W01 Dashboard (the landing screen; its benchmark and model-drift panels and the RTO chart are not built yet), W02 Runs, W05 Approvals & gates, W08 Recovery and W10 Sign-in, with the synthetic-data banner on every screen; the rest appear in the navigation marked *planned*. Screenshots: `docs/ui/`.
 
 W01–W07 follow the order of the v0.1 navigation. W08–W10 are added: v0.1 had no screen for recovery (M08) or model drift (M09) in its navigation, and sign-in sits outside it. **Module coverage:** every module M01–M13 has a screen. M14 (docs site, quick-start and playbooks) is documentation, not a screen.
 
@@ -81,7 +81,7 @@ Rules, severities and limits are those of `contracts/sandboxbank/transactions_ra
 
 ![W05 Approvals and gates](wireframes/png/approvals.png)
 
-*Planned screen; API built (B-42):* under the gate, a **release decision** panel. The reviewer names the release (for example `v1.4`) and chooses approve or reject with a justification. Approve is disabled, with the reason, while the gate is blocked, and the decision records the gate's state at that moment in the audit chain.
+*Built.* Two differences from the image: a waiver names no approver when it is asked for, since any reviewer other than its requester and the finding's owner may decide it (FR-12.1); and the findings count has no "in all" total, which the API does not return. Under the gate, a **release decision** panel (B-42). The reviewer names the release (for example `v1.4`) and chooses approve or reject with a justification. Approve is disabled, with the reason, while the gate is blocked, and the decision records the gate's state at that moment in the audit chain.
 
 ### W06. Evidence
 
@@ -121,4 +121,4 @@ The same dashboard in the three other themes (Midnight is above):
 
 ## 6. Traceability
 
-Every requirement cited here is in `docs/traceability.csv`. No requirement is marked as satisfied by these wireframes: the matrix credits the tests of the built UI, not the designs. The UI (`rai-web`, ADR-004) has sign-in, the shell with the synthetic-data banner, Runs, the Dashboard and Recovery built (B-37, FR-11.1, FR-08); the other screens are placeholders, and these wireframes remain their design input.
+Every requirement cited here is in `docs/traceability.csv`. No requirement is marked as satisfied by these wireframes: the matrix credits the tests of the built UI, not the designs. The UI (`rai-web`, ADR-004) has sign-in, the shell with the synthetic-data banner, Runs, the Dashboard, Approvals & gates and Recovery built (B-37, FR-11.1, FR-10, FR-12, FR-08); the other screens are placeholders, and these wireframes remain their design input.

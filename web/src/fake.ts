@@ -125,3 +125,47 @@ export const SCENARIOS = {
   items: [{ scenario_id: "s-1", name: "ledger-resilience", version: 3 }],
   next_cursor: null,
 };
+
+// The Approvals & gates screen (W05). Ada (u-1) is the signed-in user.
+export const MEMBERS = [
+  { user_id: "u-1", email: "ada@example.test", display_name: "Ada Lovelace", role: "engineer" },
+  { user_id: "u-2", email: "grace@example.test", display_name: "Grace Hopper", role: "reviewer" },
+];
+
+const FINDING = {
+  project_id: "p-1", description: null, source_run_id: RUN.run_id, source_step_key: "item-1",
+  fix_ref: null, retest_run_id: null, resolution: null, resolved_by: null, resolved_at: null,
+  created_by: "u-1", created_at: "2026-11-18T10:00:00Z", updated_at: "2026-11-18T10:00:00Z",
+};
+
+export const FINDINGS = {
+  items: [
+    { ...FINDING, finding_id: "f-1", title: "Duplicate txn_id in the feed", severity: "critical",
+      status: "open", source_rule: "txn_id.unique", owner_id: "u-1" },
+    { ...FINDING, finding_id: "f-2", title: "RTO objective missed (etl-stale-feed)", severity: "critical",
+      status: "open", source_rule: "rto.objective", owner_id: "u-1" },
+    { ...FINDING, finding_id: "f-3", title: "Drift: channel PSI 0.12", severity: "high",
+      status: "open", source_rule: "psi.channel", owner_id: "u-2" },
+  ],
+  next_cursor: null,
+};
+
+export const GATE_BLOCKED = {
+  project_id: "p-1", verdict: "blocked", evaluated_at: "2026-11-27T09:00:00Z",
+  blocking_count: 1, waived_count: 1,
+  blocking: [{ finding_id: "f-1", title: "Duplicate txn_id in the feed", owner_id: "u-1",
+    source_run_id: RUN.run_id, waiver_id: null, waiver_expires_at: null }],
+  waived: [{ finding_id: "f-2", title: "RTO objective missed (etl-stale-feed)", owner_id: "u-1",
+    source_run_id: RUN.run_id, waiver_id: "w-2", waiver_expires_at: "2026-12-15T00:00:00Z" }],
+  definition: "blocked while any open critical finding of the project has no waiver in force",
+};
+
+export const WAIVER = {
+  waiver_id: "w-1", finding_id: "f-1", reason: "Fix ships in v1.5", expires_at: "2026-12-15T00:00:00Z",
+  requested_by: "u-1", created_at: "2026-11-20T09:00:00Z", status: "pending", expired: false,
+  in_force: false, decisions: [],
+};
+
+export const RELEASES = [
+  { release_label: "v1.3", status: "approved", decided_at: "2026-11-10T12:00:00Z", reviewer_id: "u-2" },
+];
