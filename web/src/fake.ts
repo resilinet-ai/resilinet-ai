@@ -276,3 +276,31 @@ export function bundleZip(info: object = BUNDLE_INFO): Uint8Array {
     [`${dir}/signature.json`]: JSON.stringify({ key_id: PUBLIC_KEY.key_id }),
   });
 }
+
+const ENV_BASE = { production_flag: false, created_by: "u-9", created_at: "2026-11-01T09:00:00Z",
+  updated_at: "2026-11-01T09:00:00Z" };
+export const ENVIRONMENTS = {
+  items: [
+    { ...ENV_BASE, environment_id: "e-2", name: "STAGING-01", type: "STAGING", max_fault_duration_seconds: 1800,
+      status: "active", revision: 1 },
+    { ...ENV_BASE, environment_id: "e-3", name: "SANDBOX-OLD", type: "SANDBOX", max_fault_duration_seconds: 900,
+      status: "retired", revision: 4 },
+    { ...ENV_BASE, environment_id: "e-1", name: "SANDBOX-01", type: "SANDBOX", max_fault_duration_seconds: 900,
+      status: "active", revision: 2 },
+  ],
+  next_cursor: null,
+};
+
+const TARGET_BASE = { environment_id: "e-1", required_label: null, health_url: null, score_url: null,
+  image_digest: null, created_by: "u-9", created_at: "2026-11-01T09:00:00Z" };
+export const TARGETS = {
+  items: [
+    { ...TARGET_BASE, target_id: "t-2", kind: "proxy", name: "ledger-db-proxy",
+      required_label: "rai.target=ledger-db-proxy" },
+    { ...TARGET_BASE, target_id: "t-1", kind: "container", name: "ledger-db", required_label: "rai.target=ledger-db",
+      image_digest: `sha256:${"ab".repeat(32)}` },
+    { ...TARGET_BASE, target_id: "t-3", kind: "http", name: "payments-model",
+      health_url: "http://payments-api:8000/health", score_url: "http://payments-api:8000/v1/score" },
+  ],
+  next_cursor: null,
+};

@@ -207,8 +207,13 @@ export class Api {
     return this.send<T>("POST", path, body);
   }
 
-  patch<T>(path: string, body: unknown): Promise<T> {
-    return this.send<T>("PATCH", path, body);
+  /** A partial update; `ifMatch` is the ETag last read, for resources that need one. */
+  patch<T>(path: string, body: unknown, ifMatch?: string): Promise<T> {
+    return this.send<T>("PATCH", path, body, true, ifMatch ? { "If-Match": ifMatch } : {});
+  }
+
+  delete(path: string): Promise<void> {
+    return this.send<void>("DELETE", path);
   }
 
   /** A file the API returns (for example an evidence bundle), with its file name. */
@@ -219,19 +224,21 @@ export class Api {
     return { blob: await response.blob(), filename, headers: response.headers };
   }
 
-  private async send<T>(method: string, path: string, body?: unknown, auth = true): Promise<T> {
+  private async send<T>(method: string, path: string, body?: unknown, auth = true,
+    extra: Record<string, string> = {}): Promise<T> {
     const response = auth
-      ? await this.authorised(method, path, body)
+      ? await this.authorised(method, path, body, extra)
       : await this.raw(method, path, body, null);
     if (!response.ok) throw await toProblem(response);
     return (response.status === 204 ? undefined : await response.json()) as T;
   }
 
-  private async authorised(method: string, path: string, body?: unknown): Promise<Response> {
+  private async authorised(method: string, path: string, body?: unknown,
+    extra: Record<string, string> = {}): Promise<Response> {
     if (!this.tokens) throw new ApiError({ status: 401, code: "auth.signed_out", title: "Sign in first" });
-    let response = await this.raw(method, path, body, this.tokens.access);
+    let response = await this.raw(method, path, body, this.tokens.access, extra);
     if (response.status === 401 && (await this.refresh())) {
-      response = await this.raw(method, path, body, this.tokens.access);
+      response = await this.raw(method, path, body, this.tokens.access, extra);
     }
     if (response.status === 401) this.tokens = null;
     if (!response.ok) throw await toProblem(response);
@@ -250,8 +257,9 @@ export class Api {
     return true;
   }
 
-  private raw(method: string, path: string, body: unknown, access: string | null): Promise<Response> {
-    const headers: Record<string, string> = { Accept: "application/json" };
+  private raw(method: string, path: string, body: unknown, access: string | null,
+    extra: Record<string, string> = {}): Promise<Response> {
+    const headers: Record<string, string> = { Accept: "application/json", ...extra };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (access) headers.Authorization = `Bearer ${access}`;
     if (access && this.tenantId) headers["X-RAI-Tenant"] = this.tenantId;
@@ -472,4 +480,33 @@ export interface BundleInfo {
   statement: string;
   signature: { algorithm: string; key_id: string; member: string } | null;
   limitations: string[];
+}
+
+// Environments and the target allow-list (FR-07.2, NFR-SAF-1): the Environments screen (W07).
+export interface Environment {
+  environment_id: string;
+  name: string;
+  type: "SANDBOX" | "STAGING";
+  production_flag: boolean;
+  max_fault_duration_seconds: number;
+  status: "active" | "retired";
+  revision: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type TargetKind = "container" | "proxy" | "db" | "http";
+
+export interface Target {
+  target_id: string;
+  environment_id: string;
+  kind: TargetKind;
+  name: string;
+  required_label: string | null;
+  health_url: string | null;
+  score_url: string | null;
+  image_digest: string | null;
+  created_by: string;
+  created_at: string;
 }
