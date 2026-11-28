@@ -114,6 +114,7 @@ interface Tokens {
 export interface Download {
   blob: Blob;
   filename: string;
+  headers: Headers;
 }
 
 async function toProblem(response: Response): Promise<ApiError> {
@@ -215,7 +216,7 @@ export class Api {
     const response = await this.authorised("GET", path);
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "download";
-    return { blob: await response.blob(), filename };
+    return { blob: await response.blob(), filename, headers: response.headers };
   }
 
   private async send<T>(method: string, path: string, body?: unknown, auth = true): Promise<T> {
@@ -452,4 +453,23 @@ export interface ScenarioApproval {
 
 export interface ScenarioDetail extends Scenario {
   approvals: ScenarioApproval[];
+}
+
+// Evidence bundles (FR-13.1, FR-13.2, NFR-AUD-2): the Evidence screen (W06).
+export interface PublicKey {
+  algorithm: string;
+  key_id: string;
+  public_key: string;
+}
+
+/** What a bundle's bundle.json says about itself (docs/api.md, "Evidence"). */
+export interface BundleInfo {
+  format: string;
+  scope: { kind: string; run_id: string; project_id: string; tenant_id: string };
+  anchor: { seq: number; record_hash: string; action: string; occurred_at: string };
+  counts: Record<string, number>;
+  excluded: string[];
+  statement: string;
+  signature: { algorithm: string; key_id: string; member: string } | null;
+  limitations: string[];
 }

@@ -21,7 +21,7 @@ export const SCREENS: Screen[] = [
     purpose: "Assets, their contracts and their lineage." },
   { id: "approvals", label: "Approvals & gates", built: true, requirements: "FR-10.1, FR-12.1, FR-12.2",
     purpose: "The release gate, findings and their waivers, and release decisions." },
-  { id: "evidence", label: "Evidence", built: false, requirements: "FR-13.1, FR-13.2",
+  { id: "evidence", label: "Evidence", built: true, requirements: "FR-13.1, FR-13.2",
     purpose: "Signed evidence bundles and how to verify them." },
   { id: "environments", label: "Environments", built: false, requirements: "FR-07.2, NFR-SAF-1",
     purpose: "Where faults may run, and the target allow-list (admins)." },

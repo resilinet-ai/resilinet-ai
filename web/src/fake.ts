@@ -29,7 +29,8 @@ export function fakeFetch(routes: Record<string, Handler | Reply>) {
     const route = routes[`${method} ${url.pathname + url.search}`] ?? routes[`${method} ${url.pathname}`];
     const reply = typeof route === "function" ? route(request) : route ?? json({ title: "Not found", code: "x.not_found" }, 404);
     const headers = { "Content-Type": "application/json", ...(reply.headers ?? {}) };
-    const payload = reply.body instanceof Blob ? reply.body : JSON.stringify(reply.body ?? null);
+    const payload = reply.body instanceof Blob ? reply.body
+      : reply.body instanceof Uint8Array ? (reply.body.slice() as Uint8Array<ArrayBuffer>) : JSON.stringify(reply.body ?? null);
     return new Response(reply.status === 204 ? null : payload, { status: reply.status ?? 200, headers });
   };
   return { fetcher: fetcher as typeof fetch, sent };
@@ -193,3 +194,85 @@ export const WAIVER = {
 export const RELEASES = [
   { release_label: "v1.3", status: "approved", decided_at: "2026-11-10T12:00:00Z", reviewer_id: "u-2" },
 ];
+
+/** A ZIP file of stored (uncompressed) members, as the API writes an evidence bundle. The
+ * CRCs are left at zero: the UI does not check them, rai verify checks the SHA-256s. */
+export function storedZip(files: Record<string, string>): Uint8Array {
+  const text = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+  const header = (length: number, fill: (v: DataView) => void) => {
+    const bytes = new Uint8Array(length);
+    fill(new DataView(bytes.buffer));
+    return bytes;
+  };
+  for (const [path, content] of Object.entries(files)) {
+    const name = text.encode(path);
+    const data = text.encode(content);
+    chunks.push(header(30, (v) => {
+      v.setUint32(0, 0x04034b50, true);
+      v.setUint32(18, data.length, true);
+      v.setUint32(22, data.length, true);
+      v.setUint16(26, name.length, true);
+    }), name, data);
+    central.push(header(46, (v) => {
+      v.setUint32(0, 0x02014b50, true);
+      v.setUint32(20, data.length, true);
+      v.setUint32(24, data.length, true);
+      v.setUint16(28, name.length, true);
+      v.setUint32(42, offset, true);
+    }), name);
+    offset += 30 + name.length + data.length;
+  }
+  const directory = central.reduce((n, c) => n + c.length, 0);
+  const end = header(22, (v) => {
+    v.setUint32(0, 0x06054b50, true);
+    v.setUint16(8, central.length / 2, true);
+    v.setUint16(10, central.length / 2, true);
+    v.setUint32(12, directory, true);
+    v.setUint32(16, offset, true);
+  });
+  const all = [...chunks, ...central, end];
+  const out = new Uint8Array(all.reduce((n, c) => n + c.length, 0));
+  let at = 0;
+  for (const c of all) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+export const PUBLIC_KEY = {
+  algorithm: "ed25519", key_id: "1111222233334444", public_key: "FAKE-PUBLIC-KEY-FOR-TESTS",
+};
+
+export const BUNDLE_INFO = {
+  format: "rai-evidence/1",
+  scope: { kind: "run", run_id: RUN.run_id, project_id: "p-1", tenant_id: "t-1" },
+  anchor: { seq: 1204, record_hash: "8d2c41a0e5f97b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b7b",
+    action: "run.finished", occurred_at: "2026-11-18T09:00:09.000000Z" },
+  counts: { steps: 2, observations: 36, lineage_edges: 3, recovery_measurements: 0, scenario_approvals: 0,
+    audit_entries: 4 },
+  excluded: ["synthetic data (its SHA-256 digests are in lineage.json)", "secret values (pins hold secret references only)"],
+  statement: "Tamper-evident, not tamper-proof (NFR-AUD-2): the manifest and its signature show whether a member changed after export.",
+  signature: { algorithm: "ed25519", key_id: PUBLIC_KEY.key_id, member: "signature.json" },
+  limitations: [
+    "The run executed in environment SANDBOX-01 (sandbox). RAI never runs against production.",
+    "Results hold only for the pinned inputs at the time of the run.",
+  ],
+};
+
+/** A finished run's evidence bundle, as GET /v1/assurance/runs/{id}/evidence returns it. */
+export function bundleZip(info: object = BUNDLE_INFO): Uint8Array {
+  const dir = `rai-evidence-${RUN.run_id}`;
+  const manifest = { format: "rai-evidence/1", algorithm: "sha256",
+    files: ["bundle.json", "run.json", "steps.json"].map((path) => ({ path, sha256: "0", bytes: 1 })) };
+  return storedZip({
+    [`${dir}/bundle.json`]: JSON.stringify(info),
+    [`${dir}/run.json`]: JSON.stringify(RUN),
+    [`${dir}/steps.json`]: "[]",
+    [`${dir}/manifest.json`]: JSON.stringify(manifest),
+    [`${dir}/signature.json`]: JSON.stringify({ key_id: PUBLIC_KEY.key_id }),
+  });
+}
