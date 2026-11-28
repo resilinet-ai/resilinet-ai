@@ -7,7 +7,7 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { Api } from "./api";
 import { App } from "./App";
-import { bundleZip, ENVIRONMENTS, fakeFetch, FINDINGS, json, ME, MEMBERS, PROJECT, PUBLIC_KEY, RECOVERY, RELEASES, RUN,
+import { ASSETS, BATCH_OBSERVATIONS, bundleZip, CONTRACT_V2, CONTRACTS, ENVIRONMENTS, fakeFetch, FINDINGS, json, ME, MEMBERS, PROJECT, PUBLIC_KEY, RECOVERY, RELEASES, RUN,
   SCENARIO_DETAILS, SCENARIOS, SUMMARY, TARGETS, WAIVER } from "./fake";
 import { THEMES } from "./theme";
 
@@ -164,6 +164,22 @@ describe("WCAG 2.2 AA (axe-core)", () => {
     render(<App api={new Api("", fakeFetch({ ...routes(), "GET /v1/me": json(admin) }).fetcher)} />);
     await signIn();
     await screen.findByRole("button", { name: "Remove ledger-db" });
+    expect(await violations()).toEqual([]);
+  });
+
+  it("contracts & data, as an engineer with the publish form open", async () => {
+    window.location.hash = "#/contracts/a-1";
+    render(<App api={new Api("", fakeFetch({
+      ...routes(),
+      "GET /v1/projects/p-1/assets": json(ASSETS),
+      "GET /v1/assets/a-1/contracts": json(CONTRACTS),
+      "GET /v1/assets/a-1/contracts/2": json(CONTRACT_V2),
+      "GET /v1/assets/a-1/inputs": json({ items: [], next_cursor: null }),
+      [`GET /v1/assurance/runs/${RUN.run_id}/observations`]: json(BATCH_OBSERVATIONS),
+    }).fetcher)} />);
+    const user = await signIn();
+    await screen.findByRole("table", { name: "Rule results of the last batch" });
+    await user.click(screen.getByText("New contract version"));
     expect(await violations()).toEqual([]);
   });
 

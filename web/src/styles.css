@@ -206,3 +206,5 @@ details.small p { margin-top: 6px; }
 .vstack { display: flex; flex-direction: column; gap: 14px; }
 .anywhere { overflow-wrap: anywhere; }
 pre.sunk { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.publish summary { cursor: pointer; color: var(--accent); width: fit-content; padding: 4px 0; font-weight: 600; } /* 24 px target (2.5.8) */
+.publish[open] summary { margin-bottom: 10px; }

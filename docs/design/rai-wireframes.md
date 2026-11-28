@@ -46,7 +46,7 @@ The wireframe set is one self-contained page, [`wireframes/rai-wireframes.html`]
 | W09 | Models & drift | M09 | FR-09.1, FR-09.2 | *planned* |
 | W10 | Sign-in and tenant choice | M01 | FR-01.1, NFR-SEC-1 | `POST /v1/auth/login`, `GET /v1/me` |
 
-**Built in the UI (`web/`):** W01 Dashboard (the landing screen; its benchmark and model-drift panels and the RTO chart are not built yet), W02 Runs, W03 Chaos scenarios, W05 Approvals & gates, W06 Evidence, W07 Environments, W08 Recovery and W10 Sign-in, with the synthetic-data banner on every screen; the rest appear in the navigation marked *planned*. Screenshots: `docs/ui/`.
+**Built in the UI (`web/`):** W01 Dashboard (the landing screen; its benchmark and model-drift panels and the RTO chart are not built yet), W02 Runs, W03 Chaos scenarios, W04 Contracts & data, W05 Approvals & gates, W06 Evidence, W07 Environments, W08 Recovery and W10 Sign-in, with the synthetic-data banner on every screen; the rest appear in the navigation marked *planned*. Screenshots: `docs/ui/`.
 
 W01–W07 follow the order of the v0.1 navigation. W08–W10 are added: v0.1 had no screen for recovery (M08) or model drift (M09) in its navigation, and sign-in sits outside it. **Module coverage:** every module M01–M13 has a screen. M14 (docs site, quick-start and playbooks) is documentation, not a screen.
 
@@ -76,6 +76,8 @@ The RTO chart now shows only runs of scenarios that share its 30-minute target, 
 ![W04 Contracts and data](wireframes/png/contracts.png)
 
 Rules, severities and limits are those of `contracts/sandboxbank/transactions_raw.yaml`.
+
+*Built.* Differences from the image: the connector cards are replaced by a description, because connectors, their paths and credentials come from the operator's configuration and no tenant API lists them. The contract card shows each column's checks as the contract states them; the rule results sit in a separate *Last batch* card, from the newest of the project's last five finished runs that checked the asset, with schema drift beneath. A *Derived from* card lists the asset's declared inputs (FR-04.1). Engineers publish a new version in a disclosure under the contract, not from a header button.
 
 ### W05. Approvals & gates
 
@@ -125,4 +127,4 @@ The same dashboard in the three other themes (Midnight is above):
 
 ## 6. Traceability
 
-Every requirement cited here is in `docs/traceability.csv`. No requirement is marked as satisfied by these wireframes: the matrix credits the tests of the built UI, not the designs. The UI (`rai-web`, ADR-004) has sign-in, the shell with the synthetic-data banner, Runs, the Dashboard, Chaos scenarios, Approvals & gates, Evidence, Environments and Recovery built (B-37, FR-11.1, FR-07, FR-10, FR-12, FR-13, FR-08, NFR-SAF-1); the other screens are placeholders, and these wireframes remain their design input.
+Every requirement cited here is in `docs/traceability.csv`. No requirement is marked as satisfied by these wireframes: the matrix credits the tests of the built UI, not the designs. The UI (`rai-web`, ADR-004) has sign-in, the shell with the synthetic-data banner, Runs, the Dashboard, Chaos scenarios, Approvals & gates, Evidence, Environments, Contracts & data and Recovery built (B-37, FR-11.1, FR-03, FR-04.1, FR-07, FR-10, FR-12, FR-13, FR-08, NFR-SAF-1); the other screens are placeholders, and these wireframes remain their design input.

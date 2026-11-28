@@ -10,6 +10,7 @@ export interface Problem {
   title: string;
   detail?: string;
   retryAfter?: number;
+  errors?: { location?: string; message: string }[];
 }
 
 export class ApiError extends Error {
@@ -79,6 +80,8 @@ export interface RunDetail extends Run {
 export interface Observation {
   observation_id: string;
   step_key: string;
+  asset_id?: string | null;
+  kind?: string;
   rule: string;
   outcome: "pass" | "fail" | "error" | "skipped";
   row_count: number | null;
@@ -132,6 +135,11 @@ async function toProblem(response: Response): Promise<ApiError> {
   };
   if (typeof body.detail === "string") problem.detail = body.detail;
   if (Number.isFinite(retry) && retry > 0) problem.retryAfter = retry;
+  if (Array.isArray(body.errors)) {
+    problem.errors = (body.errors as unknown[]).filter(
+      (e): e is { location?: string; message: string } =>
+        typeof e === "object" && e !== null && typeof (e as { message?: unknown }).message === "string");
+  }
   return new ApiError(problem);
 }
 
@@ -509,4 +517,69 @@ export interface Target {
   image_digest: string | null;
   created_by: string;
   created_at: string;
+}
+
+export type AssetKind = "source" | "table" | "transform" | "feature_set" | "model";
+
+export interface Asset {
+  asset_id: string;
+  project_id: string;
+  kind: AssetKind;
+  name: string;
+  locator: string | null;
+  schema_version: number | null;
+  created_at: string;
+}
+
+export interface AssetInput {
+  input_id: string;
+  input_asset_id: string;
+  input_name: string;
+  input_kind: AssetKind;
+  transform_ref: string | null;
+}
+
+export interface ColumnSpec {
+  type: string;
+  required?: boolean;
+  unique?: boolean;
+  pattern?: string;
+  min?: number | string;
+  max?: number | string;
+  allowed?: (string | number | boolean)[];
+  references?: string;
+  max_lookup?: { ref: string; key: string };
+  severity?: "info" | "warn" | "critical";
+  threshold?: number | string;
+  description?: string;
+}
+
+export interface ContractSpec {
+  contract: string;
+  version: number;
+  owner?: string;
+  description?: string;
+  freshness?: { column: string; max_lag: string };
+  primary_key: string[];
+  unique_across_batches: string[];
+  columns: Record<string, ColumnSpec>;
+  schema_change_policy: { added_column: string; removed_or_renamed_column: string; type_change: string };
+  severity_default: "info" | "warn" | "critical";
+  threshold_default: number | string;
+}
+
+export interface ContractSummary {
+  contract_id: string;
+  asset_id: string;
+  name: string;
+  version: number;
+  ref: string;
+  spec_sha256: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ContractDetail extends ContractSummary {
+  spec: ContractSpec;
+  source: string;
 }
