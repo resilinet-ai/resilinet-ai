@@ -7,8 +7,8 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { Api } from "./api";
 import { App } from "./App";
-import { bundleZip, fakeFetch, FINDINGS, json, ME, MEMBERS, PROJECT, PUBLIC_KEY, RECOVERY, RELEASES, RUN,
-  SCENARIO_DETAILS, SCENARIOS, SUMMARY, WAIVER } from "./fake";
+import { bundleZip, ENVIRONMENTS, fakeFetch, FINDINGS, json, ME, MEMBERS, PROJECT, PUBLIC_KEY, RECOVERY, RELEASES, RUN,
+  SCENARIO_DETAILS, SCENARIOS, SUMMARY, TARGETS, WAIVER } from "./fake";
 import { THEMES } from "./theme";
 
 const PAIR = { access_token: "a1", refresh_token: "r1" };
@@ -17,8 +17,8 @@ const GATE = {
   blocking: [{ finding_id: "f-1", title: "Duplicate txn_id in the feed", waiver_expires_at: null }],
 };
 
-function api() {
-  return fakeFetch({
+function routes(): Parameters<typeof fakeFetch>[0] {
+  return {
     "POST /v1/auth/login": json(PAIR),
     "GET /v1/me": json(ME),
     "GET /v1/projects": json({ items: [PROJECT], next_cursor: null }),
@@ -35,6 +35,8 @@ function api() {
     "GET /v1/findings/f-1": json(FINDINGS.items[0]),
     "GET /v1/findings/f-1/waivers": json([WAIVER]),
     "GET /v1/evidence/public-key": json(PUBLIC_KEY),
+    "GET /v1/environments": json(ENVIRONMENTS),
+    "GET /v1/environments/e-1/targets": json(TARGETS),
     [`GET /v1/assurance/runs/${RUN.run_id}/evidence`]: { body: bundleZip(), headers: {
       "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="rai-evidence-${RUN.run_id}.zip"`,
       "X-RAI-Manifest-SHA256": "3e7a90c1d2e3f4a5", "X-RAI-Signature-Key-Id": PUBLIC_KEY.key_id } },
@@ -49,7 +51,11 @@ function api() {
         observed_value: { message: "100 duplicate keys" } }],
       next_cursor: null,
     }),
-  }).fetcher;
+  };
+}
+
+function api() {
+  return fakeFetch(routes()).fetcher;
 }
 
 async function violations(): Promise<string[]> {
@@ -150,6 +156,15 @@ describe("WCAG 2.2 AA (axe-core)", () => {
     await screen.findByLabelText("Verify command");
     expect(await violations()).toEqual([]);
     click.mockRestore();
+  });
+
+  it("environments, as an admin", async () => {
+    window.location.hash = "#/environments/e-1";
+    const admin = { ...ME, tenants: [{ ...ME.tenants[0]!, role: "admin" }] };
+    render(<App api={new Api("", fakeFetch({ ...routes(), "GET /v1/me": json(admin) }).fetcher)} />);
+    await signIn();
+    await screen.findByRole("button", { name: "Remove ledger-db" });
+    expect(await violations()).toEqual([]);
   });
 
   it("a planned screen", async () => {

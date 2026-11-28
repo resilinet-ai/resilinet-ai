@@ -199,6 +199,10 @@ details.small p { margin-top: 6px; }
 .stack { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: var(--line-w) solid var(--rule); }
 .plain .stack { padding-top: 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.envs { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.envs a { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: var(--line-w) solid var(--border); border-radius: 8px; color: var(--text); text-decoration: none; }
+.envs a:hover { background: var(--hover); }
+.envs a[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); border-color: var(--accent); }
 .vstack { display: flex; flex-direction: column; gap: 14px; }
 .anywhere { overflow-wrap: anywhere; }
 pre.sunk { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }

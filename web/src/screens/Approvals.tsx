@@ -299,7 +299,7 @@ function FindingPanel({ api, findingId, names, userId, role, onChange }: PanelPr
 }
 
 /** Run an action, show its error, and report success. */
-function useAction(onChange: () => void) {
+export function useAction(onChange: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function run(action: () => Promise<unknown>) {
@@ -317,7 +317,7 @@ function useAction(onChange: () => void) {
   return { busy, error, run };
 }
 
-function Failure({ error }: { error: string | null }) {
+export function Failure({ error }: { error: string | null }) {
   return error ? <div className="box alert" role="alert">{error}</div> : null;
 }
 
