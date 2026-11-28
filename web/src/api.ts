@@ -407,3 +407,49 @@ export interface ReleaseSummary {
   decided_at: string;
   reviewer_id: string;
 }
+
+// Chaos scenarios and their review (FR-07.1, FR-07.2): the Chaos scenarios screen (W03).
+export interface ScenarioFault {
+  type: "latency" | "timeout" | "connection_drop" | "network_partition" | "container_stop"
+    | "container_restart" | "stale_upstream";
+  target: string;
+  duration_seconds: number;
+  latency_ms?: number | null;
+  jitter_ms?: number;
+  network?: string | null;
+}
+
+export interface RecoveryPlan {
+  probes: string[];
+  ledger: string | null;
+  rto_seconds: number | null;
+  rpo_seconds: number | null;
+  window_seconds: number;
+  stable_checks: number;
+}
+
+export interface Scenario extends ScenarioRef {
+  project_id: string;
+  description: string | null;
+  blast_radius: string[];
+  faults: ScenarioFault[];
+  recovery: RecoveryPlan | null;
+  status: "pending" | "approved" | "rejected" | "expired";
+  created_by: string;
+  created_at: string;
+}
+
+export interface ScenarioApproval {
+  approval_id: string;
+  scenario_id: string;
+  reviewer_id: string;
+  decision: "approve" | "reject";
+  comment: string | null;
+  created_at: string;
+  expires_at: string | null;
+  expired: boolean;
+}
+
+export interface ScenarioDetail extends Scenario {
+  approvals: ScenarioApproval[];
+}

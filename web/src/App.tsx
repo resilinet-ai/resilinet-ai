@@ -9,6 +9,7 @@ import { Dashboard } from "./screens/Dashboard";
 import { Planned } from "./screens/Planned";
 import { Recovery } from "./screens/Recovery";
 import { Runs } from "./screens/Runs";
+import { Scenarios } from "./screens/Scenarios";
 import { SignIn } from "./screens/SignIn";
 import { applyTheme, savedTheme, type ThemeId } from "./theme";
 
@@ -88,6 +89,9 @@ export function App({ api: given }: { api?: Api }) {
         <Dashboard api={api} project={project} />
       ) : screen.id === "runs" ? (
         <Runs api={api} project={project} runId={route.id} />
+      ) : screen.id === "scenarios" ? (
+        <Scenarios api={api} project={project} userId={session.me.user_id} role={session.tenant.role}
+          scenarioId={route.id} />
       ) : screen.id === "approvals" ? (
         <Approvals api={api} project={project} userId={session.me.user_id} role={session.tenant.role}
           findingId={route.id} />

@@ -198,3 +198,4 @@ details.small p { margin-top: 6px; }
 .meter::-moz-meter-bar { background: var(--warn); border-radius: 5px; }
 .stack { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: var(--line-w) solid var(--rule); }
 .plain .stack { padding-top: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
