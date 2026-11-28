@@ -304,3 +304,61 @@ export const TARGETS = {
   ],
   next_cursor: null,
 };
+
+const ASSET_BASE = { project_id: "p-1", schema_version: 1, created_by: "u-9", created_at: "2026-11-01T09:00:00Z" };
+export const ASSETS = {
+  items: [
+    { ...ASSET_BASE, asset_id: "a-2", kind: "transform", name: "transactions_clean", locator: "postgres:ledger.clean" },
+    { ...ASSET_BASE, asset_id: "a-1", kind: "source", name: "transactions_raw", locator: "files:sandboxbank/raw" },
+  ],
+  next_cursor: null,
+};
+
+const CONTRACT_SPEC = {
+  contract: "transactions_raw", version: 2, owner: "sandboxbank-payments",
+  description: "Raw payment transactions. Synthetic data only.",
+  freshness: { column: "created_at", max_lag: "1h" },
+  primary_key: ["txn_id"], unique_across_batches: ["txn_id"],
+  columns: {
+    txn_id: { type: "uuid", required: true },
+    account_id: { type: "string", required: true, pattern: "^ACC-[0-9]{7}$", references: "accounts.account_id" },
+    channel: { type: "string", required: true, allowed: ["card_present", "ecommerce", "ach", "wire", "p2p"] },
+    amount: { type: "decimal(14,2)", required: true, min: 0.01, max: 25000,
+      max_lookup: { ref: "accounts.txn_limit", key: "account_id" } },
+    created_at: { type: "timestamp", required: true },
+    is_fraud: { type: "boolean", required: true, severity: "warn" },
+  },
+  schema_change_policy: { added_column: "non_breaking", removed_or_renamed_column: "breaking", type_change: "breaking" },
+  severity_default: "critical", threshold_default: 0,
+};
+const CONTRACT_BASE = { asset_id: "a-1", name: "transactions_raw", created_by: "u-9",
+  spec_sha256: "5b1f0c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b" };
+export const CONTRACTS = {
+  items: [
+    { ...CONTRACT_BASE, contract_id: "c-1", version: 1, ref: "transactions_raw@1", created_at: "2026-11-02T09:00:00Z" },
+    { ...CONTRACT_BASE, contract_id: "c-2", version: 2, ref: "transactions_raw@2", created_at: "2026-11-10T09:00:00Z" },
+  ],
+  next_cursor: null,
+};
+export const CONTRACT_V2 = { ...CONTRACTS.items[1], spec: CONTRACT_SPEC,
+  source: "contract: transactions_raw\nversion: 2\nowner: sandboxbank-payments\ncolumns:\n  txn_id: { type: uuid, required: true }\n" };
+
+function ruleResult(id: string, rule: string, outcome: string, failing: number, extra: object = {}) {
+  return { observation_id: id, step_key: "item-1", test_id: "tc-1", asset_id: "a-1", kind: "rule_result", rule,
+    outcome, row_count: 100000, failing_count: failing, observed_at: "2026-11-18T09:00:08Z",
+    expected: { severity: "critical", threshold: "0", columns: [], contract: "transactions_raw@2" },
+    observed_value: { message: failing ? `${failing} rows fail` : "", sample_rows: [] }, ...extra };
+}
+export const BATCH_OBSERVATIONS = {
+  items: [
+    ruleResult("o-1", "schema", "fail", 0, { observed_value: { message: "1 breaking change", sample_rows: [],
+      changes: ["column 'merchant_id' renamed to 'merchant' (breaking)"] } }),
+    ruleResult("o-2", "account_id.required", "pass", 0),
+    ruleResult("o-3", "unique_across_batches:txn_id", "fail", 5),
+    ruleResult("o-4", "is_fraud.required", "pass", 0, {
+      expected: { severity: "warn", threshold: "0", columns: ["is_fraud"], contract: "transactions_raw@2" } }),
+    { ...ruleResult("o-5", "drift.amount", "pass", 0), kind: "metric" },
+    { ...ruleResult("o-6", "accounts.required", "pass", 0), asset_id: "a-9" },
+  ],
+  next_cursor: null,
+};
