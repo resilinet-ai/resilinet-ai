@@ -157,8 +157,8 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App api={new Api("", api().fetcher)} />);
     await signIn(user);
-    await user.click(await screen.findByRole("link", { name: /Evidence/ }));
-    expect(await screen.findByRole("heading", { name: "Evidence" })).toBeInTheDocument();
-    expect(screen.getByText("FR-13.1, FR-13.2")).toBeInTheDocument();
+    await user.click(await screen.findByRole("link", { name: /Models & drift/ }));
+    expect(await screen.findByRole("heading", { name: "Models & drift" })).toBeInTheDocument();
+    expect(screen.getByText("FR-09.1, FR-09.2")).toBeInTheDocument();
   });
 });

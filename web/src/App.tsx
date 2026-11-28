@@ -6,6 +6,7 @@ import { ThemePicker } from "./components/ThemePicker";
 import { SCREENS, useRoute } from "./routes";
 import { Approvals } from "./screens/Approvals";
 import { Dashboard } from "./screens/Dashboard";
+import { Evidence } from "./screens/Evidence";
 import { Planned } from "./screens/Planned";
 import { Recovery } from "./screens/Recovery";
 import { Runs } from "./screens/Runs";
@@ -95,6 +96,8 @@ export function App({ api: given }: { api?: Api }) {
       ) : screen.id === "approvals" ? (
         <Approvals api={api} project={project} userId={session.me.user_id} role={session.tenant.role}
           findingId={route.id} />
+      ) : screen.id === "evidence" ? (
+        <Evidence api={api} project={project} runId={route.id} />
       ) : screen.id === "recovery" ? (
         <Recovery api={api} project={project} />
       ) : (

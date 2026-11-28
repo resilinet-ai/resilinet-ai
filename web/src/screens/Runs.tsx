@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, type Api, type Gate, type Observation, type Page, type Project, type Run, type RunDetail } from "../api";
+import { saveBlob } from "../files";
 
 const FINISHED = new Set(["passed", "failed", "refused", "aborted", "error"]);
 
@@ -154,12 +155,7 @@ function RunPanel({ api, runId }: { api: Api; runId: string }) {
     setError(null);
     try {
       const { blob, filename } = await api.download(`/v1/assurance/runs/${runId}/evidence`);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      link.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, filename);
     } catch (caught) {
       setError(message(caught));
     } finally {
